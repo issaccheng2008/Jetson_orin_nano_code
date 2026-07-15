@@ -333,7 +333,7 @@ Required checks:
 
 The current simulation multiplies acceleration by `0.1` before it reaches the network. `policy_runner.py` applies that same scaling exactly once.
 
-## Step 9: integrate vision commands
+## Step 9: integrate vision commands through the connector
 
 Run the policy with a local UDP command receiver:
 
@@ -344,24 +344,21 @@ python main.py \
   --udp-command-port 5005
 ```
 
-From the vision program, send:
-
-```python
-import json
-import socket
-
-message = {"vx": 0.25, "vy": 0.0, "wz": -0.20}
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.sendto(json.dumps(message).encode(), ("127.0.0.1", 5005))
-```
-
-Or test from the terminal:
+From the repository root, run the connector in a second terminal:
 
 ```bash
-python tools/send_velocity_command.py --vx 0.25 --wz -0.20
+python connector.py --vision-port 5006 --policy-port 5005
 ```
 
-The command is forced to zero if no new UDP message arrives for 250 ms. Commands are clamped to the training range: `vx=0..1 m/s`, `vy=0`, and `wz=-0.5..0.5 rad/s`.
+Then start the integrated vision producer in a third terminal:
+
+```bash
+python vision/run_real_car.py
+```
+
+Vision sends `{vx, vy: 0, wz, qr}` to UDP port 5006. The connector validates and processes that output, then sends it to this policy receiver on port 5005. The current example processing function is in `connector.py`; it clamps the training ranges, forces `vy=0`, and forwards QR values `1`–`6` or `-1` when none is visible.
+
+Both connector and policy receiver independently force the velocity command to zero if new upstream messages stop for 250 ms. Commands are clamped to the training range: `vx=0..1 m/s`, `vy=0`, and `wz=-0.5..0.5 rad/s`.
 
 ## Step 10: first motor-enabled tests
 
