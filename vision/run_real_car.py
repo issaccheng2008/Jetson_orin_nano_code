@@ -1,11 +1,16 @@
-"""Standalone real-car controller — V1 detector + PID + 4-wheel differential drive.
+"""Vision controller and navigation-command producer.
 
 USB camera → LineDetector → dual-mode PID + lost recovery → 4 wheel speeds (rad/s).
 Optional serial output to MCU at 115200 baud, ~10 Hz.
+The same tracking result and current QR reading are also published to connector.py.
 """
 
-import math, os, sys, time, json, atexit
-import numpy as np
+import atexit
+import math
+import os
+import sys
+import time
+
 import cv2
 
 # ── Path to V1 detector ──
@@ -16,7 +21,9 @@ _V1_DIR = os.path.join(_SCRIPT_DIR, "v1_production")
 if _V1_DIR not in sys.path:
     sys.path.insert(0, _V1_DIR)
 
+from connector_client import ConnectorClient
 from line_detector_v1_warp import LineDetector
+from qr_detector import QRDetector
 
 
 def clamp(v, lo, hi):
@@ -77,6 +84,15 @@ SERIAL_PORT  = os.environ.get("SERIAL_PORT", "COM10")
 SERIAL_BAUD  = int(os.environ.get("SERIAL_BAUD", "115200"))
 #SERIAL_ENABLED = True   # 启动即开串口, 's' 键切换
 SERIAL_ENABLED = os.environ.get("SERIAL_ENABLED", "0") == "1"
+
+# Vision -> connector.  The policy was trained with vx in [0, 1] m/s,
+# vy fixed at 0, and wz in [-0.5, 0.5] rad/s.
+CONNECTOR_ENABLED = os.environ.get("CONNECTOR_ENABLED", "1") == "1"
+CONNECTOR_HOST = os.environ.get("CONNECTOR_HOST", "127.0.0.1")
+CONNECTOR_PORT = int(os.environ.get("CONNECTOR_PORT", "5006"))
+VISION_MAX_WZ = float(os.environ.get("VISION_MAX_WZ", "0.5"))
+# Flip this to -1 if a positive vision steer turns opposite to positive policy yaw.
+VISION_WZ_SIGN = float(os.environ.get("VISION_WZ_SIGN", "1.0"))
 
 # Misc
 MAX_SEC = float(os.environ.get("REAL_CAR_MAX_SEC", "0"))  # 0 = no limit
@@ -165,6 +181,16 @@ def main():
         cam_height_cm=CAM_HEIGHT_CM,
         cam_pitch_deg=CAM_PITCH_DEG,
         cam_vfov_deg=CAM_VFOV_DEG)
+    qr = QRDetector(
+        stable_frames=1,
+        cooldown_ms=2000,
+        min_edge_px=20,
+        max_edge_px=400,
+        cam_w=actual_w,
+        cam_h=actual_h,
+        debug=False,
+    )
+    connector = ConnectorClient(CONNECTOR_HOST, CONNECTOR_PORT) if CONNECTOR_ENABLED else None
 
     # ── State ──
     integral      = 0.0
@@ -181,6 +207,8 @@ def main():
           f"speed={BASE_SPD:.1f} cm/s  st2whl={ST2WHL:.2f}  wheel_r={WHEEL_RADIUS:.1f}cm  "
           f"max_sec={MAX_SEC:.0f}")
     print("Keys: 'q'=quit  's'=toggle serial")
+    if connector is not None:
+        print(f"Publishing vision commands to connector at {CONNECTOR_HOST}:{CONNECTOR_PORT}")
 
     # 启动时自动打开串口
     if SERIAL_ENABLED:
@@ -203,6 +231,8 @@ def main():
 
         # ── Detector ──
         _dev, _hdg, conf, _vis, dbg = ld.process(bgr)
+        qr.update(bgr)
+        current_qr = qr.current_qr
         err     = float(dbg.get("fused_err", 0.0))
         curve   = bool(dbg.get("curve_mode", False))
         lost    = int(dbg.get("lost_frames", 0))
@@ -265,6 +295,17 @@ def main():
             spd *= (0.5 + 0.5 * conf)
         spd = max(spd, MIN_SPD)
 
+        # ── Humanoid navigation command ──
+        # The existing vision controller's speed is cm/s, so convert it to m/s.
+        # Its steering value is not a measured yaw rate; normalize it and map it
+        # into the policy's trained yaw-command range.  Calibrate VISION_WZ_SIGN
+        # and VISION_MAX_WZ on the supported robot before walking freely.
+        target_vx = clamp(spd * 0.01, 0.0, 1.0)
+        normalized_steer = clamp(steer / max(abs(STEER_SAT), 1e-6), -1.0, 1.0)
+        target_wz = clamp(VISION_WZ_SIGN * normalized_steer * VISION_MAX_WZ, -0.5, 0.5)
+        if connector is not None:
+            connector.publish(target_vx, target_wz, current_qr)
+
         # ── Convert to 4 wheel speeds (rad/s) ──
         # steer 直接当轮速差, 和仿真一样: delta = steer × STEER_TO_WHEEL
         delta    = steer * ST2WHL
@@ -288,7 +329,11 @@ def main():
         # ── Console print (every PRINT_INTERVAL seconds) ──
         if t - last_print_t > PRINT_INTERVAL:
             last_print_t = t
-            print(f"{frame[0]:02X}{frame[1]:02X}{frame[2]:02X}{frame[3]:02X}{frame[4]:02X}{frame[5]:02X}")
+            print(
+                f"{frame[0]:02X}{frame[1]:02X}{frame[2]:02X}"
+                f"{frame[3]:02X}{frame[4]:02X}{frame[5]:02X} "
+                f"connector=[{target_vx:+.2f},0.00,{target_wz:+.2f}] qr={current_qr}"
+            )
 
         # ── Display (4 windows, same as vision_main.py) ──
         def _put(img, s, y, color=(0, 255, 0)):
@@ -299,8 +344,9 @@ def main():
         _put(frame_disp, f"steer:{steer:+.1f}  curve:{1 if curve else 0}  lost:{lost}", 25)
         _put(frame_disp, f"spd:{spd:.1f} cm/s  conf:{conf:.2f}", 50)
         _put(frame_disp, f"FL:{fl:+.1f}  FR:{fr:+.1f}  RL:{rl:+.1f}  RR:{rr:+.1f} rad/s", 75)
-        _put(frame_disp, f"SERIAL:{'ON' if SERIAL_ENABLED else 'OFF'}", 100, (255, 255, 0))
-        _put(frame_disp, "Q=quit S=toggle_serial", 125, (200, 200, 200))
+        _put(frame_disp, f"CMD vx:{target_vx:+.2f} vy:0.00 wz:{target_wz:+.2f} QR:{current_qr}", 100)
+        _put(frame_disp, f"SERIAL:{'ON' if SERIAL_ENABLED else 'OFF'}", 125, (255, 255, 0))
+        _put(frame_disp, "Q=quit S=toggle_serial", 150, (200, 200, 200))
         cv2.imshow("1.Original", frame_disp)
 
         # 2.Warp (birdseye)
@@ -336,6 +382,8 @@ def main():
     cap.release()
     cv2.destroyAllWindows()
     _serial_close()
+    if connector is not None:
+        connector.close()
     print("Exited.")
 
 
