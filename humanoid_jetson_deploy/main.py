@@ -149,7 +149,9 @@ def main() -> int:
             if step % max(1, args.log_every) == 0:
                 print(
                     f"step={step:6d} state_seq={state.sequence:5d} "
-                    f"cmd=[{velocity_command[0]:+.2f},{velocity_command[2]:+.2f}] "
+                    f"policy_target_velocity=[vx={velocity_command[0]:+.3f} m/s, "
+                    f"vy={velocity_command[1]:+.3f} m/s, "
+                    f"wz={velocity_command[2]:+.3f} rad/s] "
                     f"infer={latency_ms:.3f}ms |obs|max={np.max(np.abs(obs)):.3f} "
                     f"|action|max={np.max(np.abs(action)):.3f} "
                     f"crc_errors={link.decoder.crc_errors}"
