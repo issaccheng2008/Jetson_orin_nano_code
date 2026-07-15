@@ -34,7 +34,7 @@ class FixedCommandSource:
 
 
 class UdpCommandSource:
-    """Receive JSON such as {"vx": 0.3, "vy": 0.0, "wz": -0.2}."""
+    """Receive connector JSON; extra fields such as ``qr`` are ignored."""
 
     def __init__(self, port: int, timeout_s: float = 0.25, bind: str = "127.0.0.1") -> None:
         self.timeout_s = timeout_s
