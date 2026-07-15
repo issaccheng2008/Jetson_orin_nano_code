@@ -22,6 +22,7 @@ if _V1_DIR not in sys.path:
     sys.path.insert(0, _V1_DIR)
 
 from connector_client import ConnectorClient
+from jetson_camera import open_camera
 from line_detector_v1_warp import LineDetector
 from qr_detector import QRDetector
 
@@ -41,6 +42,14 @@ CAM_IDX = int(os.environ.get("CAM_IDX", "0"))
 CAM_W = int(os.environ.get("CAM_W", "1280"))
 CAM_H = int(os.environ.get("CAM_H", "720"))
 CAM_FPS = int(os.environ.get("CAM_FPS", "30"))
+CAMERA_BACKEND = os.environ.get("CAMERA_BACKEND", "auto")
+
+# Runtime acceleration and display.  A CUDA-enabled OpenCV build is required
+# for VISION_DEVICE=cuda; auto safely falls back to CPU.
+VISION_DEVICE = os.environ.get("VISION_DEVICE", "auto")
+SHOW_WINDOW = os.environ.get("SHOW_WINDOW", "auto").strip().lower()
+QR_INTERVAL = int(os.environ.get("QR_INTERVAL", "3"))
+QR_MAX_PROCESS_WIDTH = int(os.environ.get("QR_MAX_PROCESS_WIDTH", "960"))
 
 # Detector
 CAM_HEIGHT_CM  = float(os.environ.get("CAM_HEIGHT_CM",  "40.0"))
@@ -99,6 +108,21 @@ MAX_SEC = float(os.environ.get("REAL_CAR_MAX_SEC", "0"))  # 0 = no limit
 PRINT_INTERVAL = 0.5  # seconds between console prints
 
 
+def _display_available():
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _window_enabled():
+    if SHOW_WINDOW in ("1", "true", "yes", "on"):
+        return _display_available()
+    if SHOW_WINDOW in ("0", "false", "no", "off"):
+        return False
+    return _display_available()
+
+
+WINDOW_ENABLED = _window_enabled()
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Serial setup (optional)
 # ═══════════════════════════════════════════════════════════════════════
@@ -152,12 +176,9 @@ def main():
     global SERIAL_ENABLED
 
     # ── Camera ──
-    cap = cv2.VideoCapture(CAM_IDX, cv2.CAP_V4L2)
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_W)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_H)
-    cap.set(cv2.CAP_PROP_FPS, CAM_FPS)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    cv2.setUseOptimized(True)
+    cap, camera_backend = open_camera(
+        CAM_IDX, CAM_W, CAM_H, CAM_FPS, backend=CAMERA_BACKEND)
 
     if not cap.isOpened():
         print(f"[ERROR] Cannot open camera index {CAM_IDX}")
@@ -174,13 +195,16 @@ def main():
     actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     if actual_w <= 0 or actual_h <= 0:
         actual_w, actual_h = CAM_W, CAM_H
-    print(f"Camera {CAM_IDX}: requested {CAM_W}x{CAM_H}, got {actual_w}x{actual_h}")
+    print(f"Camera {CAM_IDX}: requested {CAM_W}x{CAM_H}, got "
+          f"{actual_w}x{actual_h}, backend={camera_backend}")
 
     # ── Detector ──
     ld = LineDetector(actual_w, actual_h,
         cam_height_cm=CAM_HEIGHT_CM,
         cam_pitch_deg=CAM_PITCH_DEG,
-        cam_vfov_deg=CAM_VFOV_DEG)
+        cam_vfov_deg=CAM_VFOV_DEG,
+        use_cuda=VISION_DEVICE,
+        enable_visualization=WINDOW_ENABLED)
     qr = QRDetector(
         stable_frames=1,
         cooldown_ms=2000,
@@ -189,6 +213,9 @@ def main():
         cam_w=actual_w,
         cam_h=actual_h,
         debug=False,
+        use_cuda=VISION_DEVICE,
+        process_every_n=QR_INTERVAL,
+        max_process_width=QR_MAX_PROCESS_WIDTH,
     )
     connector = ConnectorClient(CONNECTOR_HOST, CONNECTOR_PORT) if CONNECTOR_ENABLED else None
 
@@ -201,12 +228,25 @@ def main():
     last_print_t  = -99.0
     last_frame_t  = 0.0     # actual dt measurement
     t0            = None
+    fps_t0        = time.perf_counter()
+    fps_frames    = 0
+    fps_value     = 0.0
 
     print(f"run_real_car: {actual_w}x{actual_h}  "
           f"KP_s={KP_S:.3f} KP_c={KP_C:.3f}  "
           f"speed={BASE_SPD:.1f} cm/s  st2whl={ST2WHL:.2f}  wheel_r={WHEEL_RADIUS:.1f}cm  "
           f"max_sec={MAX_SEC:.0f}")
-    print("Keys: 'q'=quit  's'=toggle serial")
+    print(f"Vision backend: line={ld.backend}, "
+          f"qr_preprocess={'cuda' if qr.cuda_enabled else 'cpu'}, "
+          f"qr_every={qr.process_every_n} frame(s), display={WINDOW_ENABLED}")
+    if not ld.cuda_enabled and ld.cuda_error:
+        print(f"[vision] CUDA line preprocessing unavailable: {ld.cuda_error}")
+    if not qr.cuda_enabled and qr.cuda_error:
+        print(f"[vision] CUDA QR preprocessing unavailable: {qr.cuda_error}")
+    if WINDOW_ENABLED:
+        print("Keys: 'q'=quit  's'=toggle serial")
+    else:
+        print("Headless mode: press Ctrl+C to quit")
     if connector is not None:
         print(f"Publishing vision commands to connector at {CONNECTOR_HOST}:{CONNECTOR_PORT}")
 
@@ -326,6 +366,13 @@ def main():
                        0xEE])
         _serial_send(frame)
 
+        fps_frames += 1
+        fps_elapsed = time.perf_counter() - fps_t0
+        if fps_elapsed >= 1.0:
+            fps_value = fps_frames / fps_elapsed
+            fps_frames = 0
+            fps_t0 = time.perf_counter()
+
         # ── Console print (every PRINT_INTERVAL seconds) ──
         if t - last_print_t > PRINT_INTERVAL:
             last_print_t = t
@@ -333,39 +380,43 @@ def main():
                 f"{frame[0]:02X}{frame[1]:02X}{frame[2]:02X}"
                 f"{frame[3]:02X}{frame[4]:02X}{frame[5]:02X} "
                 f"vision_target_velocity=[vx={target_vx:+.3f} m/s, "
-                f"vy=+0.000 m/s, wz={target_wz:+.3f} rad/s] qr={current_qr}"
+                f"vy=+0.000 m/s, wz={target_wz:+.3f} rad/s] "
+                f"qr={current_qr} fps={fps_value:.1f} backend={ld.backend}"
             )
 
         # ── Display (4 windows, same as vision_main.py) ──
-        def _put(img, s, y, color=(0, 255, 0)):
-            cv2.putText(img, s, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+        key = -1
+        if WINDOW_ENABLED:
+            def _put(img, s, y, color=(0, 255, 0)):
+                cv2.putText(img, s, (10, y), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.55, color, 2)
 
-        # 1.Original — raw camera frame + overlay text
-        frame_disp = bgr.copy()
-        _put(frame_disp, f"steer:{steer:+.1f}  curve:{1 if curve else 0}  lost:{lost}", 25)
-        _put(frame_disp, f"spd:{spd:.1f} cm/s  conf:{conf:.2f}", 50)
-        _put(frame_disp, f"FL:{fl:+.1f}  FR:{fr:+.1f}  RL:{rl:+.1f}  RR:{rr:+.1f} rad/s", 75)
-        _put(frame_disp, f"CMD vx:{target_vx:+.2f} vy:0.00 wz:{target_wz:+.2f} QR:{current_qr}", 100)
-        _put(frame_disp, f"SERIAL:{'ON' if SERIAL_ENABLED else 'OFF'}", 125, (255, 255, 0))
-        _put(frame_disp, "Q=quit S=toggle_serial", 150, (200, 200, 200))
-        cv2.imshow("1.Original", frame_disp)
+            # 1.Original — raw camera frame + overlay text
+            frame_disp = bgr.copy()
+            _put(frame_disp, f"steer:{steer:+.1f}  curve:{1 if curve else 0}  lost:{lost}", 25)
+            _put(frame_disp, f"spd:{spd:.1f} cm/s  conf:{conf:.2f} FPS:{fps_value:.1f}", 50)
+            _put(frame_disp, f"FL:{fl:+.1f}  FR:{fr:+.1f}  RL:{rl:+.1f}  RR:{rr:+.1f} rad/s", 75)
+            _put(frame_disp, f"CMD vx:{target_vx:+.2f} vy:0.00 wz:{target_wz:+.2f} QR:{current_qr}", 100)
+            _put(frame_disp, f"SERIAL:{'ON' if SERIAL_ENABLED else 'OFF'}  BACKEND:{ld.backend}", 125, (255, 255, 0))
+            _put(frame_disp, "Q=quit S=toggle_serial", 150, (200, 200, 200))
+            cv2.imshow("1.Original", frame_disp)
 
-        # 2.Warp (birdseye)
-        if "bird" in dbg and dbg["bird"] is not None:
-            bird_bgr = cv2.cvtColor(dbg["bird"], cv2.COLOR_GRAY2BGR)
-            cv2.imshow("2.Warp (birdseye)", cv2.resize(bird_bgr, (320, 400), interpolation=cv2.INTER_NEAREST))
+            # 2.Warp (birdseye)
+            if "bird" in dbg and dbg["bird"] is not None:
+                bird_bgr = cv2.cvtColor(dbg["bird"], cv2.COLOR_GRAY2BGR)
+                cv2.imshow("2.Warp (birdseye)", bird_bgr)
 
-        # 3.Adaptive (binary)
-        if "binary_raw" in dbg and dbg["binary_raw"] is not None:
-            b_raw = cv2.cvtColor(dbg["binary_raw"], cv2.COLOR_GRAY2BGR)
-            cv2.imshow("3.Adaptive (binary)", cv2.resize(b_raw, (320, 400), interpolation=cv2.INTER_NEAREST))
+            # 3.Adaptive (binary)
+            if "binary_raw" in dbg and dbg["binary_raw"] is not None:
+                b_raw = cv2.cvtColor(dbg["binary_raw"], cv2.COLOR_GRAY2BGR)
+                cv2.imshow("3.Adaptive (binary)", b_raw)
 
-        # 4.Close+Fit — V1 annotated birdseye
-        if _vis is not None:
-            cv2.imshow("4.Close+Fit", cv2.resize(_vis, (320, 400), interpolation=cv2.INTER_NEAREST))
+            # 4.Close+Fit — V1 annotated birdseye
+            if _vis is not None:
+                cv2.imshow("4.Close+Fit", _vis)
 
-        # ── Keyboard ──
-        key = cv2.waitKey(1) & 0xFF
+            # ── Keyboard ──
+            key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
         elif key == ord("s"):
@@ -381,7 +432,8 @@ def main():
 
     # ── Cleanup ──
     cap.release()
-    cv2.destroyAllWindows()
+    if WINDOW_ENABLED:
+        cv2.destroyAllWindows()
     _serial_close()
     if connector is not None:
         connector.close()
