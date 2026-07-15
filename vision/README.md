@@ -6,6 +6,8 @@ Computer-vision code for a USB camera connected to a Jetson Orin Nano. The repos
 - lateral path-deviation, heading, confidence, curve, and lost-line outputs;
 - a PID-based differential-wheel command generator with optional serial output;
 - QR-code recognition for action numbers `1`–`6`;
+- UDP publication of humanoid commands and the currently visible QR value to
+  the repository-level `connector.py` process;
 - red-region detection in the visualization demo; and
 - a Webots bridge for testing parts of the same vision pipeline in simulation.
 
@@ -35,7 +37,7 @@ In `run_real_car.py`, the line detector's fused tracking error is passed through
 | File | Purpose |
 |---|---|
 | `line_detector_v1_warp.py` | Main line detector. Warps the camera image to a 320×400 bird's-eye view, enhances dark lines with black-hat morphology, applies adaptive thresholding and connected-component filtering, scans near/mid bands, and returns path deviation, heading and confidence. |
-| `run_real_car.py` | Standalone four-wheel differential-drive controller. Runs line detection, dual-mode PID steering, lost-line recovery, speed-command scaling and optional serial transmission. |
+| `run_real_car.py` | Vision command producer plus the legacy four-wheel differential-drive controller. Runs line and QR detection, publishes `[vx, 0, wz]` plus QR to `connector.py`, and retains optional legacy serial transmission. |
 | `qr_detector.py` | Reusable OpenCV QR detector. Tries the raw grayscale image and then a 2× upscaled image. Only payloads `1` through `6` are accepted. |
 | `vision_main.py` | GUI visualization demo for line tracking, QR recognition and red-region detection. Displays the original image, bird's-eye view, binary image and annotated fit. |
 | `usb_cam_qr_test.py` | Minimal USB-camera/QR test. It automatically runs without a preview window when no desktop display is available. |
@@ -161,7 +163,7 @@ The centimeter values depend on the configured camera height, pitch and vertical
 
 ## QR and red-region output
 
-`QRDetector.update(frame)` returns an integer action from `1` to `6` after the configured stability/cooldown checks, or `None` when there is no new accepted QR action.
+`QRDetector.update(frame)` returns an integer event from `1` to `6` after the configured stability/cooldown checks, or `None` when there is no new event. `QRDetector.current_qr` separately reports the code visible in the current frame, or `-1`; this is the value published to `connector.py`.
 
 The red detector in `vision_main.py` uses two HSV hue ranges and reports a red region when red pixels exceed 5% of the image. This is a color-area threshold, not a distance estimate or a full semantic obstacle detector.
 
