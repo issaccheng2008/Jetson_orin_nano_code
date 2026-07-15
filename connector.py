@@ -50,6 +50,26 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
     }
 
 
+def select_output(
+    latest: dict[str, float | int],
+    last_vision_update: float,
+    now: float,
+    timeout_s: float,
+) -> tuple[dict[str, float | int], bool, float]:
+    """Hold the latest vision command until it becomes stale.
+
+    Vision may run near 10 Hz while this connector publishes at 50 Hz.  This
+    zero-order hold returns the same latest command on every connector tick, so
+    the policy still receives a target on every inference step.
+    """
+
+    age_s = max(0.0, now - last_vision_update) if last_vision_update > 0.0 else math.inf
+    fresh = age_s <= timeout_s
+    if fresh:
+        return latest, True, age_s
+    return {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}, False, age_s
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vision-bind", default="127.0.0.1")
@@ -63,7 +83,12 @@ def parse_args() -> argparse.Namespace:
         default=0.25,
         help="Publish a zero command when vision is stale for this many seconds",
     )
-    parser.add_argument("--log-every", type=int, default=50)
+    parser.add_argument(
+        "--log-every",
+        type=int,
+        default=25,
+        help="Print the current connector-to-policy target every N 50 Hz publications",
+    )
     return parser.parse_args()
 
 
@@ -82,6 +107,7 @@ def main() -> int:
     period = 1.0 / args.publish_hz
     next_tick = time.monotonic()
     step = 0
+    vision_update = 0
 
     print(
         f"Connector: vision udp://{args.vision_bind}:{args.vision_port} -> "
@@ -102,21 +128,30 @@ def main() -> int:
                         raise ValueError("message must be a JSON object")
                     latest = process_vision_output(decoded)
                     last_vision_update = time.monotonic()
+                    vision_update += 1
                 except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
                     print(f"[connector] ignored invalid vision message: {exc}")
 
             now = time.monotonic()
-            vision_fresh = now - last_vision_update <= args.vision_timeout
-            output = latest if vision_fresh else {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}
+            output, vision_fresh, vision_age_s = select_output(
+                latest,
+                last_vision_update,
+                now,
+                args.vision_timeout,
+            )
             publisher.sendto(
                 json.dumps(output, separators=(",", ":")).encode("utf-8"),
                 (args.policy_host, args.policy_port),
             )
 
             if step % max(1, args.log_every) == 0:
+                age_text = f"{vision_age_s * 1000.0:6.1f}ms" if math.isfinite(vision_age_s) else " never"
                 print(
-                    f"fresh={vision_fresh} qr={output['qr']} "
-                    f"command=[{output['vx']:+.2f},0.00,{output['wz']:+.2f}]"
+                    f"[connector -> policy] publish={step:7d} "
+                    f"vision_update={vision_update:7d} fresh={vision_fresh} "
+                    f"age={age_text} qr={output['qr']} "
+                    f"target_velocity=[vx={output['vx']:+.3f} m/s, "
+                    f"vy={output['vy']:+.3f} m/s, wz={output['wz']:+.3f} rad/s]"
                 )
 
             step += 1
