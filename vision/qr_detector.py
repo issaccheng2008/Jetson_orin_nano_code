@@ -40,6 +40,9 @@ class QRDetector:
         self.candidate_count = 0
         self.last_send_ms = None
         self.first_candidate_ms = None
+        # Current per-frame reading for the connector.  This is independent of
+        # the event cooldown used by update()'s return value.
+        self.current_qr = -1
 
         self._map_x = None
         self._map_y = None
@@ -85,6 +88,7 @@ class QRDetector:
         # S1: raw — QR 大/近时最快
         payload, corners = self.decode_one(gray)
         if payload is not None:
+            self.current_qr = int(payload)
             return self._confirm(payload, corners, "raw")
 
         # S2: 2x upscale — QR 小/远时主导（实测命中率最高）
@@ -93,10 +97,12 @@ class QRDetector:
         payload, corners = self.decode_one(up)
         if payload is not None and corners is not None:
             corners = corners * 0.5
+            self.current_qr = int(payload)
             return self._confirm(payload, corners, "upscale")
 
         self.candidate = None
         self.candidate_count = 0
+        self.current_qr = -1
         return None, None
 
     def _confirm(self, payload, corners, strategy):
