@@ -50,9 +50,36 @@ environment in each.
    python vision/run_real_car.py
    ```
 
-The connector publishes at 50 Hz. If vision messages stop for more than 250 ms,
-it publishes `[0, 0, 0]`; the policy receiver also has its own 250 ms UDP
-watchdog.
+The connector publishes at 50 Hz independently of the camera rate. It uses a
+zero-order hold: if vision produces one command every 0.1 seconds (10 Hz), the
+connector republishes that same command about five times so the policy receives
+a target on every 50 Hz inference step. If vision messages stop for more than
+250 ms, it publishes `[0, 0, 0]`; the policy receiver also has its own 250 ms
+UDP watchdog.
+
+## Debug the target velocity
+
+All three stages print clearly labeled target values:
+
+```text
+vision_target_velocity=[vx=+0.150 m/s, vy=+0.000 m/s, wz=-0.200 rad/s]
+[connector -> policy] ... target_velocity=[vx=+0.150 m/s, vy=+0.000 m/s, wz=-0.200 rad/s]
+policy_target_velocity=[vx=+0.150 m/s, vy=+0.000 m/s, wz=-0.200 rad/s]
+```
+
+By default, connector and policy logs appear every 25 steps (twice per second at
+50 Hz). For short debugging runs, print every 50 Hz step with:
+
+```bash
+python connector.py --vision-port 5006 --policy-port 5005 --log-every 1
+
+cd humanoid_jetson_deploy
+python main.py --model policy.onnx --port /dev/ttyACM0 \
+  --udp-command-port 5005 --log-every 1
+```
+
+Printing at 50 Hz adds terminal overhead, so use the default interval for normal
+operation.
 
 ## Command conversion and calibration
 
