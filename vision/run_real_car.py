@@ -332,7 +332,8 @@ def main():
             print(
                 f"{frame[0]:02X}{frame[1]:02X}{frame[2]:02X}"
                 f"{frame[3]:02X}{frame[4]:02X}{frame[5]:02X} "
-                f"connector=[{target_vx:+.2f},0.00,{target_wz:+.2f}] qr={current_qr}"
+                f"vision_target_velocity=[vx={target_vx:+.3f} m/s, "
+                f"vy=+0.000 m/s, wz={target_wz:+.3f} rad/s] qr={current_qr}"
             )
 
         # ── Display (4 windows, same as vision_main.py) ──
