@@ -1,0 +1,127 @@
+"""Robot and deployment constants that must match the Isaac Lab task."""
+
+from __future__ import annotations
+
+import numpy as np
+
+
+NUM_JOINTS = 12
+OBS_DIM = 48
+ACTION_DIM = 12
+POLICY_HZ = 50.0
+POLICY_DT = 1.0 / POLICY_HZ
+ACTION_SCALE = 0.25
+ACCEL_OBS_SCALE = 0.1
+
+JOINT_NAMES = (
+    "r_leg_pitch_joint",
+    "r_leg_roll_joint",
+    "r_leg_yaw_joint",
+    "r_knee_pitch_joint",
+    "r_ankle_pitch_joint",
+    "r_ankle_roll_joint",
+    "l_leg_pitch_joint",
+    "l_leg_roll_joint",
+    "l_leg_yaw_joint",
+    "l_knee_pitch_joint",
+    "l_ankle_pitch_joint",
+    "l_ankle_roll_joint",
+)
+
+# Isaac Lab default pose, in policy joint coordinates and radians.
+Q_DEFAULT = np.array(
+    [
+        0.15,
+        0.0,
+        0.0,
+        0.30,
+        -0.15,
+        0.0,
+        -0.15,
+        0.0,
+        0.0,
+        -0.30,
+        0.15,
+        0.0,
+    ],
+    dtype=np.float32,
+)
+
+# Limits from v2.4.1.urdf, in policy joint coordinates and radians.
+Q_LOWER = np.array(
+    [
+        -1.57,
+        -1.57,
+        -1.57,
+        -1.57,
+        -0.50,
+        -0.50,
+        -1.57,
+        -0.50,
+        -1.57,
+        -1.57,
+        -0.50,
+        -0.50,
+    ],
+    dtype=np.float32,
+)
+Q_UPPER = np.array(
+    [
+        1.57,
+        0.50,
+        1.57,
+        1.57,
+        0.50,
+        0.50,
+        1.57,
+        1.57,
+        1.57,
+        1.57,
+        0.50,
+        0.50,
+    ],
+    dtype=np.float32,
+)
+
+JOINT_LIMIT_MARGIN_RAD = 0.05
+MAX_TARGET_SPEED_RAD_S = 3.0
+
+# These values describe the physical encoder convention, not the URDF convention.
+# Calibrate all 12 joints before changing CALIBRATION_CONFIRMED to True.
+#
+# q_policy = MOTOR_SIGN * (q_motor - MOTOR_ZERO_RAD)
+# q_motor  = MOTOR_ZERO_RAD + MOTOR_SIGN * q_policy
+MOTOR_SIGN = np.ones(NUM_JOINTS, dtype=np.float32)
+MOTOR_ZERO_RAD = np.zeros(NUM_JOINTS, dtype=np.float32)
+CALIBRATION_CONFIRMED = False
+
+# Transform real IMU vectors into the simulated IMU/policy frame:
+# vector_policy = IMU_TO_POLICY @ vector_sensor
+#
+# Identity is only correct when the physical IMU axes and mounting direction match
+# the simulated ImuCfg. Use a signed permutation rotation matrix after measuring the
+# real installation.
+IMU_TO_POLICY = np.eye(3, dtype=np.float32)
+
+
+def motor_to_policy_position(q_motor: np.ndarray) -> np.ndarray:
+    q_motor = np.asarray(q_motor, dtype=np.float32)
+    return MOTOR_SIGN * (q_motor - MOTOR_ZERO_RAD)
+
+
+def motor_to_policy_velocity(qd_motor: np.ndarray) -> np.ndarray:
+    qd_motor = np.asarray(qd_motor, dtype=np.float32)
+    return MOTOR_SIGN * qd_motor
+
+
+def policy_to_motor_position(q_policy: np.ndarray) -> np.ndarray:
+    q_policy = np.asarray(q_policy, dtype=np.float32)
+    return MOTOR_ZERO_RAD + MOTOR_SIGN * q_policy
+
+
+def clamp_policy_target(q_target: np.ndarray) -> np.ndarray:
+    return np.clip(
+        np.asarray(q_target, dtype=np.float32),
+        Q_LOWER + JOINT_LIMIT_MARGIN_RAD,
+        Q_UPPER - JOINT_LIMIT_MARGIN_RAD,
+    )
