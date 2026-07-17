@@ -333,9 +333,18 @@ Required checks:
 
 The current simulation multiplies acceleration by `0.1` before it reaches the network. `policy_runner.py` applies that same scaling exactly once.
 
-## Step 9: integrate vision commands through the connector
+## Step 9: fixed-speed policy test without vision
 
-Run the policy with a local UDP command receiver:
+The UDP command receiver is currently commented out in `main.py`. Run only the
+policy process to use its default fixed command of `vx=0.5 m/s`, `vy=0.0 m/s`,
+and `wz=0.0 rad/s`:
+
+```bash
+python main.py --model policy.onnx --port /dev/ttyACM0
+```
+
+To restore vision integration later, uncomment the UDP-related lines in
+`main.py`, then run the policy with a local UDP command receiver:
 
 ```bash
 python main.py \

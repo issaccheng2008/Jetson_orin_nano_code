@@ -38,8 +38,8 @@ def clamp(v, lo, hi):
 
 # Camera
 CAM_IDX = int(os.environ.get("CAM_IDX", "0"))
-CAM_W = int(os.environ.get("CAM_W", "1280"))
-CAM_H = int(os.environ.get("CAM_H", "720"))
+CAM_W = int(os.environ.get("CAM_W", "640"))
+CAM_H = int(os.environ.get("CAM_H", "480"))
 CAM_FPS = int(os.environ.get("CAM_FPS", "30"))
 
 # Detector

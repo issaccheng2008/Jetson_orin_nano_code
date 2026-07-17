@@ -22,7 +22,27 @@ QR code is visible. The current example connector forwards the QR value but the
 policy consumes only `[vx, vy, wz]`. Add future QR behavior in
 `process_vision_output()` in `connector.py`.
 
-## Run all three processes
+## Run the policy without vision
+
+For the current fixed-speed test, `humanoid_jetson_deploy/main.py` does not
+create the UDP command receiver. It sends the policy a constant command of
+`[vx, vy, wz] = [0.5, 0.0, 0.0]` by default, so only the policy process is
+needed:
+
+```bash
+cd humanoid_jetson_deploy
+python main.py --model policy.onnx --port /dev/ttyACM0
+```
+
+The STM32 serial connection is still required because it supplies IMU/joint
+state and receives motor targets. Omit `--enable-motors` until the complete
+dry-run and calibration procedure in `humanoid_jetson_deploy/README.md` has
+passed. The fixed command can be overridden with `--vx` and `--wz`.
+
+## Re-enable vision integration
+
+The following three-process flow is currently disabled. Before using it,
+uncomment the UDP-related lines in `humanoid_jetson_deploy/main.py`.
 
 Open three terminals in the repository root and activate the same Python
 environment in each.

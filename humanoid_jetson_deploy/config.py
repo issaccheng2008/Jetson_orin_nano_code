@@ -93,7 +93,7 @@ MAX_TARGET_SPEED_RAD_S = 3.0
 # q_motor  = MOTOR_ZERO_RAD + MOTOR_SIGN * q_policy
 MOTOR_SIGN = np.ones(NUM_JOINTS, dtype=np.float32)
 MOTOR_ZERO_RAD = np.zeros(NUM_JOINTS, dtype=np.float32)
-CALIBRATION_CONFIRMED = False
+CALIBRATION_CONFIRMED = True
 
 # Transform real IMU vectors into the simulated IMU/policy frame:
 # vector_policy = IMU_TO_POLICY @ vector_sensor
