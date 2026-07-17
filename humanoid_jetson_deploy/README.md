@@ -399,6 +399,8 @@ Recommended progression:
 
 ## Safety behavior
 
+After ONNX inference, the Jetson applies the absolute URDF joint limits, the existing target slew-rate limit, and a final encoder-relative position window. Each transmitted target must remain within `MAX_TARGET_DEVIATION_DEG` of that joint's latest measured position. The default is 5 degrees; adjust this value in `config.py` only after suspended testing.
+
 The Jetson program sends an e-stop command after any exception involving stale state, invalid IMU/encoder flags, STM32 fault state, NaN/Inf, or serial failure. It also sends disable frames during normal shutdown.
 
 The MCU remains the final safety authority. It disables motor output when:
