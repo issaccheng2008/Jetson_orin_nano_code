@@ -85,6 +85,10 @@ Q_UPPER = np.array(
 
 JOINT_LIMIT_MARGIN_RAD = 0.05
 MAX_TARGET_SPEED_RAD_S = 3.0
+# Maximum commanded-position error relative to the latest encoder position.
+# This is the user-adjustable "x" safety window, in degrees.
+MAX_TARGET_DEVIATION_DEG = 5.0
+MAX_TARGET_DEVIATION_RAD = float(np.deg2rad(MAX_TARGET_DEVIATION_DEG))
 
 # These values describe the physical encoder convention, not the URDF convention.
 # Calibrate all 12 joints before changing CALIBRATION_CONFIRMED to True.
@@ -125,3 +129,37 @@ def clamp_policy_target(q_target: np.ndarray) -> np.ndarray:
         Q_LOWER + JOINT_LIMIT_MARGIN_RAD,
         Q_UPPER - JOINT_LIMIT_MARGIN_RAD,
     )
+
+
+def clamp_policy_target_to_current(
+    q_target: np.ndarray,
+    q_current: np.ndarray,
+) -> np.ndarray:
+    """Keep each target near its measured position and inside hard joint limits."""
+    q_target = np.asarray(q_target, dtype=np.float32)
+    q_current = np.asarray(q_current, dtype=np.float32)
+    expected_shape = (NUM_JOINTS,)
+    if q_target.shape != expected_shape or q_current.shape != expected_shape:
+        raise ValueError(
+            f"target/current joint arrays must have shape {expected_shape}, "
+            f"got {q_target.shape} and {q_current.shape}"
+        )
+    if not np.all(np.isfinite(q_target)) or not np.all(np.isfinite(q_current)):
+        raise ValueError("target/current joint arrays must contain only finite values")
+
+    lower = np.maximum(
+        Q_LOWER + JOINT_LIMIT_MARGIN_RAD,
+        q_current - MAX_TARGET_DEVIATION_RAD,
+    )
+    upper = np.minimum(
+        Q_UPPER - JOINT_LIMIT_MARGIN_RAD,
+        q_current + MAX_TARGET_DEVIATION_RAD,
+    )
+    if np.any(lower > upper):
+        joint_index = int(np.flatnonzero(lower > upper)[0])
+        raise ValueError(
+            "no safe target window for "
+            f"{JOINT_NAMES[joint_index]}: measured position is outside the "
+            "configured joint limits"
+        )
+    return np.clip(q_target, lower, upper)
