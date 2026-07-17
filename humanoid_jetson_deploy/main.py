@@ -133,6 +133,7 @@ def main() -> int:
             )
             q_policy_target = config.clamp_policy_target(q_policy_target)
             q_policy_target = slew_limit(q_policy_target, last_q_policy_target, dt)
+            q_policy_target = config.clamp_policy_target_to_current(q_policy_target, q_policy)
             last_q_policy_target = q_policy_target
             last_q_motor = config.policy_to_motor_position(q_policy_target)
 
