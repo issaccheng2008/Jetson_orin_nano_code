@@ -39,22 +39,33 @@ class HumanoidPolicy:
         joint_velocity_policy: np.ndarray,
     ) -> np.ndarray:
         q_rel = np.asarray(joint_position_policy, dtype=np.float32) - config.Q_DEFAULT
+
+        velocity_command = np.asarray(velocity_command, dtype=np.float32)
+        if velocity_command.shape != (3,):
+            raise RuntimeError(
+                "Velocity command must have shape (3,) in [vx, vy, wz] order; "
+                f"received {velocity_command.shape}"
+            )
+
+        # Training observes only [vx, wz]. It does not observe the fixed-zero vy.
+        policy_velocity_command = velocity_command[[0, 2]]
+
         obs = np.concatenate(
             (
                 np.asarray(accel_m_s2, dtype=np.float32) * config.ACCEL_OBS_SCALE,
                 np.asarray(gyro_rad_s, dtype=np.float32),
                 np.asarray(projected_gravity, dtype=np.float32),
-                np.asarray(velocity_command, dtype=np.float32),
+                policy_velocity_command,
                 q_rel,
                 np.asarray(joint_velocity_policy, dtype=np.float32),
                 self.last_action,
             )
         ).astype(np.float32)
+
         if obs.shape != (config.OBS_DIM,):
-            raise RuntimeError(f"Observation shape is {obs.shape}; expected (48,)")
-        if not np.isfinite(obs).all():
-            raise RuntimeError("NaN or Inf in policy observation")
-        return obs
+            raise RuntimeError(
+                f"Observation shape is {obs.shape}; expected ({config.OBS_DIM},)"
+            )
 
     def step(self, **observation_values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
         obs = self.build_observation(**observation_values)

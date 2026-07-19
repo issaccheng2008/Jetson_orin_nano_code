@@ -21,7 +21,9 @@ for value in session.get_outputs():
     print("Output:", value.name, value.shape, value.type)
 
 input_name = session.get_inputs()[0].name
-obs = np.zeros((1, 48), dtype=np.float32)
+model_input = session.get_inputs()[0]
+obs_dim = model_input.shape[1]
+obs = np.zeros((1, obs_dim), dtype=np.float32)
 for _ in range(20):
     session.run(None, {input_name: obs})
 

@@ -6,7 +6,7 @@ import numpy as np
 
 
 NUM_JOINTS = 12
-OBS_DIM = 48
+OBS_DIM = 47
 ACTION_DIM = 12
 POLICY_HZ = 50.0
 POLICY_DT = 1.0 / POLICY_HZ
