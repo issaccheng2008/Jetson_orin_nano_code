@@ -131,6 +131,7 @@ def main() -> int:
 
     link = SerialLink(args.port, args.baud)
     last_q_motor = np.zeros(config.NUM_JOINTS, dtype=np.float32)
+    timed_run_completed = False
     try:
         first_state = link.wait_for_state(timeout_s=5.0)
         last_q_motor = first_state.joint_position.copy()
@@ -145,6 +146,7 @@ def main() -> int:
         while not stop_requested:
             now = time.monotonic()
             if args.max_seconds > 0.0 and now - start_time >= args.max_seconds:
+                timed_run_completed = True
                 break
 
             state = link.get_latest_state(max_age_s=0.05)
@@ -224,12 +226,18 @@ def main() -> int:
     finally:
         send_disable(link, last_q_motor)
         position_logger.close()
-        if position_plot is not None:
+        if position_plot is not None and not timed_run_completed:
             position_plot.close()
         command_source.close()
         link.close()
 
     print("Policy stopped; disable packets sent")
+    if position_plot is not None and timed_run_completed:
+        if position_plot.is_open():
+            print("Timed run completed; close the motor-position window to exit")
+            while position_plot.is_open() and not stop_requested:
+                time.sleep(0.1)
+        position_plot.close()
     return 0
 
 
