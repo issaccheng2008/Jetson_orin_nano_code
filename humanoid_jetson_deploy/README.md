@@ -395,6 +395,30 @@ startup. Change the directory with `--position-log-dir PATH`.
 On a headless session without a desktop display, use `--no-plot`. This
 disables only the window; CSV logging remains active.
 
+When a timed run such as `--max-seconds 30` finishes normally, motor output is
+disabled and the STM32 link is closed immediately, but the completed plot stays
+open. Close the plot window when you have finished inspecting it. A fault or
+Ctrl+C shutdown still closes the window without waiting.
+
+To inspect an earlier run, use the history viewer. With no CSV argument it
+opens the newest log in `logs/motor_positions/`:
+
+```bash
+python tools/view_position_log.py
+```
+
+Pass a file to open a specific run:
+
+```bash
+python tools/view_position_log.py \
+  logs/motor_positions/motor_positions_YYYYMMDD_HHMMSS_ffffff.csv
+```
+
+The history viewer loads the full run and blocks until its window is closed.
+It uses the same solid-target/dashed-actual lines and 12-motor checkboxes as
+the live plot, with both knee motors selected by default. The standard
+Matplotlib toolbar can zoom and pan through the saved data.
+
 ## Step 10: first motor-enabled tests
 
 Use a physical emergency stop and overhead support. First command the default pose without ONNX and confirm all PD loops, limits, signs, and current limits. Then run the policy at reduced hardware gain scales:
