@@ -40,6 +40,10 @@ to a timestamped CSV in `humanoid_jetson_deploy/logs/motor_positions/`. Use
 the window checkboxes to select motors, or add `--no-plot` in a headless
 session; logging stays enabled.
 
+After a timed run, the plot remains open until it is closed manually. From the
+`humanoid_jetson_deploy` directory, run `python tools/view_position_log.py` to
+open the newest saved CSV, or pass a CSV path to inspect a specific run.
+
 The STM32 serial connection is still required because it supplies IMU/joint
 state and receives motor targets. Omit `--enable-motors` until the complete
 dry-run and calibration procedure in `humanoid_jetson_deploy/README.md` has
