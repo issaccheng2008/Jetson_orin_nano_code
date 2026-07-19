@@ -34,6 +34,12 @@ cd humanoid_jetson_deploy
 python main.py --model policy.onnx --port /dev/ttyACM0
 ```
 
+The policy process also opens a live target-versus-actual motor-position
+window (knees selected by default) and records all 12 target/actual positions
+to a timestamped CSV in `humanoid_jetson_deploy/logs/motor_positions/`. Use
+the window checkboxes to select motors, or add `--no-plot` in a headless
+session; logging stays enabled.
+
 The STM32 serial connection is still required because it supplies IMU/joint
 state and receives motor targets. Omit `--enable-motors` until the complete
 dry-run and calibration procedure in `humanoid_jetson_deploy/README.md` has
