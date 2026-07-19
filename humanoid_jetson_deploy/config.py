@@ -87,7 +87,7 @@ JOINT_LIMIT_MARGIN_RAD = 0.05
 MAX_TARGET_SPEED_RAD_S = 3.0
 # Maximum commanded-position error relative to the latest encoder position.
 # This is the user-adjustable "x" safety window, in degrees.
-MAX_TARGET_DEVIATION_DEG = 1.5
+MAX_TARGET_DEVIATION_DEG = 2
 MAX_TARGET_DEVIATION_RAD = float(np.deg2rad(MAX_TARGET_DEVIATION_DEG))
 
 # These values describe the physical encoder convention, not the URDF convention.
