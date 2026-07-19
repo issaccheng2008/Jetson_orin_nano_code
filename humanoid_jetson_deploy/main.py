@@ -14,6 +14,7 @@ from command_source import FixedCommandSource
 # from command_source import UdpCommandSource  # Disabled for fixed-speed testing.
 from imu_filter import ProjectedGravityFilter
 from policy_runner import HumanoidPolicy
+from position_monitor import LivePositionPlot, PositionCsvLogger
 from protocol import (
     COMMAND_ENABLE,
     COMMAND_ESTOP,
@@ -37,6 +38,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--enable-motors", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0, help="0 runs until Ctrl+C")
     parser.add_argument("--log-every", type=int, default=25, help="Print every N policy steps")
+    parser.add_argument(
+        "--position-log-dir",
+        default="logs/motor_positions",
+        help="Directory for per-run target/actual motor-position CSV logs",
+    )
+    parser.add_argument(
+        "--plot-history-seconds",
+        type=float,
+        default=10.0,
+        help="Seconds of motor-position history visible in the live plot",
+    )
+    parser.add_argument(
+        "--plot-every",
+        type=int,
+        default=5,
+        help="Refresh the motor-position plot every N policy steps",
+    )
+    parser.add_argument(
+        "--no-plot",
+        action="store_true",
+        help="Disable only the live window for headless runs; CSV logging remains enabled",
+    )
     return parser.parse_args()
 
 
@@ -68,6 +91,10 @@ def main() -> int:
         )
     if not 0.0 <= args.kp_scale <= 1.0 or not 0.0 <= args.kd_scale <= 1.0:
         raise SystemExit("kp-scale and kd-scale must be between 0 and 1")
+    if args.plot_every < 1:
+        raise SystemExit("plot-every must be at least 1")
+    if args.plot_history_seconds <= 0.0:
+        raise SystemExit("plot-history-seconds must be positive")
 
     stop_requested = False
 
@@ -83,10 +110,24 @@ def main() -> int:
     command_source = FixedCommandSource(args.vx, args.wz)
     # Vision/connector communication is disabled for this fixed-speed test.
     # command_source = UdpCommandSource(args.udp_command_port)
+    position_logger = PositionCsvLogger(args.position_log_dir, config.JOINT_NAMES)
+    position_plot = None
+    if not args.no_plot:
+        try:
+            position_plot = LivePositionPlot(config.JOINT_NAMES, args.plot_history_seconds)
+        except Exception as exc:
+            position_logger.close()
+            raise SystemExit(
+                f"Could not open the motor-position window: {exc}. "
+                "Run with --no-plot on a headless system; CSV logging will remain enabled."
+            ) from exc
 
     print(f"ONNX input={policy.input_name!r}, output={policy.output_name!r}")
     print(f"Opening {args.port} (line coding {args.baud}; native USB CDC ignores physical baud)")
     print("MOTORS ENABLED" if args.enable_motors else "DRY RUN: command enable flag is OFF")
+    print(f"Motor-position log: {position_logger.path}")
+    if position_plot is not None:
+        print("Motor-position window opened (knee motors selected by default)")
 
     link = SerialLink(args.port, args.baud)
     last_q_motor = np.zeros(config.NUM_JOINTS, dtype=np.float32)
@@ -146,6 +187,17 @@ def main() -> int:
                 flags,
             )
 
+            elapsed_s = now - start_time
+            position_logger.write(
+                elapsed_s,
+                step,
+                state.sequence,
+                last_q_motor,
+                state.joint_position,
+            )
+            if position_plot is not None and step % args.plot_every == 0:
+                position_plot.update(elapsed_s, last_q_motor, state.joint_position)
+
             if step % max(1, args.log_every) == 0:
                 print(
                     f"step={step:6d} state_seq={state.sequence:5d} "
@@ -171,6 +223,9 @@ def main() -> int:
         return 1
     finally:
         send_disable(link, last_q_motor)
+        position_logger.close()
+        if position_plot is not None:
+            position_plot.close()
         command_source.close()
         link.close()
 
