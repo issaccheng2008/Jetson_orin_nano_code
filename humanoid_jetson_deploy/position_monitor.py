@@ -55,6 +55,49 @@ class PositionCsvLogger:
             self._file.close()
 
 
+def load_position_log(
+    path: str | Path,
+    joint_names: Sequence[str],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load elapsed time, target positions, and actual positions from a run log."""
+    log_path = Path(path).expanduser()
+    names = tuple(joint_names)
+    target_fields = [f"target_{name}_rad" for name in names]
+    actual_fields = [f"actual_{name}_rad" for name in names]
+    required_fields = ["elapsed_s", *target_fields, *actual_fields]
+
+    with log_path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        missing_fields = [field for field in required_fields if field not in (reader.fieldnames or ())]
+        if missing_fields:
+            raise ValueError(
+                f"{log_path} is missing required columns: {', '.join(missing_fields)}"
+            )
+        rows = list(reader)
+
+    if not rows:
+        raise ValueError(f"{log_path} contains no motor-position samples")
+
+    try:
+        elapsed_s = np.array([float(row["elapsed_s"]) for row in rows], dtype=np.float64)
+        targets = np.array(
+            [[float(row[field]) for field in target_fields] for row in rows],
+            dtype=np.float32,
+        )
+        actuals = np.array(
+            [[float(row[field]) for field in actual_fields] for row in rows],
+            dtype=np.float32,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{log_path} contains invalid numeric data: {exc}") from exc
+
+    if not np.all(np.isfinite(elapsed_s)) or not np.all(np.isfinite(targets)) or not np.all(
+        np.isfinite(actuals)
+    ):
+        raise ValueError(f"{log_path} contains non-finite motor-position data")
+    return elapsed_s, targets, actuals
+
+
 class _PlotWindow:
     """Matplotlib window owned by the dedicated plotting process."""
 
@@ -297,6 +340,10 @@ class LivePositionPlot:
                 self._queue.put_nowait(sample)
             except queue.Full:
                 pass
+
+    def is_open(self) -> bool:
+        """Return whether the plotting window process is still running."""
+        return self._process.is_alive()
 
     def close(self) -> None:
         if self._process.is_alive():
