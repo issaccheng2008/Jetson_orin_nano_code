@@ -12,7 +12,11 @@ import numpy as np
 import config
 from command_source import FixedCommandSource
 # from command_source import UdpCommandSource  # Disabled for fixed-speed testing.
-from imu_filter import projected_gravity_from_quaternion, validate_stationary_imu_sample
+from imu_filter import (
+    projected_gravity_from_quaternion,
+    roll_pitch_yaw_from_quaternion,
+    validate_stationary_imu_sample,
+)
 from policy_runner import HumanoidPolicy
 from position_monitor import LivePositionPlot, PositionCsvLogger
 from protocol import (
@@ -127,9 +131,9 @@ def main() -> int:
     print(f"ONNX input={policy.input_name!r}, output={policy.output_name!r}")
     print(f"Opening {args.port} (line coding {args.baud}; native USB CDC ignores physical baud)")
     print("MOTORS ENABLED" if args.enable_motors else "DRY RUN: command enable flag is OFF")
-    print(f"Motor-position log: {position_logger.path}")
+    print(f"Motor-position and IMU log: {position_logger.path}")
     if position_plot is not None:
-        print("Motor-position window opened (knee motors selected by default)")
+        print("Motor/IMU window opened (knee motors and IMU data selected by default)")
 
     link = SerialLink(args.port, args.baud)
     last_q_motor = np.zeros(config.NUM_JOINTS, dtype=np.float32)
@@ -187,6 +191,11 @@ def main() -> int:
                 config.IMU_TO_POLICY,
                 sensor_to_world=config.IMU_QUATERNION_IS_SENSOR_TO_WORLD,
             )
+            orientation_rpy = roll_pitch_yaw_from_quaternion(
+                state.orientation_wxyz,
+                config.IMU_TO_POLICY,
+                sensor_to_world=config.IMU_QUATERNION_IS_SENSOR_TO_WORLD,
+            )
             velocity_command = command_source.get()
 
             q_policy_target, action, obs, latency_ms = policy.step(
@@ -219,9 +228,17 @@ def main() -> int:
                 state.sequence,
                 last_q_motor,
                 state.joint_position,
+                accel_policy,
+                orientation_rpy,
             )
             if position_plot is not None and step % args.plot_every == 0:
-                position_plot.update(elapsed_s, last_q_motor, state.joint_position)
+                position_plot.update(
+                    elapsed_s,
+                    last_q_motor,
+                    state.joint_position,
+                    accel_policy,
+                    orientation_rpy,
+                )
 
             if step % max(1, args.log_every) == 0:
                 print(

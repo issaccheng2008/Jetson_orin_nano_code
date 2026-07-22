@@ -380,13 +380,18 @@ Vision sends `{vx, vy: 0, wz, qr}` to UDP port 5006. The connector validates and
 
 Both connector and policy receiver independently force the velocity command to zero if new upstream messages stop for 250 ms. Commands are clamped to the training range: `vx=0..1 m/s`, `vy=0`, and `wz=-0.5..0.5 rad/s`.
 
-## Live motor-position monitor and CSV log
+## Live motor-position/IMU monitor and CSV log
 
 Every normal `main.py` run opens a separate motor-position window. The solid
 lines are the final targets sent to STM32 and the dashed lines are the actual
 positions returned by STM32, both in motor coordinates and radians. The right
 and left knee motors are selected initially. Use the checkboxes on the right to
 show or hide any of the 12 motors while the policy is running.
+
+The same window includes separate plots for policy-frame IMU acceleration
+(`x`, `y`, `z`, in m/s²) and fused orientation (`roll`, `pitch`, `yaw`, in
+radians). Use the `IMU acceleration` and `IMU orientation` checkboxes to show
+or hide those two groups while the policy is running.
 
 The plot runs in a separate process so drawing and window interaction do not
 block the 50 Hz policy loop. By default it refreshes every five policy steps
@@ -398,10 +403,11 @@ python main.py --model policy.onnx \
   --plot-history-seconds 10
 ```
 
-All 12 target positions and all 12 measured positions are recorded at every
-policy step, regardless of which motors are visible. Each run creates a new
-CSV under `logs/motor_positions/`; the program prints the exact path at
-startup. Change the directory with `--position-log-dir PATH`.
+All 12 target positions, all 12 measured positions, policy-frame acceleration,
+and policy-frame roll/pitch/yaw are recorded at every policy step, regardless
+of which data is visible. Each run creates a new CSV under
+`logs/motor_positions/`; the program prints the exact path at startup. Change
+the directory with `--position-log-dir PATH`.
 
 On a headless session without a desktop display, use `--no-plot`. This
 disables only the window; CSV logging remains active.
@@ -426,8 +432,9 @@ python tools/view_position_log.py \
 ```
 
 The history viewer loads the full run and blocks until its window is closed.
-It uses the same solid-target/dashed-actual lines and 12-motor checkboxes as
-the live plot, with both knee motors selected by default. The standard
+It uses the same solid-target/dashed-actual lines, 12-motor checkboxes, and IMU
+group checkboxes as the live plot, with both knee motors and both IMU groups
+selected by default. Older motor-only CSV files remain viewable. The standard
 Matplotlib toolbar can zoom and pan through the saved data.
 
 ## Step 10: first motor-enabled tests
