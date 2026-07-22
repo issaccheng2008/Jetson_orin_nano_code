@@ -13,7 +13,7 @@ from config import NUM_JOINTS
 
 MAGIC = 0xA55A
 MAGIC_BYTES = struct.pack("<H", MAGIC)
-VERSION = 1
+VERSION = 2
 MSG_STATE = 1
 MSG_COMMAND = 2
 MAX_PAYLOAD = 512
@@ -30,7 +30,7 @@ STATE_COMMAND_FRESH = 1 << 4
 
 HEADER = struct.Struct("<HBBHH")
 CRC = struct.Struct("<H")
-STATE_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "f" * NUM_JOINTS + "3f3fI")
+STATE_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "f" * NUM_JOINTS + "3f3f4fI")
 COMMAND_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "ffI")
 
 
@@ -42,6 +42,7 @@ class StatePacket:
     joint_velocity: np.ndarray
     accel_m_s2: np.ndarray
     gyro_rad_s: np.ndarray
+    orientation_wxyz: np.ndarray
     status_flags: int
 
 
@@ -78,12 +79,14 @@ def pack_state(packet: StatePacket) -> bytes:
     qd = np.asarray(packet.joint_velocity, dtype=np.float32).reshape(NUM_JOINTS)
     accel = np.asarray(packet.accel_m_s2, dtype=np.float32).reshape(3)
     gyro = np.asarray(packet.gyro_rad_s, dtype=np.float32).reshape(3)
+    orientation = np.asarray(packet.orientation_wxyz, dtype=np.float32).reshape(4)
     payload = STATE_PAYLOAD.pack(
         packet.timestamp_us & 0xFFFFFFFF,
         *q,
         *qd,
         *accel,
         *gyro,
+        *orientation,
         packet.status_flags & 0xFFFFFFFF,
     )
     return _pack_frame(MSG_STATE, packet.sequence, payload)
@@ -111,7 +114,9 @@ def decode_state(sequence: int, payload: bytes) -> StatePacket:
     accel = np.array(values[i : i + 3], dtype=np.float32)
     i += 3
     gyro = np.array(values[i : i + 3], dtype=np.float32)
-    return StatePacket(sequence, values[0], q, qd, accel, gyro, values[-1])
+    i += 3
+    orientation = np.array(values[i : i + 4], dtype=np.float32)
+    return StatePacket(sequence, values[0], q, qd, accel, gyro, orientation, values[-1])
 
 
 def decode_command(sequence: int, payload: bytes) -> CommandPacket:
