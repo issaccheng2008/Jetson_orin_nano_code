@@ -2,7 +2,7 @@
 
 This package runs the current `Humanoid_Robot_RSL_RL` policy on a Jetson Orin Nano and exchanges state/target data with an STM32. It is intentionally split into:
 
-- **Jetson, 50 Hz:** observation construction, projected-gravity estimation, ONNX inference, action scaling, joint limits, target transmission.
+- **Jetson, 50 Hz:** observation construction, quaternion-derived projected gravity, ONNX inference, action scaling, joint limits, target transmission.
 - **STM32, 1 kHz:** encoders, IMU acquisition, motor position/PD control, current limits, communications watchdog, emergency stop.
 
 The FK723M1-ZGT6 implementation uses native USB CDC through the board's USB-C connector, with binary framing, CRC-16, sequence IDs, status flags, and a 100 ms command watchdog.
@@ -14,22 +14,22 @@ All multi-byte values are little-endian. Floating-point fields are IEEE-754 `flo
 | Frame field | Bytes | Description |
 |---|---:|---|
 | Magic | 2 | `0xA55A` (`5A A5` on the wire) |
-| Version | 1 | Protocol version `1` |
+| Version | 1 | Protocol version `2` |
 | Message type | 1 | `1=state`, `2=command` |
 | Payload length | 2 | Number of payload bytes |
 | Sequence | 2 | Wraparound packet counter |
 | Payload | variable | Packed state or command structure |
 | CRC | 2 | CRC-16/CCITT-FALSE over version through the end of payload |
 
-The state payload is 128 bytes and its complete frame is 138 bytes. The command payload is 64 bytes and its complete frame is 74 bytes. The Python and STM32 implementations use the same packed layouts and CRC algorithm.
+The state payload is 144 bytes and its complete frame is 154 bytes. The command payload is 64 bytes and its complete frame is 74 bytes. The Python and STM32 implementations use the same packed layouts and CRC algorithm.
 
-At 200 state frames/s and 50 command frames/s, the total payload traffic is approximately 31.3 kB/s, comfortably within USB full-speed CDC capacity.
+At 200 state frames/s and 50 command frames/s, the total framed traffic is approximately 34.5 kB/s, comfortably within USB full-speed CDC capacity.
 
 ## Critical model-version warning
 
 The repository revision inspected for this package is commit `0de3d9b5b11af011eceefc1cc33c72c3d077acc4`. Its first observation is **IMU linear acceleration**, scaled by `0.1`. An older policy used base linear velocity instead.
 
-Both versions have 48 inputs, so ONNX shape inspection cannot distinguish them. Use a checkpoint trained after changing the observation to acceleration. An old checkpoint will execute successfully but receive the wrong data.
+The current policy has 47 inputs. Use a checkpoint trained after changing the observation to acceleration and removing the fixed-zero lateral command.
 
 ## Policy interface
 
@@ -40,10 +40,10 @@ The policy period is `0.005 s * decimation 4 = 0.020 s`, or 50 Hz.
 | 0:3 | 3 | IMU acceleration in policy frame, m/s², multiplied by `0.1` |
 | 3:6 | 3 | IMU angular velocity in policy frame, rad/s |
 | 6:9 | 3 | Projected gravity: world-down unit vector in body/IMU frame |
-| 9:12 | 3 | Command `[vx, vy, wz]` |
-| 12:24 | 12 | Joint position minus Isaac default position, radians |
-| 24:36 | 12 | Joint velocity, rad/s |
-| 36:48 | 12 | Previous raw ONNX action |
+| 9:11 | 2 | Command `[vx, wz]` |
+| 11:23 | 12 | Joint position minus Isaac default position, radians |
+| 23:35 | 12 | Joint velocity, rad/s |
+| 35:47 | 12 | Previous raw ONNX action |
 
 The ONNX output is converted to the Isaac joint target using:
 
@@ -62,8 +62,8 @@ humanoid_jetson_deploy/
 ├── config.py                    robot constants, limits, motor/IMU calibration
 ├── protocol.py                  shared wire format implemented in Python
 ├── serial_link.py               background serial receiver and state freshness checks
-├── imu_filter.py                six-axis projected-gravity estimator
-├── policy_runner.py             ONNX loading and exact 48-value observation layout
+├── imu_filter.py                quaternion-derived projected gravity
+├── policy_runner.py             ONNX loading and exact 47-value observation layout
 ├── command_source.py            fixed or local UDP velocity command
 ├── main.py                      50 Hz deployment program
 ├── STM32H723_CubeMX_CubeIDE_Guide.md
@@ -114,7 +114,7 @@ python -m pip install onnxruntime numpy
 python tools/inspect_onnx.py /path/to/policy.onnx
 ```
 
-Expected model dimensions are one `[1, 48]` input and one `[1, 12]` output. The input/output names are detected automatically.
+Expected model dimensions are one `[1, 47]` input and one `[1, 12]` output. The input/output names are detected automatically.
 
 ## Step 2: copy the package and policy to Jetson
 
@@ -213,6 +213,7 @@ timestamp_us
 12 joint velocities, rad/s
 3 accelerations, m/s²
 3 angular velocities, rad/s
+orientation quaternion in `[w, x, y, z]` order
 status flags
 ```
 
@@ -308,13 +309,16 @@ Only then set `CALIBRATION_CONFIRMED = True`.
 
 ## Step 8: calibrate the IMU frame
 
-Both acceleration and gyro must use the same frame as the simulated IMU. Configure:
+Acceleration, gyro, and quaternion-derived gravity must use the same frame as the simulated IMU. Configure:
 
 ```python
 IMU_TO_POLICY = np.array([...], dtype=np.float32)
 ```
 
-This should normally be a signed permutation matrix describing the sensor mounting. For example, if sensor X corresponds to policy Y and sensor Y corresponds to negative policy X:
+This is the fixed sensor-to-policy mounting rotation. It may be a signed
+permutation for an exactly aligned installation or a general orthonormal
+rotation if the sensor has a small mounting tilt. For example, if sensor X
+corresponds to policy Y and sensor Y corresponds to negative policy X:
 
 ```python
 IMU_TO_POLICY = np.array([
@@ -324,12 +328,19 @@ IMU_TO_POLICY = np.array([
 ], dtype=np.float32)
 ```
 
+Set `IMU_CALIBRATION_CONFIRMED = True` only after measuring and saving this
+matrix. The calibration remains in `config.py`, so the robot does not need to
+be perfectly level at every startup. The STM32 intentionally does not issue
+`imu_set_zero()` during boot: the DM-IMU-L1 EKF quaternion retains its
+gravity-referenced roll and pitch, while yaw is irrelevant to projected gravity.
+
 Required checks:
 
 - Upright and stationary: transformed acceleration approximately `[0, 0, +9.81]` m/s².
 - Roll robot right: projected-gravity Y changes in the same direction as Isaac playback.
 - Pitch robot forward: projected-gravity X changes in the same direction as Isaac playback.
 - Positive yaw rotation: transformed gyro Z has the same sign as Isaac.
+- Stationary at any tilt: normalized `-acceleration` agrees with projected gravity.
 
 The current simulation multiplies acceleration by `0.1` before it reaches the network. `policy_runner.py` applies that same scaling exactly once.
 
