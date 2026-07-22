@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the current 48-input humanoid ONNX policy and exchange data with STM32."""
+"""Run the current 47-input humanoid ONNX policy and exchange data with STM32."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import numpy as np
 import config
 from command_source import FixedCommandSource
 # from command_source import UdpCommandSource  # Disabled for fixed-speed testing.
-from imu_filter import ProjectedGravityFilter
+from imu_filter import projected_gravity_from_quaternion, validate_stationary_imu_sample
 from policy_runner import HumanoidPolicy
 from position_monitor import LivePositionPlot, PositionCsvLogger
 from protocol import (
@@ -84,10 +84,13 @@ def send_disable(link: SerialLink, q_motor: np.ndarray, estop: bool = False) -> 
 
 def main() -> int:
     args = parse_args()
-    if args.enable_motors and not config.CALIBRATION_CONFIRMED:
+    config.validate_imu_configuration()
+    if args.enable_motors and (
+        not config.CALIBRATION_CONFIRMED or not config.IMU_CALIBRATION_CONFIRMED
+    ):
         raise SystemExit(
-            "Refusing to enable motors: calibrate MOTOR_SIGN and MOTOR_ZERO_RAD in "
-            "config.py, then set CALIBRATION_CONFIRMED=True."
+            "Refusing to enable motors: confirm the motor and IMU mounting "
+            "calibrations in config.py first."
         )
     if not 0.0 <= args.kp_scale <= 1.0 or not 0.0 <= args.kd_scale <= 1.0:
         raise SystemExit("kp-scale and kd-scale must be between 0 and 1")
@@ -106,7 +109,6 @@ def main() -> int:
     signal.signal(signal.SIGTERM, request_stop)
 
     policy = HumanoidPolicy(args.model)
-    gravity_filter = ProjectedGravityFilter()
     command_source = FixedCommandSource(args.vx, args.wz)
     # Vision/connector communication is disabled for this fixed-speed test.
     # command_source = UdpCommandSource(args.udp_command_port)
@@ -134,6 +136,23 @@ def main() -> int:
     timed_run_completed = False
     try:
         first_state = link.wait_for_state(timeout_s=5.0)
+        required = STATE_IMU_VALID | STATE_ENCODERS_VALID
+        if (first_state.status_flags & required) != required:
+            raise RuntimeError(
+                f"Initial IMU/encoder data invalid: flags=0x{first_state.status_flags:08X}"
+            )
+        initial_accel_policy = config.IMU_TO_POLICY @ first_state.accel_m_s2
+        initial_gyro_policy = config.IMU_TO_POLICY @ first_state.gyro_rad_s
+        initial_projected_gravity = projected_gravity_from_quaternion(
+            first_state.orientation_wxyz,
+            config.IMU_TO_POLICY,
+            sensor_to_world=config.IMU_QUATERNION_IS_SENSOR_TO_WORLD,
+        )
+        validate_stationary_imu_sample(
+            initial_accel_policy,
+            initial_gyro_policy,
+            initial_projected_gravity,
+        )
         last_q_motor = first_state.joint_position.copy()
         last_q_policy_target = config.motor_to_policy_position(last_q_motor)
         print(f"Received STM32 state packet, sequence={first_state.sequence}")
@@ -163,7 +182,11 @@ def main() -> int:
             qd_policy = config.motor_to_policy_velocity(state.joint_velocity)
             accel_policy = config.IMU_TO_POLICY @ state.accel_m_s2
             gyro_policy = config.IMU_TO_POLICY @ state.gyro_rad_s
-            projected_gravity = gravity_filter.update(accel_policy, gyro_policy, dt)
+            projected_gravity = projected_gravity_from_quaternion(
+                state.orientation_wxyz,
+                config.IMU_TO_POLICY,
+                sensor_to_world=config.IMU_QUATERNION_IS_SENSOR_TO_WORLD,
+            )
             velocity_command = command_source.get()
 
             q_policy_target, action, obs, latency_ms = policy.step(
