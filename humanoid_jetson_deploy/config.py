@@ -114,7 +114,7 @@ IMU_QUATERNION_IS_SENSOR_TO_WORLD = True
 
 # Set this to True after IMU_TO_POLICY has been measured once and stored here.
 # This mounting calibration is persistent and does not require a level startup.
-IMU_CALIBRATION_CONFIRMED = False
+IMU_CALIBRATION_CONFIRMED = True
 
 
 def validate_imu_configuration() -> None:

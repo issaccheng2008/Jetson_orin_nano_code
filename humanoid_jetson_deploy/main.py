@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", default="/dev/ttyACM0", help="STM32 serial device")
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument("--vx", type=float, default=0.2, help="Fixed forward command in m/s")
-    parser.add_argument("--wz", type=float, default=0.0, help="Fixed yaw-rate command in rad/s")
+    parser.add_argument("--wz", type=float, default=0.5, help="Fixed yaw-rate command in rad/s")
     # parser.add_argument("--udp-command-port", type=int, default=0, help="Use local UDP JSON commands")
     parser.add_argument("--kp-scale", type=float, default=1.0)
     parser.add_argument("--kd-scale", type=float, default=1.0)
