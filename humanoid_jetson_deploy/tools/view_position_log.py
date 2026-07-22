@@ -15,7 +15,13 @@ if str(DEPLOY_DIR) not in sys.path:
     sys.path.insert(0, str(DEPLOY_DIR))
 
 import config  # noqa: E402
-from position_monitor import load_position_log  # noqa: E402
+from position_monitor import (  # noqa: E402
+    IMU_ACCEL_LABELS,
+    IMU_ACCEL_TOGGLE,
+    IMU_ORIENTATION_LABELS,
+    IMU_ORIENTATION_TOGGLE,
+    load_position_log,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,21 +60,35 @@ def main() -> int:
     args = parse_args()
     try:
         log_path = resolve_log_path(args.log_file, args.log_dir)
-        elapsed_s, targets, actuals = load_position_log(log_path, config.JOINT_NAMES)
+        elapsed_s, targets, actuals, acceleration, orientation = load_position_log(
+            log_path, config.JOINT_NAMES
+        )
     except (OSError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
+    has_imu = acceleration.shape == (len(elapsed_s), 3) and orientation.shape == (
+        len(elapsed_s),
+        3,
+    )
 
     import matplotlib.pyplot as plt
     from matplotlib.widgets import CheckButtons
 
-    figure = plt.figure(figsize=(14, 7))
+    figure = plt.figure(figsize=(14, 9) if has_imu else (14, 7))
     try:
-        figure.canvas.manager.set_window_title(f"Motor position log: {log_path.name}")
+        figure.canvas.manager.set_window_title(f"Motor and IMU log: {log_path.name}")
     except AttributeError:
         pass
-    axes = figure.add_axes((0.07, 0.12, 0.61, 0.82))
-    selector_axes = figure.add_axes((0.72, 0.10, 0.27, 0.84))
-    selector_axes.set_title("Visible motors")
+    if has_imu:
+        axes = figure.add_axes((0.07, 0.55, 0.61, 0.39))
+        accel_axes = figure.add_axes((0.07, 0.30, 0.61, 0.18), sharex=axes)
+        orientation_axes = figure.add_axes((0.07, 0.07, 0.61, 0.18), sharex=axes)
+        selector_axes = figure.add_axes((0.72, 0.07, 0.27, 0.87))
+    else:
+        axes = figure.add_axes((0.07, 0.12, 0.61, 0.82))
+        accel_axes = figure.add_axes((0.07, 0.30, 0.61, 0.18), sharex=axes)
+        orientation_axes = figure.add_axes((0.07, 0.07, 0.61, 0.18), sharex=axes)
+        selector_axes = figure.add_axes((0.72, 0.10, 0.27, 0.84))
+    selector_axes.set_title("Visible data")
 
     colors = plt.get_cmap("tab20").colors
     target_lines = []
@@ -96,6 +116,30 @@ def main() -> int:
         target_lines.append(target_line)
         actual_lines.append(actual_line)
 
+    imu_colors = ("tab:red", "tab:green", "tab:blue")
+    accel_lines = (
+        [
+            accel_axes.plot(
+                elapsed_s, acceleration[:, index], color=color, label=label
+            )[0]
+            for index, (label, color) in enumerate(zip(IMU_ACCEL_LABELS, imu_colors))
+        ]
+        if has_imu
+        else []
+    )
+    orientation_lines = (
+        [
+            orientation_axes.plot(
+                elapsed_s, orientation[:, index], color=color, label=label
+            )[0]
+            for index, (label, color) in enumerate(
+                zip(IMU_ORIENTATION_LABELS, imu_colors)
+            )
+        ]
+        if has_imu
+        else []
+    )
+
     def refresh_legend_and_limits() -> None:
         visible_lines = [
             line
@@ -119,20 +163,58 @@ def main() -> int:
             padding = max(0.05, 0.1 * max(high - low, 0.01))
             axes.set_ylim(low - padding, high + padding)
 
-    def toggle_joint(label: str) -> None:
-        index = config.JOINT_NAMES.index(label)
-        visible = not target_lines[index].get_visible()
-        target_lines[index].set_visible(visible)
-        actual_lines[index].set_visible(visible)
-        refresh_legend_and_limits()
+    def toggle_data(label: str) -> None:
+        if label == IMU_ACCEL_TOGGLE:
+            accel_axes.set_visible(not accel_axes.get_visible())
+        elif label == IMU_ORIENTATION_TOGGLE:
+            orientation_axes.set_visible(not orientation_axes.get_visible())
+        else:
+            index = config.JOINT_NAMES.index(label)
+            visible = not target_lines[index].get_visible()
+            target_lines[index].set_visible(visible)
+            actual_lines[index].set_visible(visible)
+            refresh_legend_and_limits()
         figure.canvas.draw_idle()
 
-    buttons = CheckButtons(selector_axes, config.JOINT_NAMES, default_selected)
-    buttons.on_clicked(toggle_joint)
+    selector_labels = tuple(config.JOINT_NAMES)
+    selector_states = default_selected
+    if has_imu:
+        selector_labels += (IMU_ACCEL_TOGGLE, IMU_ORIENTATION_TOGGLE)
+        selector_states += (True, True)
+    buttons = CheckButtons(
+        selector_axes,
+        selector_labels,
+        selector_states,
+    )
+    buttons.on_clicked(toggle_data)
     axes.set_title(f"Saved STM32 motor positions — {log_path.name}")
-    axes.set_xlabel("Time since policy start (s)")
     axes.set_ylabel("Motor position (rad)")
-    axes.grid(True, alpha=0.3)
+    if not has_imu:
+        axes.set_xlabel("Time since policy start (s)")
+    accel_axes.set_title("IMU acceleration in policy frame")
+    accel_axes.set_ylabel("Acceleration (m/s²)")
+    if has_imu:
+        accel_axes.legend(
+            accel_lines,
+            [line.get_label() for line in accel_lines],
+            loc="upper left",
+            ncol=3,
+        )
+    orientation_axes.set_title("IMU fused orientation in policy frame")
+    orientation_axes.set_ylabel("Angle (rad)")
+    orientation_axes.set_xlabel("Time since policy start (s)")
+    if has_imu:
+        orientation_axes.legend(
+            orientation_lines,
+            [line.get_label() for line in orientation_lines],
+            loc="upper left",
+            ncol=3,
+        )
+    else:
+        accel_axes.set_visible(False)
+        orientation_axes.set_visible(False)
+    for axis in (axes, accel_axes, orientation_axes):
+        axis.grid(True, alpha=0.3)
     axes.set_xlim(float(elapsed_s[0]), float(elapsed_s[-1]))
     refresh_legend_and_limits()
 

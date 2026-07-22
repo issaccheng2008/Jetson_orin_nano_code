@@ -16,6 +16,39 @@ def normalize_quaternion_wxyz(orientation_wxyz: np.ndarray) -> np.ndarray:
     return quaternion / norm
 
 
+def roll_pitch_yaw_from_quaternion(
+    orientation_wxyz: np.ndarray,
+    imu_to_policy: np.ndarray,
+    *,
+    sensor_to_world: bool,
+) -> np.ndarray:
+    """Return policy-frame roll, pitch, and yaw in radians."""
+    w, x, y, z = normalize_quaternion_wxyz(orientation_wxyz)
+    rotation = np.array(
+        (
+            (1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - w * z), 2.0 * (x * z + w * y)),
+            (2.0 * (x * y + w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - w * x)),
+            (2.0 * (x * z - w * y), 2.0 * (y * z + w * x), 1.0 - 2.0 * (x * x + y * y)),
+        ),
+        dtype=np.float64,
+    )
+    rotation_world_sensor = rotation if sensor_to_world else rotation.T
+    sensor_to_policy = np.asarray(imu_to_policy, dtype=np.float64).reshape(3, 3)
+    rotation_world_policy = rotation_world_sensor @ sensor_to_policy.T
+
+    pitch = np.arctan2(
+        -rotation_world_policy[2, 0],
+        np.hypot(rotation_world_policy[0, 0], rotation_world_policy[1, 0]),
+    )
+    if np.hypot(rotation_world_policy[0, 0], rotation_world_policy[1, 0]) > 1.0e-8:
+        roll = np.arctan2(rotation_world_policy[2, 1], rotation_world_policy[2, 2])
+        yaw = np.arctan2(rotation_world_policy[1, 0], rotation_world_policy[0, 0])
+    else:
+        roll = np.arctan2(-rotation_world_policy[1, 2], rotation_world_policy[1, 1])
+        yaw = 0.0
+    return np.array((roll, pitch, yaw), dtype=np.float32)
+
+
 def projected_gravity_from_quaternion(
     orientation_wxyz: np.ndarray,
     imu_to_policy: np.ndarray,

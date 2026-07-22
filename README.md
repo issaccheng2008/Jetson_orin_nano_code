@@ -34,11 +34,12 @@ cd humanoid_jetson_deploy
 python main.py --model policy.onnx --port /dev/ttyACM0
 ```
 
-The policy process also opens a live target-versus-actual motor-position
-window (knees selected by default) and records all 12 target/actual positions
-to a timestamped CSV in `humanoid_jetson_deploy/logs/motor_positions/`. Use
-the window checkboxes to select motors, or add `--no-plot` in a headless
-session; logging stays enabled.
+The policy process also opens a live target-versus-actual motor-position and
+IMU window (knees and IMU data selected by default). It records all 12
+target/actual positions, IMU acceleration, and fused roll/pitch/yaw to a
+timestamped CSV in `humanoid_jetson_deploy/logs/motor_positions/`. Use the
+window checkboxes to select motors or toggle the acceleration/orientation
+groups, or add `--no-plot` in a headless session; logging stays enabled.
 
 After a timed run, the plot remains open until it is closed manually. From the
 `humanoid_jetson_deploy` directory, run `python tools/view_position_log.py` to

@@ -7,6 +7,7 @@ import numpy as np
 from imu_filter import (
     normalize_quaternion_wxyz,
     projected_gravity_from_quaternion,
+    roll_pitch_yaw_from_quaternion,
     validate_stationary_imu_sample,
 )
 
@@ -50,6 +51,38 @@ class ImuOrientationTests(unittest.TestCase):
             normalize_quaternion_wxyz(np.array([1.1, 0.0, 0.0, 0.0])),
             [1.0, 0.0, 0.0, 0.0],
         )
+
+    def test_roll_pitch_yaw_sensor_to_world(self):
+        roll, pitch, yaw = np.deg2rad([10.0, 20.0, 30.0])
+        cy, sy = np.cos(yaw / 2.0), np.sin(yaw / 2.0)
+        cp, sp = np.cos(pitch / 2.0), np.sin(pitch / 2.0)
+        cr, sr = np.cos(roll / 2.0), np.sin(roll / 2.0)
+        quaternion = np.array(
+            [
+                cr * cp * cy + sr * sp * sy,
+                sr * cp * cy - cr * sp * sy,
+                cr * sp * cy + sr * cp * sy,
+                cr * cp * sy - sr * sp * cy,
+            ]
+        )
+        actual = roll_pitch_yaw_from_quaternion(
+            quaternion,
+            np.eye(3),
+            sensor_to_world=True,
+        )
+        np.testing.assert_allclose(actual, [roll, pitch, yaw], atol=1e-6)
+
+    def test_roll_pitch_yaw_applies_mounting_rotation(self):
+        sensor_to_policy = np.array(
+            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+        )
+        quaternion = np.array([np.sqrt(0.5), 0.0, 0.0, np.sqrt(0.5)])
+        actual = roll_pitch_yaw_from_quaternion(
+            quaternion,
+            sensor_to_policy,
+            sensor_to_world=True,
+        )
+        np.testing.assert_allclose(actual, [0.0, 0.0, 0.0], atol=1e-6)
 
     def test_stationary_consistency_check(self):
         validate_stationary_imu_sample(
