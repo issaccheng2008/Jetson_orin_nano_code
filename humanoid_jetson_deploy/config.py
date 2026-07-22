@@ -107,6 +107,25 @@ CALIBRATION_CONFIRMED = True
 # real installation.
 IMU_TO_POLICY = np.eye(3, dtype=np.float32)
 
+# The DM-IMU-L1 reports W, X, Y, Z for the sensor orientation in the world
+# frame. Set this to False only if a stationary tilt test demonstrates that
+# your firmware reports the inverse convention.
+IMU_QUATERNION_IS_SENSOR_TO_WORLD = True
+
+# Set this to True after IMU_TO_POLICY has been measured once and stored here.
+# This mounting calibration is persistent and does not require a level startup.
+IMU_CALIBRATION_CONFIRMED = False
+
+
+def validate_imu_configuration() -> None:
+    rotation = np.asarray(IMU_TO_POLICY, dtype=np.float64)
+    if rotation.shape != (3, 3) or not np.isfinite(rotation).all():
+        raise ValueError("IMU_TO_POLICY must be a finite 3x3 matrix")
+    if not np.allclose(rotation @ rotation.T, np.eye(3), atol=1.0e-4):
+        raise ValueError("IMU_TO_POLICY must be orthonormal")
+    if not np.isclose(np.linalg.det(rotation), 1.0, atol=1.0e-4):
+        raise ValueError("IMU_TO_POLICY must be a proper rotation with determinant +1")
+
 
 def motor_to_policy_position(q_motor: np.ndarray) -> np.ndarray:
     q_motor = np.asarray(q_motor, dtype=np.float32)
