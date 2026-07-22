@@ -23,6 +23,7 @@ class ProtocolTests(unittest.TestCase):
             joint_velocity=-np.arange(12, dtype=np.float32),
             accel_m_s2=np.array([1.0, 2.0, 9.0], dtype=np.float32),
             gyro_rad_s=np.array([0.1, 0.2, 0.3], dtype=np.float32),
+            orientation_wxyz=np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32),
             status_flags=12,
         )
         frame = pack_state(source)
@@ -34,6 +35,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(result[0].sequence, source.sequence)
         np.testing.assert_allclose(result[0].joint_position, source.joint_position)
         np.testing.assert_allclose(result[0].accel_m_s2, source.accel_m_s2)
+        np.testing.assert_allclose(result[0].orientation_wxyz, source.orientation_wxyz)
 
     def test_command_round_trip_with_noise_prefix(self):
         source = CommandPacket(
@@ -59,9 +61,12 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(decoder.crc_errors, 1)
 
     def test_wire_sizes(self):
-        state = StatePacket(0, 0, np.zeros(12), np.zeros(12), np.zeros(3), np.zeros(3), 0)
+        state = StatePacket(
+            0, 0, np.zeros(12), np.zeros(12), np.zeros(3), np.zeros(3),
+            np.array([1.0, 0.0, 0.0, 0.0]), 0
+        )
         command = CommandPacket(0, 0, np.zeros(12), 0.0, 0.0, 0)
-        self.assertEqual(len(pack_state(state)), 138)
+        self.assertEqual(len(pack_state(state)), 154)
         self.assertEqual(len(pack_command(command)), 74)
 
 

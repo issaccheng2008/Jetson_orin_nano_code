@@ -20,6 +20,7 @@ packet = StatePacket(
     joint_velocity=np.zeros(12, dtype=np.float32),
     accel_m_s2=np.array([0.0, 0.0, 9.81], dtype=np.float32),
     gyro_rad_s=np.zeros(3, dtype=np.float32),
+    orientation_wxyz=np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32),
     status_flags=STATE_IMU_VALID | STATE_ENCODERS_VALID,
 )
 frame = pack_state(packet)

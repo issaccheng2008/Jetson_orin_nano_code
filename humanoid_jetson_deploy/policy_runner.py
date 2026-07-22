@@ -67,7 +67,7 @@ class HumanoidPolicy:
                 f"Observation shape is {obs.shape}; expected ({config.OBS_DIM},)"
             )
         if not np.isfinite(obs).all():
-            raise RuntimeError("NaN or Inf in policy observation")
+            raise RuntimeError("Observation contains a non-finite value")
         return obs
 
     def step(self, **observation_values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:

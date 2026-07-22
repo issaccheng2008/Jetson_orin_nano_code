@@ -39,6 +39,7 @@ with SerialLink(args.port, 921600) as link:
     print("  q[0:3]:", first.joint_position[:3])
     print("  accel:", first.accel_m_s2)
     print("  gyro:", first.gyro_rad_s)
+    print("  orientation [w, x, y, z]:", first.orientation_wxyz)
     print(f"  flags: 0x{first.status_flags:08X}")
 
     while time.monotonic() - start < args.seconds:
@@ -62,8 +63,16 @@ with SerialLink(args.port, 921600) as link:
     required = STATE_IMU_VALID | STATE_ENCODERS_VALID
     if (state.status_flags & required) != required:
         raise SystemExit(f"FAIL: IMU/encoder valid flags missing: 0x{state.status_flags:08X}")
-    if not np.isfinite(state.joint_position).all() or not np.isfinite(state.accel_m_s2).all():
+    if (
+        not np.isfinite(state.joint_position).all()
+        or not np.isfinite(state.accel_m_s2).all()
+        or not np.isfinite(state.gyro_rad_s).all()
+        or not np.isfinite(state.orientation_wxyz).all()
+    ):
         raise SystemExit("FAIL: state contains NaN or Inf")
+    quaternion_norm = float(np.linalg.norm(state.orientation_wxyz))
+    if not 0.5 <= quaternion_norm <= 1.5:
+        raise SystemExit(f"FAIL: invalid quaternion norm {quaternion_norm:.6f}")
     if not command_seen:
         raise SystemExit("FAIL: STM32 never reported STATE_COMMAND_FRESH")
 
