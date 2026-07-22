@@ -10,8 +10,7 @@ import time
 import numpy as np
 
 import config
-from command_source import FixedCommandSource
-# from command_source import UdpCommandSource  # Disabled for fixed-speed testing.
+from command_source import FixedCommandSource, UdpCommandSource
 from imu_filter import (
     projected_gravity_from_quaternion,
     roll_pitch_yaw_from_quaternion,
@@ -34,9 +33,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", required=True, help="Path to policy.onnx")
     parser.add_argument("--port", default="/dev/ttyACM0", help="STM32 serial device")
     parser.add_argument("--baud", type=int, default=921600)
-    parser.add_argument("--vx", type=float, default=0.2, help="Fixed forward command in m/s")
-    parser.add_argument("--wz", type=float, default=0.5, help="Fixed yaw-rate command in rad/s")
-    # parser.add_argument("--udp-command-port", type=int, default=0, help="Use local UDP JSON commands")
+    parser.add_argument(
+        "--command-source",
+        choices=("vision", "fixed"),
+        default="vision",
+        help="Use camera/connector UDP feedback (default) or an explicit fixed test command",
+    )
+    parser.add_argument("--udp-command-bind", default="127.0.0.1")
+    parser.add_argument("--udp-command-port", type=int, default=5005)
+    parser.add_argument(
+        "--command-timeout",
+        type=float,
+        default=0.25,
+        help="Command zero velocity when connector feedback is stale for this many seconds",
+    )
+    parser.add_argument("--vx", type=float, default=0.2, help="Fixed-test forward command in m/s")
+    parser.add_argument("--wz", type=float, default=0.5, help="Fixed-test yaw-rate command in rad/s")
     parser.add_argument("--kp-scale", type=float, default=1.0)
     parser.add_argument("--kd-scale", type=float, default=1.0)
     parser.add_argument("--enable-motors", action="store_true")
@@ -102,6 +114,10 @@ def main() -> int:
         raise SystemExit("plot-every must be at least 1")
     if args.plot_history_seconds <= 0.0:
         raise SystemExit("plot-history-seconds must be positive")
+    if not 1 <= args.udp_command_port <= 65535:
+        raise SystemExit("udp-command-port must be between 1 and 65535")
+    if args.command_timeout <= 0.0:
+        raise SystemExit("command-timeout must be positive")
 
     stop_requested = False
 
@@ -113,9 +129,21 @@ def main() -> int:
     signal.signal(signal.SIGTERM, request_stop)
 
     policy = HumanoidPolicy(args.model)
-    command_source = FixedCommandSource(args.vx, args.wz)
-    # Vision/connector communication is disabled for this fixed-speed test.
-    # command_source = UdpCommandSource(args.udp_command_port)
+    if args.command_source == "vision":
+        command_source = UdpCommandSource(
+            args.udp_command_port,
+            timeout_s=args.command_timeout,
+            bind=args.udp_command_bind,
+        )
+        command_source_description = (
+            f"camera/connector feedback on udp://{args.udp_command_bind}:"
+            f"{args.udp_command_port} (stale timeout {args.command_timeout:.3f}s)"
+        )
+    else:
+        command_source = FixedCommandSource(args.vx, args.wz)
+        command_source_description = (
+            f"fixed test command vx={args.vx:+.3f} m/s, wz={args.wz:+.3f} rad/s"
+        )
     position_logger = PositionCsvLogger(args.position_log_dir, config.JOINT_NAMES)
     position_plot = None
     if not args.no_plot:
@@ -129,6 +157,7 @@ def main() -> int:
             ) from exc
 
     print(f"ONNX input={policy.input_name!r}, output={policy.output_name!r}")
+    print(f"Velocity command source: {command_source_description}")
     print(f"Opening {args.port} (line coding {args.baud}; native USB CDC ignores physical baud)")
     print("MOTORS ENABLED" if args.enable_motors else "DRY RUN: command enable flag is OFF")
     print(f"Motor-position and IMU log: {position_logger.path}")

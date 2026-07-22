@@ -22,39 +22,9 @@ QR code is visible. The current example connector forwards the QR value but the
 policy consumes only `[vx, vy, wz]`. Add future QR behavior in
 `process_vision_output()` in `connector.py`.
 
-## Run the policy without vision
+## Run the camera velocity feedback loop
 
-For the current fixed-speed test, `humanoid_jetson_deploy/main.py` does not
-create the UDP command receiver. It sends the policy a constant command of
-`[vx, vy, wz] = [0.5, 0.0, 0.0]` by default, so only the policy process is
-needed:
-
-```bash
-cd humanoid_jetson_deploy
-python main.py --model policy.onnx --port /dev/ttyACM0
-```
-
-The policy process also opens a live target-versus-actual motor-position and
-IMU window (knees and IMU data selected by default). It records all 12
-target/actual positions, IMU acceleration, and fused roll/pitch/yaw to a
-timestamped CSV in `humanoid_jetson_deploy/logs/motor_positions/`. Use the
-window checkboxes to select motors or toggle the acceleration/orientation
-groups, or add `--no-plot` in a headless session; logging stays enabled.
-
-After a timed run, the plot remains open until it is closed manually. From the
-`humanoid_jetson_deploy` directory, run `python tools/view_position_log.py` to
-open the newest saved CSV, or pass a CSV path to inspect a specific run.
-
-The STM32 serial connection is still required because it supplies IMU/joint
-state and receives motor targets. Omit `--enable-motors` until the complete
-dry-run and calibration procedure in `humanoid_jetson_deploy/README.md` has
-passed. The fixed command can be overridden with `--vx` and `--wz`.
-
-## Re-enable vision integration
-
-The following three-process flow is currently disabled. Before using it,
-uncomment the UDP-related lines in `humanoid_jetson_deploy/main.py`.
-
+Camera/connector feedback is now the policy's default velocity-command source.
 Open three terminals in the repository root and activate the same Python
 environment in each.
 
@@ -62,7 +32,7 @@ environment in each.
 
    ```bash
    cd humanoid_jetson_deploy
-   python main.py --model policy.onnx --port /dev/ttyACM0 --udp-command-port 5005
+   python main.py --model policy.onnx --port /dev/ttyACM0
    ```
 
    Omit `--enable-motors` until the complete dry-run and calibration procedure
@@ -71,7 +41,6 @@ environment in each.
 2. Start the connector:
 
    ```bash
-   cd ..
    python connector.py --vision-port 5006 --policy-port 5005
    ```
 
@@ -87,6 +56,27 @@ connector republishes that same command about five times so the policy receives
 a target on every 50 Hz inference step. If vision messages stop for more than
 250 ms, it publishes `[0, 0, 0]`; the policy receiver also has its own 250 ms
 UDP watchdog.
+
+The policy process also opens a live target-versus-actual motor-position and
+IMU window (knees and IMU data selected by default). It records all 12
+target/actual positions, IMU acceleration, and fused roll/pitch/yaw to a
+timestamped CSV in `humanoid_jetson_deploy/logs/motor_positions/`. Use the
+window checkboxes to select motors or toggle the acceleration/orientation
+groups, or add `--no-plot` in a headless session; logging stays enabled.
+
+After a timed run, the plot remains open until it is closed manually. From the
+`humanoid_jetson_deploy` directory, run `python tools/view_position_log.py` to
+open the newest saved CSV, or pass a CSV path to inspect a specific run.
+
+The STM32 serial connection is still required because it supplies IMU/joint
+state and receives motor targets. For a test without camera feedback, explicitly
+select the fixed command source:
+
+```bash
+cd humanoid_jetson_deploy
+python main.py --model policy.onnx --port /dev/ttyACM0 \
+  --command-source fixed --vx 0.2 --wz 0.0
+```
 
 ## Debug the target velocity
 

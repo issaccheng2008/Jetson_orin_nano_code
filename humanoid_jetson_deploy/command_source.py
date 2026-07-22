@@ -12,6 +12,8 @@ import numpy as np
 
 def clamp_command(command) -> np.ndarray:
     command = np.asarray(command, dtype=np.float32).reshape(3)
+    if not np.all(np.isfinite(command)):
+        raise ValueError("velocity command must contain only finite values")
     return np.array(
         [
             np.clip(command[0], 0.0, 1.0),

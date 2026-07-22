@@ -344,24 +344,15 @@ Required checks:
 
 The current simulation multiplies acceleration by `0.1` before it reaches the network. `policy_runner.py` applies that same scaling exactly once.
 
-## Step 9: fixed-speed policy test without vision
+## Step 9: camera velocity-command feedback
 
-The UDP command receiver is currently commented out in `main.py`. Run only the
-policy process to use its default fixed command of `vx=0.5 m/s`, `vy=0.0 m/s`,
-and `wz=0.0 rad/s`:
-
-```bash
-python main.py --model policy.onnx --port /dev/ttyACM0
-```
-
-To restore vision integration later, uncomment the UDP-related lines in
-`main.py`, then run the policy with a local UDP command receiver:
+The policy listens for camera/connector velocity commands on local UDP port
+5005 by default. Start it first:
 
 ```bash
 python main.py \
   --model policy.onnx \
-  --port /dev/ttyACM0 \
-  --udp-command-port 5005
+  --port /dev/ttyACM0
 ```
 
 From the repository root, run the connector in a second terminal:
@@ -379,6 +370,13 @@ python vision/run_real_car.py
 Vision sends `{vx, vy: 0, wz, qr}` to UDP port 5006. The connector validates and processes that output, then sends it to this policy receiver on port 5005. The current example processing function is in `connector.py`; it clamps the training ranges, forces `vy=0`, and forwards QR values `1`–`6` or `-1` when none is visible.
 
 Both connector and policy receiver independently force the velocity command to zero if new upstream messages stop for 250 ms. Commands are clamped to the training range: `vx=0..1 m/s`, `vy=0`, and `wz=-0.5..0.5 rad/s`.
+
+To test without camera feedback, explicitly select the fixed source:
+
+```bash
+python main.py --model policy.onnx --port /dev/ttyACM0 \
+  --command-source fixed --vx 0.2 --wz 0.0
+```
 
 ## Live motor-position/IMU monitor and CSV log
 
