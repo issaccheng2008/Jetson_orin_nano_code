@@ -11,7 +11,9 @@ Computer-vision code for a USB camera connected to a Jetson Orin Nano. The repos
 - red-region detection in the visualization demo; and
 - a Webots bridge for testing parts of the same vision pipeline in simulation.
 
-> **Important:** the real-car controller is currently written for a four-wheel differential-drive vehicle. It does not yet generate the `linear velocity + yaw-rate` command interface normally used by a humanoid walking policy.
+> **Compatibility note:** `run_real_car.py` retains the legacy four-wheel
+> serial output, but it also publishes the humanoid `[vx, 0, wz]` command and
+> current QR value to the repository-level connector.
 
 ## Processing pipeline
 
@@ -43,41 +45,159 @@ In `run_real_car.py`, the line detector's fused tracking error is passed through
 | `usb_cam_qr_test.py` | Minimal USB-camera/QR test. It automatically runs without a preview window when no desktop display is available. |
 | `webots_controller.py` | Webots/e-puck test controller using related line and QR processing. Its UART output is still marked as TODO. |
 
-## Requirements
+## Jetson GPU acceleration
 
-- Jetson Orin Nano running Linux
-- Python 3
-- USB UVC camera
-- OpenCV
-- NumPy
-- pySerial, only when serial output is used
-- A graphical desktop for `vision_main.py` and `run_real_car.py`, because both call `cv2.imshow()`
+The real-robot path now accelerates the parts that OpenCV CUDA supports:
 
-A simple Ubuntu installation is:
+- UVC MJPEG decode uses Jetson's `nvv4l2decoder` through GStreamer when
+  available;
+- full-frame inverse-perspective warp, channel reduction, black-hat filtering,
+  thresholding and morphology run with `cv2.cuda`;
+- QR grayscale conversion, resize and 2x upscale run with `cv2.cuda`;
+- QR decode defaults to every third frame, while line tracking and command
+  publication still run on every frame; and
+- headless mode skips all copies, overlays, window resizes and `imshow` calls.
+
+QR decoding itself (`QRCodeDetector.detectAndDecode`), connected-component
+filtering, scan-line heuristics and PID control remain on CPU because OpenCV
+does not expose CUDA implementations for them. The program therefore uses both
+GPU and CPU; it does not falsely claim that every instruction runs on GPU.
+
+`VISION_DEVICE=auto` safely uses CUDA when available and falls back to CPU.
+`VISION_DEVICE=cuda` is the recommended deployment setting because it fails at
+startup if Python loaded a non-CUDA OpenCV build.
+
+## Jetson Orin Nano setup (Ubuntu 24.04 / JetPack 7.2)
+
+The supported Ubuntu 24.04 route is NVIDIA's official JetPack 7.x / Jetson
+Linux image. A generic Ubuntu ARM image does not include the Jetson GPU driver,
+multimedia plugins or CUDA integration.
+
+### 1. Verify the base system
+
+```bash
+uname -m
+cat /etc/os-release
+dpkg-query -W nvidia-l4t-core 2>/dev/null || true
+```
+
+For the current Ubuntu 24.04 path, expect `aarch64`, Ubuntu 24.04, and an
+NVIDIA L4T/Jetson Linux package. If `nvidia-l4t-core` is absent, install the
+official JetPack image before continuing.
+
+### 2. Install the JetPack components
 
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-opencv python3-numpy python3-serial v4l-utils
-
-python3 -m venv --system-site-packages .venv
-source .venv/bin/activate
+sudo apt install -y nvidia-jetpack
+/usr/local/cuda/bin/nvcc --version
 ```
 
-Check the available camera devices and modes with:
+The normal Ubuntu `python3-opencv` package and PyPI `opencv-python` wheels are
+CPU-only for this purpose. Do not install either inside the vision environment.
+
+### 3. Clone this repository
+
+```bash
+git clone https://github.com/issaccheng2008/Jetson_orin_nano_code.git
+cd Jetson_orin_nano_code
+```
+
+### 4. Build CUDA-enabled OpenCV
+
+The included script builds OpenCV 4.13 in an isolated environment with CUDA
+architecture 8.7 (Jetson Orin), GStreamer, V4L2 and the Python bindings:
+
+```bash
+chmod +x vision/build_opencv_cuda.sh
+VISION_VENV="$HOME/.venvs/jetson-vision" BUILD_JOBS=2 \
+  ./vision/build_opencv_cuda.sh
+source "$HOME/.venvs/jetson-vision/bin/activate"
+```
+
+The source build is large and can take a long time on an Orin Nano. It needs
+roughly 10 GB of free storage. Keep `BUILD_JOBS=2` on an 8 GB board; use `4`
+only if the board has enough RAM/swap and cooling.
+
+Verify that Python loaded this build rather than a CPU wheel:
+
+```bash
+python - <<'PY'
+import cv2
+print("cv2:", cv2.__version__, cv2.__file__)
+print("CUDA devices:", cv2.cuda.getCudaEnabledDeviceCount())
+for line in cv2.getBuildInformation().splitlines():
+    if "NVIDIA CUDA:" in line or "GStreamer:" in line:
+        print(line.strip())
+PY
+```
+
+`CUDA devices` must be at least `1`, and build information must show CUDA and
+GStreamer as `YES`.
+
+### 5. Check the camera and Jetson decoder
 
 ```bash
 v4l2-ctl --list-devices
 v4l2-ctl --device=/dev/video0 --list-formats-ext
+gst-inspect-1.0 nvv4l2decoder
 ```
+
+Confirm that the camera lists MJPG at `1280x720` and the desired frame rate.
+The requested resolution is 1280x720, not 1080x720. Test hardware decode:
+
+```bash
+gst-launch-1.0 -v \
+  v4l2src device=/dev/video0 io-mode=2 ! \
+  'image/jpeg,width=1280,height=720,framerate=30/1' ! \
+  jpegparse ! nvv4l2decoder mjpeg=true ! fakesink sync=false
+```
+
+Stop this test with Ctrl+C before starting Python.
+
+### 6. Run the accelerated vision process
+
+For robot deployment over SSH/headless:
+
+```bash
+source "$HOME/.venvs/jetson-vision/bin/activate"
+SHOW_WINDOW=0 VISION_DEVICE=cuda CAMERA_BACKEND=auto \
+QR_INTERVAL=3 QR_MAX_PROCESS_WIDTH=960 \
+CAM_IDX=0 CAM_W=1280 CAM_H=720 CAM_FPS=30 \
+python vision/run_real_car.py
+```
+
+Startup must print something similar to:
+
+```text
+Camera 0: requested 1280x720, got 1280x720, backend=gstreamer-nvv4l2decoder
+Vision backend: line=cuda, qr_preprocess=cuda, qr_every=3 frame(s), display=False
+```
+
+The periodic command line now includes measured processing FPS and the active
+line backend. Use `sudo tegrastats` in another terminal to confirm GPU load;
+on Jetson, `tegrastats` is more useful than desktop `nvidia-smi`.
+
+### 7. Tune latency if necessary
+
+- Keep `SHOW_WINDOW=0` during autonomous operation. Preview windows force
+  device-to-host copies and GUI work.
+- If QR detection is still the bottleneck, try `QR_INTERVAL=5` or
+  `QR_MAX_PROCESS_WIDTH=640`, then re-test recognition distance.
+- If the NVIDIA MJPEG pipeline does not accept the camera stream, use
+  `CAMERA_BACKEND=v4l2`; CUDA image processing remains enabled.
+- For comparison only, force the old path with `VISION_DEVICE=cpu`.
+- Use a proper heatsink/fan. `sudo jetson_clocks` can hold high clocks but also
+  increases power and heat; check the selected power mode and temperature with
+  `sudo nvpmodel -q` and `sudo tegrastats`.
 
 ## Quick start
 
-Clone the repository and activate the environment:
+Activate the environment from the setup above:
 
 ```bash
-git clone https://github.com/issaccheng2008/Jetson_orin_nano_vision.git
-cd Jetson_orin_nano_vision
-source .venv/bin/activate
+cd Jetson_orin_nano_code
+source "$HOME/.venvs/jetson-vision/bin/activate"
 ```
 
 ### 1. Test the USB camera and QR recognition
@@ -198,6 +318,11 @@ Most real-car settings can be overridden with environment variables.
 | `CAM_IDX` | `0` | OpenCV camera index |
 | `CAM_W`, `CAM_H` | `1280`, `720` | Requested camera resolution |
 | `CAM_FPS` | `30` | Requested frame rate |
+| `CAMERA_BACKEND` | `auto` | `auto`, Jetson `gstreamer`, or normal `v4l2` capture |
+| `VISION_DEVICE` | `auto` | `auto`, `cuda`, or `cpu` image preprocessing |
+| `SHOW_WINDOW` | `auto` | `0` disables GUI work; `1` requires a desktop display |
+| `QR_INTERVAL` | `3` | Decode QR once per this many camera frames |
+| `QR_MAX_PROCESS_WIDTH` | `960` | QR working width; `0` keeps full camera width |
 | `CAM_HEIGHT_CM` | `40.0` | Camera height used by IPM |
 | `CAM_PITCH_DEG` | `45.0` | Downward camera pitch |
 | `CAM_VFOV_DEG` | `49.0` | Vertical field of view |
