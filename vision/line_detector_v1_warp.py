@@ -74,13 +74,16 @@ def line_fit(ys, xs):
 # ═══════════════════════════════════════════════════════════════════════
 
 class LineDetector:
-    def __init__(self, cam_w=320, cam_h=240, cam_height_cm=38, cam_pitch_deg=45.0, cam_vfov_deg=43.6):
+    def __init__(self, cam_w=320, cam_h=240, cam_height_cm=38,
+                 cam_pitch_deg=45.0, cam_vfov_deg=43.6,
+                 use_cuda="auto", enable_visualization=True):
         # ── Camera params ──
         self.cam_w = int(cam_w)
         self.cam_h = int(cam_h)
         self.cam_height = float(cam_height_cm)
         self.cam_pitch = np.radians(cam_pitch_deg)
         self.cam_vfov_deg = float(cam_vfov_deg)
+        self.enable_visualization = bool(enable_visualization)
 
         # ── Birdseye ──
         self.bird_h = 400
@@ -91,6 +94,16 @@ class LineDetector:
         self.M = self._build_birdseye_matrix(lookahead=(10.0, 80.0))
         self.cm_per_px = self._compute_cm_per_px()
         self.z_per_px = (80.0 - 10.0) / float(self.bird_h - 1)  # vertical cm per px
+
+        # Allocate morphology kernels once.  The old implementation rebuilt
+        # these on every frame, which wastes CPU time even in CPU fallback.
+        self._k31 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
+        self._k5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        self._k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        self._cuda_requested = str(use_cuda).strip().lower()
+        self.cuda_enabled = False
+        self.cuda_error = None
+        self._init_cuda()
 
         # ── Threshold params ──
         self.th_offset = -8
@@ -204,6 +217,122 @@ class LineDetector:
             "shake_active_frames": 0,
             "diff_rms_px": 0.0,
         }
+
+    @property
+    def backend(self):
+        return "cuda" if self.cuda_enabled else "cpu"
+
+    def _init_cuda(self):
+        """Create reusable CUDA filters when OpenCV was built with CUDA."""
+        if self._cuda_requested in ("0", "false", "off", "no", "cpu"):
+            return
+        try:
+            if not hasattr(cv2, "cuda"):
+                raise RuntimeError("the cv2.cuda module is missing")
+            if cv2.cuda.getCudaEnabledDeviceCount() < 1:
+                raise RuntimeError("OpenCV reports zero CUDA devices")
+            required = ("warpPerspective", "split", "max", "threshold",
+                        "createMorphologyFilter")
+            missing = [name for name in required if not hasattr(cv2.cuda, name)]
+            if missing:
+                raise RuntimeError("missing cv2.cuda functions: " + ", ".join(missing))
+
+            self._cuda_blackhat = cv2.cuda.createMorphologyFilter(
+                cv2.MORPH_BLACKHAT, cv2.CV_8UC1, self._k31)
+            self._cuda_close5 = cv2.cuda.createMorphologyFilter(
+                cv2.MORPH_CLOSE, cv2.CV_8UC1, self._k5)
+            self._cuda_open5 = cv2.cuda.createMorphologyFilter(
+                cv2.MORPH_OPEN, cv2.CV_8UC1, self._k5)
+            self._cuda_open3 = cv2.cuda.createMorphologyFilter(
+                cv2.MORPH_OPEN, cv2.CV_8UC1, self._k3)
+            self._cuda_input = cv2.cuda_GpuMat()
+            self.cuda_enabled = True
+        except Exception as exc:
+            self.cuda_error = str(exc)
+            self.cuda_enabled = False
+            if self._cuda_requested == "cuda":
+                raise RuntimeError(
+                    f"VISION_DEVICE=cuda requested, but CUDA initialization failed: {exc}") from exc
+
+    def _select_black_threshold(self, gray_detect):
+        """Keep the existing adaptive threshold choice on the small bird view."""
+        otsu_th = self._otsu_threshold(gray_detect)
+        adaptive_binary = cv2.adaptiveThreshold(
+            gray_detect, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 31, -3)
+        adaptive_mask = adaptive_binary == 255
+        if np.count_nonzero(adaptive_mask) > 100:
+            black_th = np.median(gray_detect[adaptive_mask]) + self.th_offset
+        else:
+            black_th = otsu_th + self.th_offset
+        return clamp(black_th, self.th_min, self.th_max)
+
+    @staticmethod
+    def _filter_components(binary_clean):
+        """Remove small components without a Python loop over every label."""
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            binary_clean, connectivity=8)
+        if num_labels <= 1:
+            return binary_clean
+        keep = np.zeros(num_labels, dtype=np.bool_)
+        keep[1:] = (
+            (stats[1:, cv2.CC_STAT_AREA] >= 300)
+            & (stats[1:, cv2.CC_STAT_HEIGHT] >= 80)
+        )
+        binary_clean[~keep[labels]] = 0
+        return binary_clean
+
+    def _preprocess_cpu(self, bgr):
+        bgr_bird = cv2.warpPerspective(
+            bgr, self.M, (self.bird_w, self.bird_h))
+        # max(gray_max, gray_std) from the original code is exactly gray_max,
+        # because a weighted channel average cannot exceed the largest channel.
+        gray = np.max(bgr_bird, axis=2).astype(np.uint8)
+        gray_detect = cv2.morphologyEx(
+            gray, cv2.MORPH_BLACKHAT, self._k31)
+        black_th = self._select_black_threshold(gray_detect)
+        _, binary_clean = cv2.threshold(
+            gray_detect, black_th, 255, cv2.THRESH_BINARY)
+        binary_clean = cv2.morphologyEx(
+            binary_clean, cv2.MORPH_CLOSE, self._k5, iterations=1)
+        binary_clean = cv2.morphologyEx(
+            binary_clean, cv2.MORPH_OPEN, self._k5, iterations=1)
+        binary_clean = cv2.morphologyEx(
+            binary_clean, cv2.MORPH_CLOSE, self._k5, iterations=1)
+        binary_clean = cv2.morphologyEx(
+            binary_clean, cv2.MORPH_OPEN, self._k3, iterations=1)
+        binary_clean = self._filter_components(binary_clean)
+        gray_detect[binary_clean == 0] = 0
+        return bgr_bird, gray, gray_detect, binary_clean, black_th
+
+    def _preprocess_cuda(self, bgr):
+        """Run full-frame warp and morphology on the Orin CUDA device."""
+        self._cuda_input.upload(bgr)
+        bird_gpu = cv2.cuda.warpPerspective(
+            self._cuda_input, self.M, (self.bird_w, self.bird_h),
+            flags=cv2.INTER_LINEAR)
+        channels = cv2.cuda.split(bird_gpu)
+        gray_gpu = cv2.cuda.max(channels[0], channels[1])
+        gray_gpu = cv2.cuda.max(gray_gpu, channels[2])
+        detect_gpu = self._cuda_blackhat.apply(gray_gpu)
+
+        # Only 320x400 bytes cross back here to select the dynamic threshold.
+        gray_detect = detect_gpu.download()
+        black_th = self._select_black_threshold(gray_detect)
+        threshold_result = cv2.cuda.threshold(
+            detect_gpu, black_th, 255, cv2.THRESH_BINARY)
+        binary_gpu = (threshold_result[1]
+                      if isinstance(threshold_result, tuple)
+                      else threshold_result)
+        binary_gpu = self._cuda_close5.apply(binary_gpu)
+        binary_gpu = self._cuda_open5.apply(binary_gpu)
+        binary_gpu = self._cuda_close5.apply(binary_gpu)
+        binary_gpu = self._cuda_open3.apply(binary_gpu)
+
+        binary_clean = self._filter_components(binary_gpu.download())
+        gray_detect[binary_clean == 0] = 0
+        return (bird_gpu.download(), gray_gpu.download(), gray_detect,
+                binary_clean, black_th)
 
     # ═══════════════════════════════════════════════════════════
     # Birdseye matrix (same as V2/V3: line_detector.py lines 87-133)
@@ -841,57 +970,26 @@ class LineDetector:
         state = self._state
         state["startup_frames"] += 1
 
-        # ── Step 1: Warp to birdseye (single warp, derive gray on birdseye) ──
-        bgr_bird = cv2.warpPerspective(bgr, self.M, (self.bird_w, self.bird_h))
-        # Custom grayscale on birdseye: max of max(R,G,B) and standard grayscale
-        gray_max = np.max(bgr_bird, axis=2)
-        gray_std = cv2.cvtColor(bgr_bird, cv2.COLOR_BGR2GRAY)
-        gray = np.maximum(gray_max, gray_std)
-
-        # Black hat: suppress wide shadows, enhance thin dark lines → bright
-        k31 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
-        gray_detect = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, k31)
+        # ── Steps 1-2: warp, grayscale, black-hat, threshold and morphology ──
+        if self.cuda_enabled:
+            try:
+                (bgr_bird, gray, gray_detect, binary_clean,
+                 black_th) = self._preprocess_cuda(bgr)
+            except Exception as exc:
+                # A CUDA-enabled build can still omit an individual module.
+                # Fall back once instead of crashing the robot runtime.
+                self.cuda_error = str(exc)
+                self.cuda_enabled = False
+                print(f"[vision] CUDA preprocessing failed; using CPU: {exc}")
+                (bgr_bird, gray, gray_detect, binary_clean,
+                 black_th) = self._preprocess_cpu(bgr)
+        else:
+            (bgr_bird, gray, gray_detect, binary_clean,
+             black_th) = self._preprocess_cpu(bgr)
 
         img_w = self.bird_w
         img_h = self.bird_h
         img_cx = self.center_x
-
-        # ── Step 2: Adaptive threshold (Gaussian + Otsu fallback) ──
-        # Otsu 全局阈值（保留作为参考）
-        otsu_th = self._otsu_threshold(gray_detect)
-
-        # 高斯自适应阈值（主力，对 black-hat 结果操作：线已变亮）
-        adaptive_binary = cv2.adaptiveThreshold(
-            gray_detect, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 31, -3  # blockSize=31, C=-3
-        )
-        # Black-hat 后线变亮 → THRESH_BINARY 把线判为 255
-        adaptive_mask = (adaptive_binary == 255)
-        if np.count_nonzero(adaptive_mask) > 100:
-            black_th = np.median(gray_detect[adaptive_mask]) + self.th_offset
-        else:
-            black_th = otsu_th + self.th_offset
-
-        # 限幅
-        black_th = clamp(black_th, self.th_min, self.th_max)
-
-        # ── Clean gray_detect: morphology + CC on the detection input ──
-        _, binary_clean = cv2.threshold(gray_detect, black_th, 255, cv2.THRESH_BINARY)
-        k5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_CLOSE, k5, iterations=1)
-        binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_OPEN, k5, iterations=1)
-        binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_CLOSE, k5, iterations=1)
-        k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_OPEN, k3, iterations=1)
-        # Connected component filter
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary_clean, connectivity=8)
-        for label_id in range(1, num_labels):
-            area = stats[label_id, cv2.CC_STAT_AREA]
-            h = stats[label_id, cv2.CC_STAT_HEIGHT]
-            if area < 300 or h < 80:
-                binary_clean[labels == label_id] = 0
-        # Apply mask: noise pixels → 0, track pixels keep original value
-        gray_detect[binary_clean == 0] = 0
 
         # ── Step 3: Track color detection ──
         # After black-hat, lines are always bright → track_is_dark=False
@@ -1165,17 +1263,16 @@ class LineDetector:
         conf = clamp(avg_conf, 0.0, 1.0)
 
         # ── Visualization (on birdseye) ──
-        vis = self._build_visualization(
-            gray, bgr_bird, roi_results, black_th, track_is_dark,
-            dev_px, heading_deg, conf, base_err_px, band_mask,
-        )
+        vis = None
+        if self.enable_visualization:
+            vis = self._build_visualization(
+                gray, bgr_bird, roi_results, black_th, track_is_dark,
+                dev_px, heading_deg, conf, base_err_px, band_mask,
+            )
 
         # ── Debug info ──
         binary_raw_inv = 255 - binary_clean  # invert for display: black line on white bg
         debug = {
-            "bird": gray,
-            "binary_raw": binary_raw_inv,
-            "binary": binary_clean,
             "black_th": black_th,
             "track_is_dark": track_is_dark,
             "base_err_px": base_err_px,
@@ -1201,7 +1298,14 @@ class LineDetector:
             "turn_gate": turn_gate,
             "fused_err": state["smoothed_err"],
             "curve_mode": curve_mode,
+            "backend": self.backend,
         }
+        if self.enable_visualization:
+            debug.update({
+                "bird": gray,
+                "binary_raw": binary_raw_inv,
+                "binary": binary_clean,
+            })
 
         return dev_px, heading_deg, conf, vis, debug
 

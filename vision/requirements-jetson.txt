@@ -1,0 +1,3 @@
+# OpenCV is intentionally absent: pip wheels do not provide Jetson CUDA support.
+numpy>=2.0
+pyserial>=3.5

@@ -24,6 +24,9 @@ class QRDetector:
         cam_w=640,
         cam_h=480,
         debug=True,
+        use_cuda="auto",       # auto / cuda / cpu
+        process_every_n=1,     # QR decode cadence; line tracking still runs every frame
+        max_process_width=0,   # 0 keeps full width; e.g. 960 reduces decoder load
     ):
         self.stable_frames = stable_frames
         self.cooldown_ms = cooldown_ms
@@ -34,6 +37,9 @@ class QRDetector:
         self.cam_w = cam_w
         self.cam_h = cam_h
         self.debug = debug
+        self.process_every_n = max(1, int(process_every_n))
+        self.max_process_width = max(0, int(max_process_width))
+        self._frame_index = 0
 
         self.detector = cv2.QRCodeDetector()
         self.candidate = None
@@ -43,6 +49,27 @@ class QRDetector:
         # Current per-frame reading for the connector.  This is independent of
         # the event cooldown used by update()'s return value.
         self.current_qr = -1
+
+        self.cuda_enabled = False
+        self.cuda_error = None
+        requested = str(use_cuda).strip().lower()
+        if requested not in ("0", "false", "off", "no", "cpu"):
+            try:
+                if not hasattr(cv2, "cuda"):
+                    raise RuntimeError("the cv2.cuda module is missing")
+                if cv2.cuda.getCudaEnabledDeviceCount() < 1:
+                    raise RuntimeError("OpenCV reports zero CUDA devices")
+                for name in ("resize", "cvtColor"):
+                    if not hasattr(cv2.cuda, name):
+                        raise RuntimeError(f"cv2.cuda.{name} is missing")
+                self._cuda_input = cv2.cuda_GpuMat()
+                self.cuda_enabled = True
+            except Exception as exc:
+                self.cuda_error = str(exc)
+                if requested == "cuda":
+                    raise RuntimeError(
+                        "VISION_DEVICE=cuda requested, but CUDA QR "
+                        f"initialization failed: {exc}") from exc
 
         self._map_x = None
         self._map_y = None
@@ -59,7 +86,7 @@ class QRDetector:
         gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray)
         return gray
 
-    def decode_one(self, gray):
+    def decode_one(self, gray, corner_scale=1.0):
         """单帧解码 (payload, [4 corners] or None)"""
         try:
             data, pts, _ = self.detector.detectAndDecode(gray)
@@ -70,7 +97,7 @@ class QRDetector:
         payload = data.strip()
         if payload not in ("1","2","3","4","5","6"):
             return None, None
-        corners = pts.reshape(-1, 2)
+        corners = pts.reshape(-1, 2) * float(corner_scale)
         w = float(np.linalg.norm(corners[1] - corners[0]))
         h = float(np.linalg.norm(corners[2] - corners[1]))
         edge = max(w, h)
@@ -78,25 +105,69 @@ class QRDetector:
             return None, None
         return payload, corners
 
+    def _prepare_gray(self, bgr_or_gray):
+        """Return CPU gray, optional GPU gray, and scale to original pixels."""
+        h, w = bgr_or_gray.shape[:2]
+        scale = 1.0
+        if self.max_process_width > 0 and w > self.max_process_width:
+            scale = self.max_process_width / float(w)
+        out_size = (max(1, int(round(w * scale))),
+                    max(1, int(round(h * scale))))
+
+        if self.cuda_enabled:
+            try:
+                self._cuda_input.upload(bgr_or_gray)
+                work_gpu = self._cuda_input
+                if scale < 1.0:
+                    work_gpu = cv2.cuda.resize(
+                        work_gpu, out_size, interpolation=cv2.INTER_AREA)
+                if len(bgr_or_gray.shape) == 3:
+                    gray_gpu = cv2.cuda.cvtColor(
+                        work_gpu, cv2.COLOR_BGR2GRAY)
+                else:
+                    gray_gpu = work_gpu
+                return gray_gpu.download(), gray_gpu, scale
+            except Exception as exc:
+                self.cuda_error = str(exc)
+                self.cuda_enabled = False
+                print(f"[vision] CUDA QR preprocessing failed; using CPU: {exc}")
+
+        work = bgr_or_gray
+        if scale < 1.0:
+            work = cv2.resize(work, out_size, interpolation=cv2.INTER_AREA)
+        if len(work.shape) == 3:
+            work = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
+        return work, None, scale
+
     def update(self, bgr_or_gray):
         """返回 (action_number, debug_dict) 或 (None, None)。"""
-        if len(bgr_or_gray.shape) == 3:
-            gray = cv2.cvtColor(bgr_or_gray, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = bgr_or_gray
+        self._frame_index += 1
+        if (self._frame_index - 1) % self.process_every_n != 0:
+            # Hold the last result only until the next scheduled QR scan.  This
+            # prevents skipped decode frames from falsely publishing -1.
+            return None, None
+
+        gray, gray_gpu, scale = self._prepare_gray(bgr_or_gray)
+        to_original = 1.0 / max(scale, 1e-9)
 
         # S1: raw — QR 大/近时最快
-        payload, corners = self.decode_one(gray)
+        payload, corners = self.decode_one(gray, corner_scale=to_original)
         if payload is not None:
             self.current_qr = int(payload)
             return self._confirm(payload, corners, "raw")
 
         # S2: 2x upscale — QR 小/远时主导（实测命中率最高）
         h, w = gray.shape[:2]
-        up = cv2.resize(gray, (w * 2, h * 2), interpolation=cv2.INTER_LANCZOS4)
-        payload, corners = self.decode_one(up)
+        if gray_gpu is not None:
+            up = cv2.cuda.resize(
+                gray_gpu, (w * 2, h * 2),
+                interpolation=cv2.INTER_LANCZOS4).download()
+        else:
+            up = cv2.resize(
+                gray, (w * 2, h * 2), interpolation=cv2.INTER_LANCZOS4)
+        payload, corners = self.decode_one(
+            up, corner_scale=0.5 * to_original)
         if payload is not None and corners is not None:
-            corners = corners * 0.5
             self.current_qr = int(payload)
             return self._confirm(payload, corners, "upscale")
 
