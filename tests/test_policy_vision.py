@@ -73,6 +73,15 @@ class SteeringTests(unittest.TestCase):
 
 
 class VisionEntryPointTests(unittest.TestCase):
+    def test_default_destination_is_policy_port_and_old_flags_remain_compatible(self):
+        with patch("sys.argv", ["run_policy_vision.py"]):
+            args = run_policy_vision.parse_args()
+        self.assertEqual((args.command_host, args.command_port), ("127.0.0.1", 5005))
+        with patch("sys.argv", ["run_policy_vision.py", "--connector-host", "localhost",
+                                "--connector-port", "5006"]):
+            args = run_policy_vision.parse_args()
+        self.assertEqual((args.command_host, args.command_port), ("localhost", 5006))
+
     def test_headless_runner_publishes_detection_and_zero_on_capture_failure(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
@@ -115,6 +124,25 @@ class VisionEntryPointTests(unittest.TestCase):
 
 
 class UdpIntegrationTests(unittest.TestCase):
+    def test_direct_vision_to_policy_path_and_watchdog(self):
+        source = UdpCommandSource(0, timeout_s=0.1)
+        client = ConnectorClient(port=source.sock.getsockname()[1])
+        try:
+            client.publish(0.4, -0.002)
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline and not np.allclose(source.get(), [0.4, 0, -0.002]):
+                time.sleep(0.005)
+            np.testing.assert_allclose(source.get(), [0.4, 0, -0.002])
+            status = source.status()
+            self.assertTrue(status["fresh"])
+            self.assertEqual(status["valid_packets"], 1)
+            time.sleep(0.11)
+            np.testing.assert_array_equal(source.get(), [0, 0, 0])
+            self.assertFalse(source.status()["fresh"])
+        finally:
+            client.close()
+            source.close()
+
     def test_controller_connector_receiver_observation_and_both_watchdogs(self):
         source = UdpCommandSource(0, timeout_s=0.15)
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:

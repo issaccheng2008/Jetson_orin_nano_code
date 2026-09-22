@@ -29,8 +29,9 @@
 
 ## Walking policy UDP integration
 
-For closed-loop ONNX walking, run `jetson/run_policy_vision.py` with the root
-`connector.py` and the policy's `--command-source vision` mode. See the
+For closed-loop ONNX walking, run `jetson/run_policy_vision.py` and the policy's
+`--command-source vision` mode. Vision sends directly to policy port 5005 by
+default; the root `connector.py` is an optional legacy relay. See the
 [detailed setup/test guide](../docs/closed_loop_vision.md). This entry point uses
 the new CPU line detector and sends the historical UDP JSON velocity commands;
 it does not open the STM32 serial port or execute shape/bar actions.
