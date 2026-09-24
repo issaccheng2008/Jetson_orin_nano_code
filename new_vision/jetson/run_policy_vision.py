@@ -41,8 +41,8 @@ def parse_args():
                         help="Forward speed with valid detection, m/s")
     parser.add_argument("--max-wz", type=float, default=0.5,
                         help="Yaw-rate limit, rad/s (0..0.5)")
-    parser.add_argument("--steer-full-scale-cm", type=float, default=50.0,
-                        help="PID steering error producing max-wz; smaller means stronger steering")
+    parser.add_argument("--steer-full-scale-cm", type=float, default=10.0,
+                        help="Cross-track error (cm) producing max-wz; smaller means stronger steering")
     parser.add_argument("--yaw-sign", type=int, choices=(-1, 1), default=-1)
     parser.add_argument("--step-len-cm", type=float, default=float(os.getenv("STEP_LEN_CM", "8")))
     parser.add_argument("--preview-gain", type=float, default=float(os.getenv("PREVIEW_GAIN", "1")))
@@ -73,7 +73,7 @@ def main():
         vx=args.vx, max_wz=args.max_wz, steer_full_scale_cm=args.steer_full_scale_cm,
         yaw_sign=args.yaw_sign, step_len_cm=args.step_len_cm, preview_gain=args.preview_gain,
         straight_gains=gains("STRAIGHT", (0.83, 0.004, 0.095)),
-        curve_gains=gains("CURVE", (0.78, 0.002, 0.16)),
+        curve_gains=gains("CURVE", (0.83, 0.006, 0.16)),
         integral_limit=float(os.getenv("JETSON_PID_I_CLAMP", "60")),
     )
     # Lazy imports keep --help and controller tests usable without a camera stack.

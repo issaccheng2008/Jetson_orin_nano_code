@@ -98,6 +98,11 @@ class LineDetector:
         self.z_per_px = (80.0 - 20.0) / float(self.bird_h - 1)  # vertical cm per px
         self._asp = self.cm_per_px / self.z_per_px  # pixel aspect ratio (~1.84)
 
+        # fused_err is the dimensionless near_err_px / (0.5*bird_w). Every consumer
+        # (PID gains, STEP_LEN_CM, steer_full_scale_cm) is calibrated in cm, so the
+        # conversion is published alongside it as fused_err_cm.
+        self.err_scale_cm = 0.5 * self.bird_w * self.cm_per_px
+
         # Pinhole intrinsics (16:9, square pixels) — exact red-bar distance
         vfov_rad = np.radians(self.cam_vfov_deg)
         hfov_rad = 2.0 * np.arctan(np.tan(vfov_rad / 2.0) * self.cam_w / self.cam_h)
@@ -1498,6 +1503,7 @@ class LineDetector:
             "curve_px": curve_px,
             "turn_gate": turn_gate,
             "fused_err": state["smoothed_err"],
+            "fused_err_cm": state["smoothed_err"] * self.err_scale_cm,
             "narrow_gate_detected": narrow_gate_detected,
             "narrow_gate_score": narrow_gate_score,
             "narrow_gate_dir": narrow_gate_dir,

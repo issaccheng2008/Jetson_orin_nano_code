@@ -25,13 +25,13 @@ import run_policy_vision
 
 
 def detection(error=10.0, angle=0.0, lost=0, curve=False):
-    return dict(fused_err=error, angle_err_deg=angle, lost_frames=lost,
-                curve_mode=curve, bottom_lock_valid=True)
+    return dict(fused_err=error / 52.8, fused_err_cm=error, angle_err_deg=angle,
+                lost_frames=lost, curve_mode=curve, bottom_lock_valid=True)
 
 
 class SteeringTests(unittest.TestCase):
     def test_sign_units_clamping_and_preview(self):
-        controller = SteeringController(straight_gains=(1, 0, 0))
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
         np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.4, -0.1])
         self.assertGreater(controller.command(detection(-10), 0.8, 0.02)[1], 0)
         self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], -0.5)
@@ -126,7 +126,7 @@ class UdpIntegrationTests(unittest.TestCase):
              "--vision-timeout", "0.15"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         )
         client = ConnectorClient(port=vision_port)
-        controller = SteeringController(straight_gains=(1, 0, 0))
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
         expected = [0.4, 0.0, -0.1]
 
         def wait_for(target, publish=False):

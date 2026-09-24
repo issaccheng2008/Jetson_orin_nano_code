@@ -22,10 +22,10 @@ class SteeringController:
     blind search. Reset PID on loss so reacquisition has no derivative kick.
     """
 
-    def __init__(self, vx=0.4, max_wz=0.5, steer_full_scale_cm=50.0,
+    def __init__(self, vx=0.4, max_wz=0.5, steer_full_scale_cm=10.0,
                  yaw_sign=-1, step_len_cm=8.0, preview_gain=1.0,
                  straight_gains=(0.83, 0.004, 0.095),
-                 curve_gains=(0.78, 0.002, 0.16), integral_limit=60.0):
+                 curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0):
         values = (vx, max_wz, steer_full_scale_cm, yaw_sign, step_len_cm,
                   preview_gain, integral_limit, *straight_gains, *curve_gains)
         if not all(math.isfinite(v) for v in values):
@@ -51,7 +51,7 @@ class SteeringController:
 
     def command(self, debug, confidence, dt):
         try:
-            err = float(debug["fused_err"])
+            err = float(debug["fused_err_cm"])
             angle = float(debug["angle_err_deg"])
             lost = float(debug["lost_frames"])
             valid = (all(math.isfinite(v) for v in (err, angle, lost, confidence, dt))
@@ -63,7 +63,10 @@ class SteeringController:
             return 0.0, 0.0
         dt = clamp(dt, 0.01, 0.2)
         curve = bool(debug.get("curve_mode", False))
-        if debug.get("bottom_lock_valid", False) and self.last_curve:
+        # Clear only on the curve -> straight transition. The previous condition
+        # (bottom lock valid AND previous frame was a curve) fired on every frame
+        # of a long curve, so the integral never accumulated across it.
+        if self.last_curve and not curve:
             self.integral = 0.0
         self.last_curve = curve
         kp, ki, kd = self.curve_gains if curve else self.straight_gains
