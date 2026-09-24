@@ -17,6 +17,11 @@ import time
 from camera_config import load as load_camera
 from policy_bridge import ConnectorClient, SteeringController
 
+# TEST BRANCH (vision-test-card-stop): stop the robot the first time any card is
+# detected, so the real robot can confirm cards are visible at all and from how
+# far. Not a competition behaviour. Drop this branch when the test is done.
+CARD_EVERY = 3      # run the card detector every Nth frame (~96 ms/frame each)
+
 
 def parse_args():
     camera = load_camera()
@@ -74,6 +79,7 @@ def main():
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
     from line_detector_v1_warp import LineDetector
+    from shape_detector import ShapeDetector
     from utils import open_camera, show_debug_windows
 
     stopped = False
@@ -95,11 +101,16 @@ def main():
         detector = LineDetector(width, height, cam_height_cm=args.camera_height_cm,
                                 cam_pitch_deg=args.camera_pitch_deg,
                                 cam_vfov_deg=args.camera_vfov_deg)
+        # Card detector: stable_frames/cooldown only gate the action output, which
+        # this branch ignores - it reads dbg["card_found"], a per-frame boolean.
+        cards = ShapeDetector(stable_frames=3, cooldown_ms=3200, debug=False)
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
               f"{args.connector_host}:{args.connector_port}; vx={args.vx} m/s; "
               f"max_wz={args.max_wz} rad/s; yaw_sign={args.yaw_sign}", flush=True)
         start = previous = time.monotonic()
         last_log = -math.inf
+        frame_count = 0
+        card_stopped = False
         while not stopped:
             now = time.monotonic()
             if args.max_seconds > 0 and now - start >= args.max_seconds:
@@ -115,17 +126,36 @@ def main():
                 continue
             _, _, confidence, visualization, debug = detector.process(frame)
             processed = time.monotonic()
-            vx, wz = controller.command(debug, confidence, processed - previous)
+
+            # Test: latch a stop the first time a card is seen, anywhere in frame
+            # and at any distance. Only every Nth frame - see CARD_EVERY.
+            frame_count += 1
+            if not card_stopped and frame_count % CARD_EVERY == 0:
+                _, card_debug = cards.update(frame, lane_offset_cm=debug.get("fused_err"))
+                if card_debug.get("card_found"):
+                    card_stopped = True
+                    print(f"[card] >>> card detected (shape={card_debug.get('shape')}); "
+                          f"stopping for good", flush=True)
+
+            if card_stopped:
+                # Both must be zero: policy_runner picks the step distance with
+                # np.all(command == 0), so a non-zero wz keeps it stepping in place.
+                vx, wz = 0.0, 0.0
+            else:
+                vx, wz = controller.command(debug, confidence, processed - previous)
             previous = processed
             client.publish(vx, wz)
             if processed - last_log >= 0.5:
                 print(f"[vision -> connector] vx={vx:+.3f} m/s wz={wz:+.3f} rad/s "
                       f"steer={controller.last_steer:+.2f}cm conf={confidence:.3f} "
-                      f"lost={debug.get('lost_frames', '?')}", flush=True)
+                      f"lost={debug.get('lost_frames', '?')}"
+                      f"{'  CARD STOP' if card_stopped else ''}", flush=True)
                 last_log = processed
             if not args.headless:
-                cv2.putText(frame, f"vx={vx:+.3f} wz={wz:+.3f} Q=quit", (10, 25),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                label = "CARD STOP" if card_stopped else f"vx={vx:+.3f} wz={wz:+.3f}"
+                cv2.putText(frame, f"{label} Q=quit", (10, 25),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            (0, 0, 255) if card_stopped else (0, 255, 0), 2)
                 cv2.imshow("Policy vision", frame)
                 show_debug_windows(debug, visualization)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
