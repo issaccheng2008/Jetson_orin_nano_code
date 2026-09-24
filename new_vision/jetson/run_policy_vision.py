@@ -111,6 +111,10 @@ def main():
         last_log = -math.inf
         frame_count = 0
         card_stopped = False
+        fps_t0 = time.monotonic()
+        fps_n = 0
+        fps_val = 0.0
+        det_ms = card_ms = 0.0
         while not stopped:
             now = time.monotonic()
             if args.max_seconds > 0 and now - start >= args.max_seconds:
@@ -124,14 +128,18 @@ def main():
                     last_log = now
                 time.sleep(0.02)
                 continue
+            t_det = time.monotonic()
             _, _, confidence, visualization, debug = detector.process(frame)
+            det_ms = (time.monotonic() - t_det) * 1000.0
             processed = time.monotonic()
 
             # Test: latch a stop the first time a card is seen, anywhere in frame
             # and at any distance. Only every Nth frame - see CARD_EVERY.
             frame_count += 1
             if not card_stopped and frame_count % CARD_EVERY == 0:
+                t_card = time.monotonic()
                 _, card_debug = cards.update(frame, lane_offset_cm=debug.get("fused_err"))
+                card_ms = (time.monotonic() - t_card) * 1000.0
                 if card_debug.get("card_found"):
                     card_stopped = True
                     print(f"[card] >>> card detected (shape={card_debug.get('shape')}); "
@@ -144,15 +152,26 @@ def main():
             else:
                 vx, wz = controller.command(debug, confidence, processed - previous)
             previous = processed
+
+            # Loop rate: the downstream watchdogs zero the command if vision goes
+            # quiet for 0.25 s, so this number matters - keep it well above 4 Hz.
+            fps_n += 1
+            if processed - fps_t0 >= 1.0:
+                fps_val = fps_n / (processed - fps_t0)
+                fps_n, fps_t0 = 0, processed
+
             client.publish(vx, wz)
             if processed - last_log >= 0.5:
-                print(f"[vision -> connector] vx={vx:+.3f} m/s wz={wz:+.3f} rad/s "
+                print(f"[vision -> connector] fps={fps_val:4.1f} "
+                      f"det={det_ms:5.1f}ms card={card_ms:5.1f}ms "
+                      f"vx={vx:+.3f} m/s wz={wz:+.3f} rad/s "
                       f"steer={controller.last_steer:+.2f}cm conf={confidence:.3f} "
                       f"lost={debug.get('lost_frames', '?')}"
                       f"{'  CARD STOP' if card_stopped else ''}", flush=True)
                 last_log = processed
             if not args.headless:
-                label = "CARD STOP" if card_stopped else f"vx={vx:+.3f} wz={wz:+.3f}"
+                label = ("CARD STOP" if card_stopped else
+                         f"fps={fps_val:.1f} det={det_ms:.0f}ms vx={vx:+.2f} wz={wz:+.3f}")
                 cv2.putText(frame, f"{label} Q=quit", (10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                             (0, 0, 255) if card_stopped else (0, 255, 0), 2)
