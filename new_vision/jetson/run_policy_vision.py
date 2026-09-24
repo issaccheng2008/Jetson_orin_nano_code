@@ -138,7 +138,7 @@ def main():
             frame_count += 1
             if not card_stopped and frame_count % CARD_EVERY == 0:
                 t_card = time.monotonic()
-                _, card_debug = cards.update(frame, lane_offset_cm=debug.get("fused_err"))
+                _, card_debug = cards.update(frame, lane_offset_cm=debug.get("fused_err_cm"))
                 card_ms = (time.monotonic() - t_card) * 1000.0
                 if card_debug.get("card_found"):
                     card_stopped = True
