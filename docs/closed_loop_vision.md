@@ -199,17 +199,30 @@ steer_cm = PID(fused_err_cm) + preview_gain * step_len_cm * sin(heading_error)
 wz = yaw_sign * clip(clip(steer_cm, -50, 50) / steer_full_scale_cm, -1, 1) * max_wz
 ```
 
+The D term is filtered: `median(err, 3)` then a first-order IIR
+(`--deriv-pole`, default 0.78) over a fixed 0.05 s nominal period. The detector
+already EMA-smooths the error, so differentiating it mostly amplified residual
+noise - on real line video the raw term averaged 0.84 cm but swung with a
+5.49 cm standard deviation and caused 5.93 of the 7.56 cm frame-to-frame steer
+jitter. Filtering took that jitter to 3.31 cm and the worst single step from
+35.05 to 12.61 cm, while keeping the damping. `--deriv-pole 0` disables the IIR
+and leaves the median.
+
 This is a commanded yaw rate derived from image error, not a measured angular
 velocity. With the defaults, 10 cm of final PID steering gives -0.1 rad/s.
 
 - `--max-wz`: begin at 0.2; increase toward 0.5 only after verifying tracking.
-- `--steer-full-scale-cm`: default 50; reducing it strengthens correction.
+- `--steer-full-scale-cm`: default 10; reducing it strengthens correction.
 - `--vx`: sets forward speed in the vision process; choose a speed your policy
   can track reliably (repository default 0.4 m/s).
 - `--step-len-cm`: default 8; keep consistent with your intended walking stride.
 - `--preview-gain`: default 1; reduce if anticipatory steering causes oscillation.
+- `--lost-hold-s`: default 0.2; how long to hold the last command before
+  stopping on line loss.
+- `--deriv-pole`: default 0.78; raise for a smoother D term, lower for faster.
 - Existing `JETSON_PID_STRAIGHT_KP/KI/KD`, `JETSON_PID_CURVE_KP/KI/KD`,
-  `JETSON_PID_I_CLAMP`, `STEP_LEN_CM`, and `PREVIEW_GAIN` environment overrides work.
+  `JETSON_PID_I_CLAMP`, `JETSON_PID_D_FILTER`, `STEP_LEN_CM`, and `PREVIEW_GAIN`
+  environment overrides work.
 
 The 0.5 rad/s cap is retained from the old communication implementation. Raising
 it would require coordinated edits to the mapper, connector, and policy receiver

@@ -49,9 +49,29 @@ class SteeringTests(unittest.TestCase):
                                 (detection(float("nan")), 0.8), (detection(), 0),
                                 (detection(), float("nan"))):
             self.assertEqual(controller.command(dbg, confidence, 0.02), (0, 0))
-            self.assertIsNone(controller.last_err)
+            self.assertIsNone(controller.last_median)
+            self.assertEqual(controller.err_window, [])
         fresh = SteeringController().command(detection(), 0.8, 0.02)
         self.assertEqual(controller.command(detection(), 0.8, 0.02), fresh)
+
+    def test_derivative_filter_rejects_a_single_frame_spike(self):
+        controller = SteeringController(curve_gains=(0, 0, 1), straight_gains=(0, 0, 1),
+                                        deriv_pole=0.0, max_wz=0.5, steer_full_scale_cm=1)
+        for _ in range(6):
+            controller.command(detection(0.0), 0.8, 0.05)
+        settled = controller.command(detection(0.0), 0.8, 0.05)[1]
+        spike = controller.command(detection(40.0), 0.8, 0.05)[1]
+        after = controller.command(detection(0.0), 0.8, 0.05)[1]
+        # Median-of-3 discards the spike entirely, so nothing propagates into D.
+        self.assertEqual(settled, 0.0)
+        self.assertEqual(spike, 0.0)
+        self.assertEqual(after, 0.0)
+
+    def test_first_frames_have_no_derivative_kick(self):
+        controller = SteeringController(curve_gains=(0, 0, 1), straight_gains=(0, 0, 1),
+                                        steer_full_scale_cm=1)
+        for _ in range(2):  # window not yet full
+            self.assertEqual(controller.command(detection(30.0), 0.8, 0.05)[1], 0.0)
 
     def test_line_loss_holds_briefly_then_goes_zero(self):
         controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
@@ -68,7 +88,8 @@ class SteeringTests(unittest.TestCase):
     def test_invalid_settings_are_rejected(self):
         for kwargs in (dict(max_wz=1.5), dict(vx=float("nan")), dict(yaw_sign=0),
                        dict(steer_full_scale_cm=0), dict(step_len_cm=-1),
-                       dict(lost_hold_s=-1.0)):
+                       dict(lost_hold_s=-1.0), dict(deriv_pole=1.0),
+                       dict(deriv_pole=-0.1)):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 SteeringController(**kwargs)
 
