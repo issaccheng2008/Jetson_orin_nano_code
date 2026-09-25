@@ -1,7 +1,9 @@
 """Convert new_vision steering to the historical policy UDP JSON protocol.
 
-No serial port, ONNX runtime, or camera dependency. Positive image steering is
-rightward; positive policy yaw is counterclockwise (left), hence yaw_sign=-1.
+No serial port, ONNX runtime, or camera dependency. yaw_sign maps image steering
+to policy yaw and defaults to 1: a positive steer (the track lies to the camera's
+right) means a positive policy yaw. The documented frame convention implies -1,
+but that steered the real robot the wrong way.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ class SteeringController:
     DERIV_NOMINAL_DT = 0.05  # nominal vision frame period, seconds
 
     def __init__(self, vx=0.4, max_wz=0.5, steer_full_scale_cm=10.0,
-                 yaw_sign=-1, step_len_cm=8.0, preview_gain=1.0,
+                 yaw_sign=1, step_len_cm=8.0, preview_gain=1.0,
                  straight_gains=(0.83, 0.004, 0.095),
                  curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0,
                  lost_hold_s=0.2, deriv_pole=0.78):

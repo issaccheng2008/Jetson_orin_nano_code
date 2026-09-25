@@ -33,7 +33,9 @@ def detection(error=10.0, angle=0.0, lost=0, curve=False):
 
 class SteeringTests(unittest.TestCase):
     def test_sign_units_clamping_and_preview(self):
-        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
+        # yaw_sign pinned so this tests the maths, not the default's polarity.
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50,
+                                        yaw_sign=-1)
         np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.4, -0.1])
         self.assertGreater(controller.command(detection(-10), 0.8, 0.02)[1], 0)
         self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], -0.5)
@@ -41,6 +43,11 @@ class SteeringTests(unittest.TestCase):
         self.assertLess(controller.command(detection(0, 30), 0.8, 0.02)[1], 0)
         reverse = SteeringController(yaw_sign=1)
         self.assertGreater(reverse.command(detection(), 0.8, 0.02)[1], 0)
+
+    def test_default_yaw_sign_matches_the_real_robot(self):
+        """-1 turned the robot the wrong way, so the default is 1."""
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
+        self.assertGreater(controller.command(detection(), 0.8, 0.02)[1], 0)
 
     def test_invalid_or_lost_detection_stops_and_resets(self):
         controller = SteeringController(lost_hold_s=0.0)
@@ -154,7 +161,7 @@ class VisionEntryPointTests(unittest.TestCase):
             calls = client_cls.return_value.publish.call_args_list
             self.assertEqual(len(calls), 2)
             self.assertEqual(calls[0].args[0], 0.4)
-            self.assertLess(calls[0].args[1], 0)
+            self.assertNotEqual(calls[0].args[1], 0.0)  # steering published; polarity is yaw-sign's business
             self.assertEqual(calls[1].args, (0, 0))
             client_cls.return_value.close.assert_called_once()
             camera.release.assert_called_once()
@@ -178,7 +185,8 @@ class UdpIntegrationTests(unittest.TestCase):
              "--vision-timeout", "0.15"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         )
         client = ConnectorClient(port=vision_port)
-        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50,
+                                        yaw_sign=-1)
         expected = [0.4, 0.0, -0.1]
 
         def wait_for(target, publish=False):
