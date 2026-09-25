@@ -171,8 +171,11 @@ def main():
                 print(f"[vision -> connector] fps={fps_val:4.1f} "
                       f"det={det_ms:5.1f}ms card={card_ms:5.1f}ms "
                       f"vx={vx:+.3f} m/s wz={wz:+.3f} rad/s "
-                      f"steer={controller.last_steer:+.2f}cm conf={confidence:.3f} "
-                      f"lost={debug.get('lost_frames', '?')}"
+                      f"steer={controller.last_steer:+.2f}cm "
+                      f"err={debug.get('fused_err_cm', 0.0):+.1f}cm "
+                      f"ang={debug.get('angle_err_deg', 0.0):+.1f}deg "
+                      f"curve={int(bool(debug.get('curve_mode', False)))} "
+                      f"conf={confidence:.3f} lost={debug.get('lost_frames', '?')}"
                       f"{'  CARD STOP' if card_stopped else ''}", flush=True)
                 last_log = processed
             if not args.headless:
