@@ -175,6 +175,8 @@ def main():
                       f"err={debug.get('fused_err_cm', 0.0):+.1f}cm "
                       f"ang={debug.get('angle_err_deg', 0.0):+.1f}deg "
                       f"curve={int(bool(debug.get('curve_mode', False)))} "
+                      f"curve_px={debug.get('curve_px', 0.0):+.0f}(thr18) "
+                      f"far_px={debug.get('far_err_px', 0.0):+.0f} "
                       f"conf={confidence:.3f} lost={debug.get('lost_frames', '?')}"
                       f"{'  CARD STOP' if card_stopped else ''}", flush=True)
                 last_log = processed
