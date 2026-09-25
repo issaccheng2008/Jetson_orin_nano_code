@@ -116,8 +116,8 @@ Move the camera/track relative to each other and inspect both terminal logs:
 | Centred, aligned straight track | `wz` near 0 |
 | Track to the camera's right | Negative `wz` (right turn in the policy frame) |
 | Track to the camera's left | Positive `wz` (left turn in the policy frame) |
-| Lost/invalid line detection | `vx=0`, `wz=0` |
-| Vision stopped/frozen | Connector prints `fresh=False` and zeros after 0.25 s |
+| Lost/invalid line detection | target `vx=0`, `wz=0` after a 0.2 s hold; published value ramps down |
+| Vision stopped/frozen | Connector prints `fresh=False`; target zero after 0.25 s, published value ramps down |
 
 Default `--yaw-sign -1` converts positive image-right steering into negative
 policy yaw. Confirm this against the real camera orientation and your policy's
@@ -149,10 +149,14 @@ Check `crc_errors=0`, finite observations/actions, and inference/loop timing.
 Move the camera right/left and confirm the sign changes in terminal C.
 While motors are disabled, test both watchdogs:
 
-1. Stop terminal B: connector and policy target velocities become zero.
+1. Stop terminal B: the connector prints `fresh=False`, the target goes to zero
+   after 0.25 s, and the published value slews down over a further 0.40 s
+   (`--max-vx-accel`). `qr` drops to `-1` immediately; it is not smoothed.
 2. Restart B: live commands resume automatically when detection is valid.
 3. Stop terminal A while B continues: the policy's independent UDP timeout
-   produces zero velocity within about 0.25 s plus scheduling delay.
+   produces zero velocity within about 0.25 s plus scheduling delay. That hop is
+   a hard step - `command_source.py` has no smoothing and is deliberately not
+   touched; it only fires once the connector process itself has died.
 4. Restart A: live commands resume automatically.
 
 These are **zero-velocity policy commands**, not motor-disable commands and not
@@ -222,8 +226,12 @@ and validation against the trained policy's turning range.
   Increase `connector.py --vision-timeout` only after measuring the frame period;
   a larger timeout also means a longer stale-command hold.
 - **Alternating move/stop:** inspect lost-frame/confidence logs, camera geometry,
-  illumination and view of the track. The bridge stops immediately on reported
-  line loss instead of blindly searching with the humanoid.
+  illumination and view of the track. `lost_frames` has no hysteresis in the
+  detector, so a single missed frame used to be enough to stop the robot; the
+  bridge now holds the last command for `lost_hold_s` (0.2 s) before stopping,
+  and the connector ramps the result. It still never blindly searches with the
+  humanoid. If the stutter survives the hold window, the detection itself is the
+  problem, not the command path.
 - **Robot turns away:** verify the image and policy yaw sign; reverse `--yaw-sign`
   only after confirming the mismatch.
 - **Serial busy:** stop the V2 vision controller, serial monitor, or any other

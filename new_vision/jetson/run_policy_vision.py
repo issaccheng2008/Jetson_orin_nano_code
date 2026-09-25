@@ -46,6 +46,8 @@ def parse_args():
     parser.add_argument("--yaw-sign", type=int, choices=(-1, 1), default=-1)
     parser.add_argument("--step-len-cm", type=float, default=float(os.getenv("STEP_LEN_CM", "8")))
     parser.add_argument("--preview-gain", type=float, default=float(os.getenv("PREVIEW_GAIN", "1")))
+    parser.add_argument("--lost-hold-s", type=float, default=0.2,
+                        help="Hold the last command this long after line loss before stopping")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")
@@ -75,6 +77,7 @@ def main():
         straight_gains=gains("STRAIGHT", (0.83, 0.004, 0.095)),
         curve_gains=gains("CURVE", (0.83, 0.006, 0.16)),
         integral_limit=float(os.getenv("JETSON_PID_I_CLAMP", "60")),
+        lost_hold_s=args.lost_hold_s,
     )
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2

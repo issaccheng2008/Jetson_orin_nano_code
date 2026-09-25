@@ -15,10 +15,12 @@ import io
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "new_vision" / "jetson"))
 sys.path.insert(0, str(ROOT / "humanoid_jetson_deploy"))
+from connector import CommandSmoother
 from policy_bridge import ConnectorClient, SteeringController
-from command_source import UdpCommandSource
+from command_source import UdpCommandSource, clamp_command
 from policy_runner import HumanoidPolicy
 import config
 import run_policy_vision
@@ -41,7 +43,7 @@ class SteeringTests(unittest.TestCase):
         self.assertGreater(reverse.command(detection(), 0.8, 0.02)[1], 0)
 
     def test_invalid_or_lost_detection_stops_and_resets(self):
-        controller = SteeringController()
+        controller = SteeringController(lost_hold_s=0.0)
         controller.command(detection(), 0.8, 0.02)
         for dbg, confidence in ((detection(lost=1), 0.8), ({}, 0.8),
                                 (detection(float("nan")), 0.8), (detection(), 0),
@@ -51,11 +53,40 @@ class SteeringTests(unittest.TestCase):
         fresh = SteeringController().command(detection(), 0.8, 0.02)
         self.assertEqual(controller.command(detection(), 0.8, 0.02), fresh)
 
+    def test_line_loss_holds_briefly_then_goes_zero(self):
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
+        held = controller.command(detection(), 0.8, 0.02)
+        self.assertEqual(held[0], 0.4)
+        for _ in range(3):  # still inside the default 0.2 s window
+            self.assertEqual(controller.command(detection(lost=1), 0.8, 0.05), held)
+        for _ in range(6):  # window exhausted
+            final = controller.command(detection(lost=1), 0.8, 0.05)
+        self.assertEqual(final, (0.0, 0.0))
+        # A NaN dt must not stall the accumulator and latch the hold for ever.
+        self.assertEqual(controller.command(detection(lost=1), 0.8, float("nan")), (0.0, 0.0))
+
     def test_invalid_settings_are_rejected(self):
         for kwargs in (dict(max_wz=1.5), dict(vx=float("nan")), dict(yaw_sign=0),
-                       dict(steer_full_scale_cm=0), dict(step_len_cm=-1)):
+                       dict(steer_full_scale_cm=0), dict(step_len_cm=-1),
+                       dict(lost_hold_s=-1.0)):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 SteeringController(**kwargs)
+
+
+class SmoothedStopReachesThePolicyTests(unittest.TestCase):
+    def test_smoothed_zero_is_exactly_zero_after_the_policy_clamp(self):
+        """policy_runner picks the stride with np.all(command == 0.0)."""
+        smoother = CommandSmoother(max_vx_accel=1.0, max_wz_accel=2.0)
+        for _ in range(30):
+            smoother.update({"vx": 0.4, "vy": 0.0, "wz": -0.5, "qr": -1}, 0.02)
+        zero = {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}
+        for _ in range(30):
+            output = smoother.update(zero, 0.02)
+        command = clamp_command([output["vx"], output["vy"], output["wz"]])
+        self.assertEqual(command.dtype, np.float32)
+        self.assertTrue(np.all(command == 0.0))
+        # Negative control: an asymptotic filter would fail exactly here.
+        self.assertFalse(np.all(clamp_command([1e-9, 0.0, 0.0]) == 0.0))
 
     def test_exact_legacy_wire_format(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:

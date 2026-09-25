@@ -86,7 +86,8 @@ output for the requested run; omitting it keeps the existing dry-run behavior.
 Use `new_vision/jetson/run_policy_vision.py` for the walking-policy integration.
 It uses the new line detector, PID steering and one-step preview, then sends
 `{vx, vy: 0, wz, qr: -1}` to `connector.py` on port 5006. The connector forwards
-commands to the policy on port 5005. Only the policy opens the STM32 serial port.
+commands to the policy on port 5005, slew-rate limiting `vx` and `wz` so the
+policy never receives a velocity step. Only the policy opens the STM32 serial port.
 The V2 CPU/GPU `run_robot.py` scripts are separate serial-controller entry points.
 
 See [the detailed guide](docs/closed_loop_vision.md) for camera setup, exact

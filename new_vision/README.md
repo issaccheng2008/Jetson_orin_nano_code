@@ -33,4 +33,6 @@ For closed-loop ONNX walking, run `jetson/run_policy_vision.py` with the root
 `connector.py` and the policy's `--command-source vision` mode. See the
 [detailed setup/test guide](../docs/closed_loop_vision.md). This entry point uses
 the new CPU line detector and sends the historical UDP JSON velocity commands;
-it does not open the STM32 serial port or execute shape/bar actions.
+it does not open the STM32 serial port or execute shape/bar actions. The steering
+controller holds its last command for `lost_hold_s` on line loss, and the
+connector slew-rate limits both `vx` and `wz`.
