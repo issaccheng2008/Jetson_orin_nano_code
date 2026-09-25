@@ -114,15 +114,17 @@ Move the camera/track relative to each other and inspect both terminal logs:
 | Track position/detection | Expected command |
 |---|---|
 | Centred, aligned straight track | `wz` near 0 |
-| Track to the camera's right | Negative `wz` (right turn in the policy frame) |
-| Track to the camera's left | Positive `wz` (left turn in the policy frame) |
+| Track to the camera's right | Positive `wz` (turns right) |
+| Track to the camera's left | Negative `wz` (turns left) |
 | Lost/invalid line detection | target `vx=0`, `wz=0` after a 0.2 s hold; published value ramps down |
 | Vision stopped/frozen | Connector prints `fresh=False`; target zero after 0.25 s, published value ramps down |
 
-Default `--yaw-sign -1` converts positive image-right steering into negative
-policy yaw. Confirm this against the real camera orientation and your policy's
-yaw convention. If the sign is reversed, stop the run and restart vision with
-`--yaw-sign 1`. Verify physical turning direction in the supported test below.
+Default `--yaw-sign 1` maps positive image-right steering to positive policy yaw.
+An earlier version of this document claimed the policy frame made that `-1`; on
+the robot `-1` turned the wrong way, so the polarity in the table above is the
+one that holds. If a different camera or policy flips it again, restart vision
+with `--yaw-sign -1`. Verify physical turning direction in the supported test
+below.
 
 ## 3. Verify that live commands reach the walking policy (motors disabled)
 
