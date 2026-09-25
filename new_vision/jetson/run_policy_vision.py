@@ -45,7 +45,9 @@ def parse_args():
                         help="Cross-track error (cm) producing max-wz; smaller means stronger steering")
     parser.add_argument("--yaw-sign", type=int, choices=(-1, 1), default=-1)
     parser.add_argument("--step-len-cm", type=float, default=float(os.getenv("STEP_LEN_CM", "8")))
-    parser.add_argument("--preview-gain", type=float, default=float(os.getenv("PREVIEW_GAIN", "1")))
+    parser.add_argument("--preview-gain", type=float,
+                        default=float(os.getenv("PREVIEW_GAIN", "4")),
+                        help="Heading feedforward: steps of predicted drift to steer out")
     parser.add_argument("--lost-hold-s", type=float, default=0.2,
                         help="Hold the last command this long after line loss before stopping")
     parser.add_argument("--deriv-pole", type=float,
