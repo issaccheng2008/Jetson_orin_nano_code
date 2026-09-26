@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import socket
 import subprocess
@@ -24,6 +25,8 @@ from command_source import UdpCommandSource, clamp_command
 from policy_runner import HumanoidPolicy
 import config
 import run_policy_vision
+from camera_config import to_model_z
+from shape_detector import WORK_H, WORK_W, ShapeDetector
 
 
 def detection(error=10.0, angle=0.0, lost=0, curve=False, curve_px=0.0):
@@ -449,6 +452,45 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         self.assertEqual(out.getvalue().count("stand still"), 1)
+
+
+class CardGeometryGateTests(unittest.TestCase):
+    """_geom_ok must accept the card everywhere the card stop puts the robot.
+
+    The gate measures the quad's bounding rectangle, which grows with yaw: an
+    ideal 10 cm card at 27 cm is 13328 px2 head-on but 22646 at 30 degrees. With
+    area_max at 20000 that card was rejected - at exactly the distance
+    --card-trigger-frac 0.5 stops at and the 16 cm clearance leaves it.
+    """
+
+    def ideal_card(self, detector, z_true, yaw_deg):
+        c = detector.cfg
+        h = c["cam_height_cm"]
+        th = math.radians(c["cam_pitch_deg"])
+        vfov = math.radians(c["cam_vfov_deg"])
+        fy = WORK_H / (2.0 * math.tan(vfov / 2.0))
+        hfov = 2.0 * math.atan(math.tan(vfov / 2.0) * WORK_W / WORK_H)
+        fx = WORK_W / (2.0 * math.tan(hfov / 2.0))
+        z0 = to_model_z(z_true)
+        yaw = math.radians(yaw_deg)
+        corners = []
+        for sx, sz in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+            px, pz = sx * 5.0, sz * 5.0
+            x = px * math.cos(yaw) - pz * math.sin(yaw)
+            z = z0 + px * math.sin(yaw) + pz * math.cos(yaw)
+            zc = h * math.sin(th) + z * math.cos(th)
+            yc = h * math.cos(th) - z * math.sin(th)
+            corners.append((WORK_W / 2.0 + fx * x / zc,
+                            WORK_H / 2.0 + fy * yc / zc))
+        return np.array(corners, np.float32)
+
+    def test_a_card_in_the_stopping_zone_passes_the_geometry_gate(self):
+        detector = ShapeDetector()
+        for z in (14, 20, 27, 30, 40, 60, 80):
+            for yaw in (0, 30, 45):
+                self.assertTrue(
+                    detector._geom_ok(self.ideal_card(detector, z, yaw)),
+                    f"10cm card rejected at {z} cm, yaw {yaw} deg")
 
 
 class UdpIntegrationTests(unittest.TestCase):
