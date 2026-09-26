@@ -99,12 +99,13 @@ def parse_args():
                              "the card is acted on. run_robot.py used 3; 2 trades a little "
                              "precision for firing on cards whose classification flickers")
     parser.add_argument("--card-clear-s", type=float,
-                        default=float(os.getenv("CARD_CLEAR_S", "2.0")),
+                        default=float(os.getenv("CARD_CLEAR_S", "0.8")),
                         help="After the action, drive straight past the card at "
                              "--card-slow-vx for at most this long, until the line "
-                             "detector recovers. The card is left 20-35 cm ahead, "
-                             "inside the near band, so steering from those frames is "
-                             "garbage")
+                             "detector recovers. The card is left ~30 cm ahead, inside "
+                             "the near band, so steering from those frames is garbage; "
+                             "0.8 s is 16 cm, enough to bring it under the 20 cm floor "
+                             "of the near band. Longer only drives further blind")
     parser.add_argument("--card-clear-conf", type=float,
                         default=float(os.getenv("CARD_CLEAR_CONF", "0.8")),
                         help="Confidence that counts as the detector having recovered")
