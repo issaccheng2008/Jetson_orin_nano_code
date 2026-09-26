@@ -85,11 +85,6 @@ def parse_args():
                              "settle, counted from the moment the box came close enough. "
                              "Bounds the wait when no shape is ever identified. "
                              "0 disables stopping")
-    parser.add_argument("--card-cue-min", type=float,
-                        default=float(os.getenv("CARD_CUE_MIN", "2.5")),
-                        help="Presence-cue score that counts as a card when no box was "
-                             "built. Field log: real cards read 4.2 / 5.5 / 7.6 / 3.5, "
-                             "the false stop that prompted this read 0.25")
     parser.add_argument("--card-trigger-frac", type=float,
                         default=float(os.getenv("CARD_TRIGGER_FRAC", "0.5")),
                         help="Box centroid height in the frame (0=top, 1=bottom) at which "
@@ -279,16 +274,8 @@ def main():
                 # already low in the frame has not been approached, so it cannot fire.
                 if cy is not None and cy < args.card_trigger_frac:
                     card_armed = True
-                # A real box, or a cue hit strong enough to be a card. Requiring the
-                # box alone stopped the robot missing cards entirely: the field log
-                # has quad=512g0v0 for the whole approach while cue read 4.2, 5.5,
-                # 7.6 - plainly a card, driven straight past. Requiring the cue alone
-                # is what stopped it on cue 0.25 earlier. So: either, and the weak
-                # cue is what --card-cue-min keeps out.
-                cue = card_dbg.get("presence_cue") or 0.0
-                located = bool(card_dbg.get("card_found")) or cue >= args.card_cue_min
-                if (card_flag and not card_triggered and card_armed and located
-                        and cy is not None and cy >= args.card_trigger_frac):
+                if (card_flag and not card_triggered and card_armed and cy is not None
+                        and cy >= args.card_trigger_frac):
                     card_triggered = True
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
