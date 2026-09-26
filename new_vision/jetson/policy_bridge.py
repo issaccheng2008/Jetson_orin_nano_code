@@ -74,6 +74,9 @@ class SteeringController:
         # saturated the whole time. A reading that wrong driving a saturated turn is
         # worse than no reading. Treat it as loss instead.
         self.max_lateral_cm = max_lateral_cm
+        # Last frame rejected on the lateral bound, for the caller to log. None
+        # otherwise, so a caller can print on the transition instead of every frame.
+        self.rejected_lateral = None
         self.last_err_eff = 0.0
         self.reset()
         self.lost_hold_s = lost_hold_s
@@ -120,10 +123,13 @@ class SteeringController:
             lost = float(debug["lost_frames"])
             lateral = float(debug["base_err_cm"])
             valid = (all(math.isfinite(v) for v in (err, angle, lost, confidence, dt))
-                     and confidence > 0 and lost == 0 and dt > 0
-                     and abs(lateral) <= self.max_lateral_cm)
+                     and confidence > 0 and lost == 0 and dt > 0)
+            self.rejected_lateral = (
+                lateral if valid and abs(lateral) > self.max_lateral_cm else None)
+            valid = valid and self.rejected_lateral is None
         except (KeyError, TypeError, ValueError, OverflowError):
             valid = False
+            self.rejected_lateral = None
         if not valid:
             self.reset()
             # The detector's lost_frames has no hysteresis, so one missed frame

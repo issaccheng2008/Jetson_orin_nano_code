@@ -132,11 +132,13 @@ class SteeringTests(unittest.TestCase):
         for lateral in (17.4, -17.4):
             self.assertNotEqual(
                 controller.command(detection(lateral=lateral), 0.8, 0.02), (0.0, 0.0))
+        self.assertIsNone(controller.rejected_lateral)
         # Past the lane half-width it is loss: hold the last command, then stop.
         held = controller.command(detection(), 0.8, 0.02)
         self.assertEqual(held[0], 0.4)
         self.assertEqual(
             controller.command(detection(lateral=-35.9), 0.8, 0.05), held)
+        self.assertAlmostEqual(controller.rejected_lateral, -35.9)
         for _ in range(6):
             final = controller.command(detection(lateral=-35.9), 0.8, 0.05)
         self.assertEqual(final, (0.0, 0.0))

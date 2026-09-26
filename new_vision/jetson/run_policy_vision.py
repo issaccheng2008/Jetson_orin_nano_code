@@ -213,6 +213,7 @@ def main():
         card_armed = True        # and it has since been seen far enough to trigger
         card_action_triggered = False
         card_dbg = {}
+        lateral_warned = None    # None until the lateral bound first trips
         while not stopped:
             now = time.monotonic()
             if args.max_seconds > 0 and now - start >= args.max_seconds:
@@ -321,6 +322,18 @@ def main():
                 controller.reset()
             else:
                 vx, wz = controller.command(debug, confidence, processed - previous)
+                # Printed on the transition, not every frame: one line per time the
+                # near band hands over an offset the lane cannot produce. How often
+                # this fires on a real lap is the measurement.
+                if controller.rejected_lateral is not None:
+                    if lateral_warned is None:
+                        print(f"[vision] near band says "
+                              f"{controller.rejected_lateral:+.1f}cm, past the "
+                              f"{args.max_lateral_cm:.1f}cm lane half-width; holding "
+                              f"then stopping instead of steering on it", flush=True)
+                    lateral_warned = True
+                else:
+                    lateral_warned = False
                 # card_flag alone, not "and not card_triggered": a card that never got
                 # classified lets --card-stop-ms expire, and the robot used to resume at
                 # full speed straight past it - the one place the near band is fully
