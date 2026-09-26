@@ -1309,64 +1309,37 @@ class ShapeDetector:
         area = cv2.contourArea(contour)
         if area < 30 * 30:
             return None
-        # 顶点数用粗epsilon（0.035），凹口数用细epsilon（0.02）——
-        # 粗epsilon会把五角星的凹口合并掉（0.035×长周长≈17px）
+        # 顶点数用粗epsilon（0.035）。凹形不再数凹口，改用 solidity。
         approx = cv2.approxPolyDP(contour, 0.035 * peri, True)
         n_vertices = len(approx)
-        # 凹顶点数：顶点转向与多边形环绕方向相反即凹。
-        # 五角星5个凹口，十字4个，圆形/方形/菱形/三角形0个。
-        n_conc = 0
-        if n_vertices >= 4:
-            fine = cv2.approxPolyDP(contour, 0.02 * peri, True)
-            pts = fine[:, 0].astype(np.float32)
-            nf = len(pts)
-            sarea = 0.0
-            for i in range(nf):
-                p, q = pts[i], pts[(i + 1) % nf]
-                sarea += p[0] * q[1] - q[0] * p[1]
-            # 转向=入边(b-a)到出边(c-b)的叉积；凹顶点转向与环绕方向相反
-            for i in range(nf):
-                a = pts[(i - 1) % nf]
-                b = pts[i]
-                c = pts[(i + 1) % nf]
-                cross = ((b[0] - a[0]) * (c[1] - b[1])
-                         - (b[1] - a[1]) * (c[0] - b[0]))
-                if cross * sarea < 0:
-                    n_conc += 1
-        # 圆度 4πA/P²（不依赖轮廓点密度——CHAIN_APPROX_SIMPLE 会把直线
-        # 轮廓压成拐点，使"半径变异系数"对多边形失真）：
-        # 圆=1.00、正方形/菱形=0.785、等边三角=0.605、五角星≈0.5、十字更小
-        circularity = 4.0 * math.pi * area / max(peri * peri, 1e-6)
         rect = cv2.minAreaRect(contour)
         rw, rh = rect[1]
         fill_rect = area / max(rw * rh, 1e-6)
-        ang = abs(rect[2]) % 90.0
-        ang = min(ang, 90.0 - ang)
-        # 凹形：十字 vs 五角星。十字臂细（fillR<0.42）；五角星凹口
-        # 深且占满外接矩形（fillR 0.42-0.52）。凹口3个+fillR<0.60
-        # 兜住厚臂/非对称十字（自测卡十字fillR≈0.56）
-        if n_conc >= 3:
-            if fill_rect < 0.42:
-                return "cross"
-            if n_conc >= 5:
-                return "pentagon"
-            if fill_rect < 0.60:
-                return "cross"
-            return "pentagon"
+        # 凹凸只用一个量：面积/凸包面积。2026-09-27 在 6card 的 14 张真实 warp 上实测
+        #   十字 0.22/0.22/0.30   五角星 0.53   圆 0.82~0.96   三角 0.90/0.95
+        #   菱 0.93/0.95         方 0.98/0.98
+        # 干净的四档分离。旧的 n_conc 计数 + fill_rect 双重嵌套在同一批数据上把
+        # 圆形（实为凸形）判成了凹形，这是实车"圆卡逐帧在 triangle/diamond 之间跳"的根。
+        solidity = area / max(cv2.contourArea(cv2.convexHull(contour)), 1e-6)
+        if solidity < 0.75:
+            return "cross" if solidity < 0.36 else "pentagon"
         # 凸形
         if n_vertices == 3:
             return "triangle"
-        # 圆形：fill≈π/4=0.785（方形/菱形≈1.0、三角≈0.55）+ 圆度>0.8
-        # 圆度用 4πA/P²（不受轮廓点密度影响）；minAreaRect 对圆的角度
-        # 不确定，必须先于"菱形(ang≥25)"判定
-        if 0.72 <= fill_rect <= 0.87 and circularity >= 0.80:
-            return "circle"
-        # 菱形 = 旋转45°的方形（minAreaRect 角度≈45°）
-        if ang >= 25.0:
-            return "diamond"
-        if fill_rect >= 0.84:
+        if fill_rect >= 0.90:
             return "square"
-        return "triangle"
+        # 圆 vs 菱形：两者的 fill 都 ≈0.78（实测圆 0.73~0.81、菱 0.76~0.78），
+        # 只能靠顶点数分（圆 5~8、菱 4）。
+        # ⚠️ 圆度 4πA/P² 已从判定中移除：它在真实 warp 上读 0.23~0.63，
+        # 旧代码要求 ≥0.80 —— 圆永远过不去，于是掉到 ang(minAreaRect 对圆无意义)
+        # 和最后那行 return "triangle" 兜底。它就是圆卡判错的直接原因。
+        # 落在带外的返回 None：站着不动比举错腿安全。
+        if 0.62 <= fill_rect <= 0.89:
+            if n_vertices >= 5:
+                return "circle"
+            if n_vertices == 4:
+                return "diamond"
+        return None
 
     # ═══════════════════════════════════════════════════════════
     # 确认 + 冷却（与QRDetector一致）
