@@ -78,10 +78,12 @@ def parse_args():
                              "Bounds the wait when no shape is ever identified. "
                              "0 disables stopping")
     parser.add_argument("--card-trigger-frac", type=float,
-                        default=float(os.getenv("CARD_TRIGGER_FRAC", "0.75")),
+                        default=float(os.getenv("CARD_TRIGGER_FRAC", "0.5")),
                         help="Box centroid height in the frame (0=top, 1=bottom) at which "
-                             "the robot stops and identifies the shape. 0.75 is the lower "
-                             "quarter. Seeing a card earlier only slows it down")
+                             "the robot stops and identifies the shape. 0.5 is the middle; "
+                             "stopping later than that leaves the robot within 10 cm of the "
+                             "card by the time the stop lands. Seeing a card earlier only "
+                             "slows it down")
     parser.add_argument("--card-slow-vx", type=float,
                         default=float(os.getenv("CARD_SLOW_VX", "0.2")),
                         help="Forward speed while a card is in view but not yet close "
