@@ -102,6 +102,14 @@ def parse_args():
                         default=float(os.getenv("CARD_SLOW_VX", "0.2")),
                         help="Forward speed while a card is in view but not yet close "
                              "enough to act on")
+    parser.add_argument("--card-cold-start", action="store_true",
+                        help="On the stopped-to-walking edge, wipe the controller's loop "
+                             "state and the detector's memory instead of keeping them. "
+                             "Off by default: the robot stops the moment it has "
+                             "recognised a card, which is a point where the detector was "
+                             "tracking the line well, and keeping its estimate of where "
+                             "the lane is beats restarting from the image middle. Turn "
+                             "it on to break a lock that had already gone wrong")
     parser.add_argument("--card-clear-calls", type=int,
                         default=max(1, int(os.getenv("CARD_CLEAR_CALLS", "4"))),
                         help="Consecutive detection calls with no card before the flag "
@@ -271,18 +279,23 @@ def main():
             processed = time.monotonic()
             window_open = processed < stop_until or processed < card_until
             if card_window_open and not window_open:
-                # Cold start on the stopped-to-walking edge, BEFORE this frame is
-                # processed. Doing it after detector.process() left the first walking
-                # frame computed from the polluted state, so only the second frame
-                # was clean - and the first is the one that decides where it goes.
-                # Both halves: the controller was already reset every stopped frame;
-                # the detector was not, and its state is what keeps a bad lock alive
-                # - last_lane_center_x is the next frame's scan hint and smoothed_err
-                # is a long EMA. A fresh process tracks this same curve fine, so
-                # start the frame the same way.
-                controller.reset(clear_hold=True)
-                detector.reset_state()
-                print(f"[vision] card window closed; cold start "
+                # Handover on the stopped-to-walking edge, BEFORE this frame is
+                # processed. Doing anything to the state after detector.process() left
+                # the first walking frame computed from the old state, so only the
+                # second frame was clean - and the first decides where it goes.
+                #
+                # Default is to keep both states: stopping is a pause, and the loop
+                # state and the detector's memory are what the walking process had
+                # built. --card-cold-start wipes them instead, which is what breaks a
+                # lock that had already gone wrong - but it also throws away a good
+                # estimate of where the lane is and re-arms the 25-frame relaxed
+                # startup window.
+                controller.drop_held_command()
+                if args.card_cold_start:
+                    controller.reset(clear_hold=True)
+                    detector.reset_state()
+                print(f"[vision] card window closed; "
+                      f"{'cold start' if args.card_cold_start else 'resuming frozen'} "
                       f"(hold={controller.hold[0]:+.2f},{controller.hold[1]:+.2f} "
                       f"lost_s={controller.lost_s:.2f})", flush=True)
             card_window_open = window_open
@@ -343,7 +356,6 @@ def main():
                     card_triggered = True
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
-                    controller.reset()
                     print(f"[shape] box centroid at {cy:.2f} -> stand still "
                           f"{args.card_stop_ms:.0f} ms", flush=True)
                 # Why a card that is plainly in view did not become an action: the
@@ -380,17 +392,15 @@ def main():
             # for a shape that may never settle, --card-hold-ms is the rules' action
             # window once we do know it.
             if processed < stop_until or processed < card_until:
-                # Do not run the controller here. It is fed the card-corrupted err for
-                # the whole stop, and its integral and filtered derivative then carry
-                # that corruption into the first real frame - the loop restarts off
-                # the equilibrium its P/lookahead/bias terms had settled into on the
-                # curve. Idle and reset instead: the first frame after the stop is a
-                # clean start from the live frame.
+                # Not running the controller here is the whole point: it would be fed
+                # the card-corrupted err for the length of the stop, and its integral
+                # and filtered derivative would carry that corruption into the first
+                # real frame. Idle it, and leave the state it brought in untouched - the
+                # stop is a pause in the walking state, not the start of a new one.
+                # Nothing else to do: the controller is not called here, so nothing it
+                # holds can reach the wheels, and the handover below drops the stored
+                # command before the first frame that does call it.
                 vx, wz = 0.0, 0.0
-                # clear_hold: otherwise the first invalid frame after the stop
-                # republishes the pre-stop (vx, wz) as the lost-line fallback, which
-                # is the replayed command all over again.
-                controller.reset(clear_hold=True)
             else:
                 vx, wz = controller.command(debug, confidence, processed - previous)
                 # Printed on the transition, not every frame: one line per time the

@@ -99,6 +99,28 @@ class SteeringTests(unittest.TestCase):
         on.command(trimmed, 0.8, 0.02)
         self.assertAlmostEqual(on.last_err_eff, 15.0)           # reading plus the trim
 
+    def test_dropping_the_held_command_keeps_the_loop_state(self):
+        """The card stop drops the stored command and nothing else. Left set, it is
+        republished as the lost-line fallback on the first invalid frame after the stop
+        - the replay that was already rejected. Zeroing the loop as well would restart
+        the walking process from scratch, which is what the paused-not-reset handover
+        exists to avoid."""
+        controller = SteeringController(steer_full_scale_cm=50)
+        for _ in range(3):
+            controller.command(detection(), 0.8, 0.1)
+        self.assertNotEqual(controller.integral, 0.0)
+        self.assertTrue(controller.err_window)
+
+        controller.drop_held_command()
+        self.assertEqual(controller.hold, (0.0, 0.0))
+        self.assertEqual(controller.lost_s, 0.0)
+        self.assertNotEqual(controller.integral, 0.0)
+        self.assertTrue(controller.err_window)
+
+        controller.reset(clear_hold=True)          # still the full wipe
+        self.assertEqual(controller.integral, 0.0)
+        self.assertEqual(controller.err_window, [])
+
     def test_invalid_or_lost_detection_stops_and_resets(self):
         controller = SteeringController(lost_hold_s=0.0)
         controller.command(detection(), 0.8, 0.02)
@@ -387,6 +409,70 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertFalse(detector.red_detect_enable)
         self.assertTrue(LineDetector(1280, 720).red_detect_enable)  # on unless asked
 
+    def test_the_stop_leaves_no_command_for_the_first_frame_to_replay(self):
+        """Nothing may publish motion once the stop has opened - least of all the
+        pre-stop (vx, wz) coming back as the lost-line hold. Left set, `hold` is exactly
+        what the controller returns when the first frame after the card is invalid, and
+        that is the replay that was already tried and rejected."""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        seen = [0]
+
+        def process(_frame):
+            seen[0] += 1
+            if seen[0] <= 2:
+                return (0, 0, 0.9, None, detection())
+            return (0, 0, 0.0, None, detection(lost=1))    # conf 0 and lost
+
+        detector.process.side_effect = process
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.side_effect = lambda *a, **k: (
+            (None, {"presence": True, "card_found": True, "presence_cy_frac": 0.9})
+            if seen[0] >= 2
+            else (None, {"presence": False, "card_found": False,
+                         "presence_cy_frac": None}))
+        clock = [0.0]
+
+        def tick():
+            clock[0] += 0.1
+            return clock[0]
+
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1"]),
+            patch.object(run_policy_vision.signal, "signal") as signals,
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", side_effect=tick),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            count = [0]
+
+            def read():
+                count[0] += 1
+                if count[0] <= 45:
+                    return True, frame
+                signals.call_args.args[1](None, None)
+                return False, None
+
+            camera.read.side_effect = read
+            self.assertEqual(run_policy_vision.main(), 0)
+
+        published = client_cls.return_value.publish.call_args_list
+        self.assertGreater(published[0].args[0], 0.0)      # read 1 drove, on a good frame
+        self.assertNotEqual(published[0].args[1], 0.0)
+        # Read 2 raises the cue, so from there on nothing may move again - including
+        # the frames after the window closes, where the detection is invalid.
+        for index, call in enumerate(published[1:], start=1):
+            with self.subTest(publish=index):
+                self.assertEqual(call.args[:2], (0.0, 0.0))
+
     def test_card_event_is_held_but_qr_clears_when_card_disappears(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
@@ -489,12 +575,13 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertEqual(published[resumed - 1].kwargs["event_action"], 3)
         self.assertEqual(published[resumed].args[2], -1)      # released with the resume
         # It drives again the moment the window closes - there is no blind clearance
-        # stage. The controller was idle and reset all through the stop, so this first
-        # command has to come out exactly as a fresh one would for the same frame:
-        # nothing from the card-corrupted frames may survive into it.
+        # stage. The controller was idle all through the stop and its loop state is kept
+        # (the stop is a pause), so this lands near a fresh controller's value for the
+        # same frame rather than exactly on it. What has to hold is that nothing from
+        # the card-corrupted frames survived: command() was never called while stopped.
         fresh = SteeringController().command(detection(), 0.8, 0.1)
         self.assertAlmostEqual(published[resumed].args[0], fresh[0])
-        self.assertAlmostEqual(published[resumed].args[1], fresh[1])
+        self.assertAlmostEqual(published[resumed].args[1], fresh[1], delta=1e-3)
         self.assertGreater(published[resumed].args[0], 0.3)
 
     def test_a_distant_card_only_slows_down_and_a_flicker_does_not_re_trigger(self):
@@ -823,6 +910,53 @@ class LineDetectorStateTests(unittest.TestCase):
         detector._state["near_err_history"].append(1.0)
         self.assertEqual(detector._initial_state()["near_err_history"], [])
 
+    def test_the_handover_keeps_the_state_unless_cold_start_is_asked_for(self):
+        """Stopping is a pause, not a fresh start. The loop state and the detector's
+        memory are what the walking process had built, and the robot stops at a point
+        where it had just recognised a card, i.e. where it was tracking the lane well -
+        so its estimate of where the lane is beats restarting from the image middle.
+        --card-cold-start is the wipe, and it is off unless asked for."""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.return_value = (None, {"presence": True, "card_found": True,
+                                            "presence_cy_frac": 0.9})
+        clock = [0.0]
+
+        def tick():
+            clock[0] += 0.1
+            return clock[0]
+
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1"]),
+            patch.object(run_policy_vision.signal, "signal") as signals,
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", side_effect=tick),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            reads = 0
+
+            def read():
+                nonlocal reads
+                reads += 1
+                if reads <= 40:          # long enough for the stop window to close
+                    return True, frame
+                signals.call_args.args[1](None, None)
+                return False, None
+
+            camera.read.side_effect = read
+            self.assertEqual(run_policy_vision.main(), 0)
+        detector.reset_state.assert_not_called()
+
     def test_a_low_confidence_frame_barely_moves_the_error(self):
         """conf is the detector's own verdict on a reading, and the fusion has to
         obey it. Before this, a 0.07-confidence frame moved smoothed_err exactly as
@@ -893,7 +1027,8 @@ class LineDetectorStateTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1"]),
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-cold-start"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),

@@ -112,8 +112,19 @@ class SteeringController:
         self.last_median = None
         self.derivative = 0.0
         if clear_hold:
-            self.lost_s = 0.0
-            self.hold = (0.0, 0.0)
+            self.drop_held_command()
+
+    def drop_held_command(self):
+        """Forget the stored last-good command, keeping the loop state.
+
+        The card stop needs exactly this much and no more. Leaving `hold` set means the
+        first invalid frame after the stop republishes the pre-stop (vx, wz) as the
+        lost-line fallback, which is the replay that was already tried and rejected.
+        The integral and the derivative window are the walking state, and the stop is a
+        pause rather than a fresh start, so they are deliberately left alone.
+        """
+        self.lost_s = 0.0
+        self.hold = (0.0, 0.0)
 
     def filtered_derivative(self, err):
         """Median-of-3, then a first-order low-pass, over a nominal frame period.
