@@ -56,15 +56,20 @@ def parse_args():
                         default=float(os.getenv("JETSON_PID_D_FILTER", "0.78")),
                         help="IIR pole on the D term; higher is smoother, 0 disables the filter")
     parser.add_argument("--bias-cm", type=float,
-                        default=float(os.getenv("STEER_BIAS_CM", "0")),
+                        default=float(os.getenv("STEER_BIAS_CM", "3")),
                         help="Standing trim added to fused_err_cm on curves, shifting where "
                              "the loop settles to cancel a one-sided lateral offset. Set it "
-                             "to the err the log shows standing in the curve. 0 (default) "
-                             "disables it: at 5 cm it also rode left on the straights")
+                             "to the err the log shows standing in the curve. 0 disables it")
     parser.add_argument("--bias-gate-px", type=float,
                         default=float(os.getenv("STEER_BIAS_GATE_PX", "12")),
-                        help="abs(curve_px) at which --bias-cm is fully applied; it fades "
-                             "to zero by curve_px 0 so straights are untouched")
+                        help="Smoothed abs(curve_px) at which --bias-cm is fully applied")
+    parser.add_argument("--bias-dead-px", type=float,
+                        default=float(os.getenv("STEER_BIAS_DEAD_PX", "6")),
+                        help="Smoothed abs(curve_px) under which the trim sits at "
+                             "--bias-straight-cm instead of part way up the ramp")
+    parser.add_argument("--bias-straight-cm", type=float,
+                        default=float(os.getenv("STEER_BIAS_STRAIGHT_CM", "1")),
+                        help="Trim on a straight; it fades to --bias-cm by --bias-gate-px")
     parser.add_argument("--max-lateral-cm", type=float,
                         default=float(os.getenv("MAX_LATERAL_CM", "0")),
                         help="0 disables. Otherwise, half the lane width: the near "
@@ -196,6 +201,7 @@ def main():
         integral_limit=float(os.getenv("JETSON_PID_I_CLAMP", "60")),
         lost_hold_s=args.lost_hold_s, deriv_pole=args.deriv_pole,
         bias_cm=args.bias_cm, bias_gate_px=args.bias_gate_px,
+        bias_dead_px=args.bias_dead_px, bias_straight_cm=args.bias_straight_cm,
         max_lateral_cm=args.max_lateral_cm,
         max_wz_right=args.max_wz_right,
         single_line_gain=args.single_line_gain,
@@ -238,7 +244,9 @@ def main():
               f"{args.connector_host}:{args.connector_port}; vx={args.vx} m/s; "
               f"max_wz={args.max_wz} rad/s; yaw_sign={args.yaw_sign}; "
               f"red={'off' if args.no_red_detect else 'on'}; "
-              f"sl_gain={args.single_line_gain}", flush=True)
+              f"sl_gain={args.single_line_gain}; "
+              f"bias={args.bias_straight_cm}->{args.bias_cm}"
+              f"(dead {args.bias_dead_px}, full {args.bias_gate_px})", flush=True)
         start = previous = time.monotonic()
         last_log = -math.inf
         last_shape_log = -math.inf

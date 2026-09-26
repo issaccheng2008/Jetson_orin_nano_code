@@ -40,18 +40,24 @@ def detection(error=10.0, angle=0.0, lost=0, curve=False, curve_px=0.0,
                 curve_px=curve_px, base_err_cm=lateral)
 
 
+# Tests of sign, units and clamping pin the standing trim off: its defaults (+1 cm on a
+# straight) would otherwise shift every expected value.
+NO_TRIM = dict(bias_cm=0.0, bias_straight_cm=0.0)
+
+
 class SteeringTests(unittest.TestCase):
     def test_sign_units_clamping_and_preview(self):
         # yaw_sign and preview_gain pinned so this tests the maths, not the defaults.
-        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50,
-                                        yaw_sign=-1, preview_gain=4)
+        controller = SteeringController(**NO_TRIM, straight_gains=(1, 0, 0),
+                                        steer_full_scale_cm=50, yaw_sign=-1,
+                                        preview_gain=4)
         np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.4, -0.1])
         self.assertGreater(controller.command(detection(-10), 0.8, 0.02)[1], 0)
         # Saturated negative is a right turn, and right is capped at max_wz_right.
         self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], -0.25)
         self.assertEqual(controller.command(detection(-1000), 0.8, 0.02)[1], 0.5)
         self.assertLess(controller.command(detection(0, 30), 0.8, 0.02)[1], 0)
-        reverse = SteeringController(yaw_sign=1)
+        reverse = SteeringController(**NO_TRIM, yaw_sign=1)
         self.assertGreater(reverse.command(detection(), 0.8, 0.02)[1], 0)
 
     def test_default_yaw_sign_matches_the_real_robot(self):
@@ -66,38 +72,66 @@ class SteeringTests(unittest.TestCase):
         preview_gain 4 that is 4*8*sin(22 deg) = 12 cm of steer - past the 10 cm
         full scale, with the lateral error at zero.
         """
-        controller = SteeringController()
+        controller = SteeringController(**NO_TRIM)
         self.assertEqual(controller.command(detection(0.0, 22.0), 0.8, 0.02)[1], 0.0)
 
     def test_bias_fades_in_with_curve_px_and_moves_the_zero_point(self):
+        # bias_straight_cm pinned to 0 so this measures the shape of the fade, not the
+        # straight end of it; the two ends are covered by the trim tests below.
         trimmed = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50,
-                                     bias_cm=5.0, bias_gate_px=10.0)
+                                     bias_cm=5.0, bias_gate_px=10.0,
+                                     bias_straight_cm=0.0)
         trimmed.command(detection(0.0, curve_px=0.0), 0.8, 0.02)
         self.assertEqual(trimmed.last_err_eff, 0.0)        # straight: straights untouched
         trimmed.command(detection(0.0, curve_px=5.0), 0.8, 0.02)
-        self.assertAlmostEqual(trimmed.last_err_eff, 2.5)  # half way to the gate
+        self.assertEqual(trimmed.last_err_eff, 0.0)        # under the 6 px dead band
+        trimmed.command(detection(0.0, curve_px=8.0), 0.8, 0.02)
+        self.assertAlmostEqual(trimmed.last_err_eff, 2.5)  # half way up the ramp
         trimmed.command(detection(0.0, curve_px=-50.0), 0.8, 0.02)
         self.assertAlmostEqual(trimmed.last_err_eff, 5.0)  # gate saturated
         self.assertGreater(trimmed.command(detection(0.0, curve_px=-50.0), 0.8, 0.02)[1], 0.0)
         # With the trim open, the loop now settles where the raw reading is -5 cm.
         self.assertEqual(trimmed.command(detection(-5.0, curve_px=-50.0), 0.8, 0.02)[1], 0.0)
         # A missing curve_px (older debug dict) must not open the gate.
-        self.assertEqual(SteeringController(bias_cm=5.0)
+        self.assertEqual(SteeringController(bias_cm=5.0, bias_straight_cm=0.0)
                          .command({**detection(0.0), "curve_px": None}, 0.8, 0.02)[1], 0.0)
 
-    def test_the_standing_trim_is_off_unless_it_is_asked_for(self):
-        """5 cm used to be the default, and it rode left of centre on the straights as
-        well as turning harder in the curves. It is one track's measured offset, not a
-        property of the loop, so it is a knob again."""
+    def test_the_standing_trim_defaults_to_three_and_can_be_turned_off(self):
+        """It is one track's measured offset, not a property of the loop, so it stays a
+        knob - 3 cm by default and 0 to disable it."""
         gains = dict(straight_gains=(1, 0, 0), curve_gains=(1, 0, 0),
                      steer_full_scale_cm=50)
-        trimmed = detection(10.0, curve=True, curve_px=-50.0)   # gate fully open
-        off = SteeringController(**gains)
-        off.command(trimmed, 0.8, 0.02)
+        curved = detection(10.0, curve=True, curve_px=-50.0)    # gate fully open
+        default = SteeringController(**gains)
+        default.command(curved, 0.8, 0.02)
+        self.assertAlmostEqual(default.last_err_eff, 13.0)      # the reading plus 3 cm
+        off = SteeringController(bias_cm=0.0, **gains)
+        off.command(curved, 0.8, 0.02)
         self.assertAlmostEqual(off.last_err_eff, 10.0)          # the reading alone
-        on = SteeringController(bias_cm=5.0, **gains)
-        on.command(trimmed, 0.8, 0.02)
-        self.assertAlmostEqual(on.last_err_eff, 15.0)           # reading plus the trim
+
+    def test_the_trim_reads_the_smoothed_curve_and_fades_between_the_two_ends(self):
+        """A straight's one-frame curve_px jitters past what a real curve reads, so the
+        gate reads the smoothed value. Under the dead band the trim sits exactly on the
+        straight end instead of wherever the ramp happened to be, and between the dead
+        band and full scale it fades from one end to the other."""
+        controller = SteeringController(straight_gains=(1, 0, 0),
+                                        curve_gains=(1, 0, 0), steer_full_scale_cm=50)
+
+        def trim(raw, smooth):
+            frame = detection(0.0, curve_px=raw)
+            frame["curve_px_smooth"] = smooth
+            controller.command(frame, 0.8, 0.02)
+            return controller.last_err_eff
+
+        # A one-frame spike that the smoothed reading calls straight takes the straight
+        # end, where the raw 30 px on its own would have taken the curve end.
+        self.assertAlmostEqual(trim(30.0, 2.0), controller.bias_straight_cm)
+        self.assertAlmostEqual(
+            trim(30.0, 9.0),
+            0.5 * (controller.bias_straight_cm + controller.bias_cm))
+        self.assertAlmostEqual(trim(30.0, 20.0), controller.bias_cm)
+        self.assertAlmostEqual(controller.bias_straight_cm, 1.0)
+        self.assertAlmostEqual(controller.bias_cm, 3.0)
 
     def test_dropping_the_held_command_keeps_the_loop_state(self):
         """The card stop drops the stored command and nothing else. Left set, it is
@@ -190,8 +224,9 @@ class SteeringTests(unittest.TestCase):
 
     def test_right_turns_are_capped_lower_than_left(self):
         """Negative wz is a right turn on the wire, and right is limited to half."""
-        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=1,
-                                        max_wz=0.5, max_wz_right=0.25)
+        controller = SteeringController(**NO_TRIM, straight_gains=(1, 0, 0),
+                                        steer_full_scale_cm=1, max_wz=0.5,
+                                        max_wz_right=0.25)
         self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], 0.5)     # left
         self.assertEqual(controller.command(detection(-1000), 0.8, 0.02)[1], -0.25)  # right
         # A command inside the cap is untouched on both sides.
@@ -890,6 +925,18 @@ class SingleLineTrackingTests(unittest.TestCase):
         self.assertFalse(straight["curve_mode"])
         self.assertTrue(steady(160)["curve_mode"])
 
+    def test_a_one_frame_curve_spike_does_not_reach_the_bias_gate(self):
+        """The gate for the standing trim reads this, not the one-frame curve_px. A
+        straight's jitter reaches past any threshold a real curve (9-14 px) also
+        reaches, so only the average tells the two apart - which is why curve_mode as
+        a one-frame test came out anti-correlated with curvature."""
+        import cv2
+        image = np.full((720, 1280, 3), 255, np.uint8)
+        cv2.line(image, (640, 719), (760, 300), (0, 0, 0), 20)
+        _, _, _, _, debug = self._detector().process(image)
+        self.assertGreater(abs(debug["curve_px"]), 12.0)        # the spike
+        self.assertLess(abs(debug["curve_px_smooth"]), 4.0)     # held back by the EMA
+
 
 class LineDetectorStateTests(unittest.TestCase):
     """The detector's cross-frame memory is what keeps a bad lock alive: the scan
@@ -1219,8 +1266,8 @@ class UdpIntegrationTests(unittest.TestCase):
              "--vision-timeout", "0.15"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         )
         client = ConnectorClient(port=vision_port)
-        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50,
-                                        yaw_sign=-1)
+        controller = SteeringController(**NO_TRIM, straight_gains=(1, 0, 0),
+                                        steer_full_scale_cm=50, yaw_sign=-1)
         expected = [0.4, 0.0, -0.1]
 
         def wait_for(target, publish=False):

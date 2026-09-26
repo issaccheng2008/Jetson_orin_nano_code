@@ -222,6 +222,7 @@ class LineDetector:
         self.pix_curve_gain = 0.18       # narrower band → weaker curve signal
         self.pix_angle_gain = 0.15 / self._asp  # compensated: angle×gain unchanged
         self.curve_switch_px = 18.0      # ~1/3 of 50px band separation
+        self.curve_smooth_alpha = 0.85   # ~6-frame EMA, for telling a curve from jitter
         self.curve_angle_deg = 8.0       # fitted heading past which one band is a curve
         self.left_curve_outward_gain = 0.35
         self.left_curve_outward_px = 6.0
@@ -241,6 +242,7 @@ class LineDetector:
         """Every cross-frame memory, at its as-just-started value."""
         return {
             "smoothed_err": 0.0,
+            "curve_px_ema": 0.0,
             "lost_frames": 0,
             "last_base_err": 0.0,
             "last_angle_err": 0.0,
@@ -1365,6 +1367,15 @@ class LineDetector:
                     angle_err = 0.5 * (near["angle"] + far["angle"])
 
             curve_px = far_err_px - near_err_px
+            # Smoothed alongside the raw value. A straight's curve_px jitters several
+            # px either way and its instantaneous magnitude reaches past any threshold
+            # that a real curve (9-14 px) also reaches - which is why curve_mode as a
+            # one-frame test came out anti-correlated with curvature. The jitter has no
+            # mean and a curve does, so the average is what separates them.
+            state["curve_px_ema"] = (
+                self.curve_smooth_alpha * state["curve_px_ema"]
+                + (1.0 - self.curve_smooth_alpha) * curve_px
+            )
 
             # ── Narrow gate detection ──
             # Entering: 只看红条距离（<=70cm）。宽度比不作为判据 —— 鸟瞰的横向
@@ -1570,6 +1581,7 @@ class LineDetector:
             "near_err_px": near_err_px_pre_lock,
             "far_err_px": far_err_px_saved,
             "curve_px": curve_px,
+            "curve_px_smooth": state["curve_px_ema"],
             "turn_gate": turn_gate,
             "fused_err": state["smoothed_err"],
             "fused_err_cm": state["smoothed_err"] * self.err_scale_cm,

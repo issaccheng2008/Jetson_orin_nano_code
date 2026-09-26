@@ -31,12 +31,13 @@ class SteeringController:
                  yaw_sign=1, step_len_cm=8.0, preview_gain=0.0,
                  straight_gains=(0.83, 0.004, 0.095),
                  curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0,
-                 lost_hold_s=0.2, deriv_pole=0.78, bias_cm=0.0, bias_gate_px=12.0,
-                 max_lateral_cm=0.0, max_wz_right=0.25, single_line_gain=1.0):
+                 lost_hold_s=0.2, deriv_pole=0.78, bias_cm=3.0, bias_gate_px=12.0,
+                 bias_dead_px=6.0, bias_straight_cm=1.0, max_lateral_cm=0.0,
+                 max_wz_right=0.25, single_line_gain=1.0):
         values = (vx, max_wz, steer_full_scale_cm, yaw_sign, step_len_cm,
                   preview_gain, integral_limit, lost_hold_s, deriv_pole, bias_cm,
-                  bias_gate_px, max_lateral_cm, max_wz_right, single_line_gain,
-                  *straight_gains, *curve_gains)
+                  bias_gate_px, bias_dead_px, bias_straight_cm, max_lateral_cm,
+                  max_wz_right, single_line_gain, *straight_gains, *curve_gains)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("controller settings must be finite")
         if not 0 <= vx <= 1 or not 0 <= max_wz <= 0.5:
@@ -63,6 +64,8 @@ class SteeringController:
         self.integral_limit = integral_limit
         if bias_gate_px <= 0:
             raise ValueError("bias gate must be positive")
+        if not 0 <= bias_dead_px < bias_gate_px:
+            raise ValueError("bias dead band must be in [0, bias gate)")
         # Additive trim on fused_err_cm, faded in by |curve_px|. The loop settles
         # where the P term balances the disturbance, so a standing lateral offset
         # is removed by shifting where that balance reads zero, not by offsetting
@@ -71,7 +74,9 @@ class SteeringController:
         # Off by default. It is one track's measured standing offset, not a property of
         # the loop, and at 5 cm the robot also rode left of centre on the straights.
         self.bias_cm = bias_cm
+        self.bias_straight_cm = bias_straight_cm
         self.bias_gate_px = bias_gate_px
+        self.bias_dead_px = bias_dead_px
         # OFF by default. The near band reports the line's lateral offset in cm, and
         # the lane is 35 cm wide, so anything past half of that puts the robot off
         # the track - which cannot be true while it follows the line. Field runs on
@@ -175,14 +180,26 @@ class SteeringController:
             self.hold = (0.0, 0.0)
             return self.hold
         dt = clamp(dt, 0.01, 0.2)
-        # curve_mode cannot be this gate: it needs |curve_px| >= curve_switch_px
-        # (18) while the real curve reads 9..14, so it opens on 6-13% of curve
-        # frames and mis-fires on near-straight ones. |curve_px| fades instead.
+        # The gate reads the SMOOTHED curve_px, and it has a dead band. Neither is
+        # decoration: on a straight the one-frame value jitters past any threshold a
+        # real curve (9..14 px) also reaches, which is why curve_mode as a one-frame
+        # test came out anti-correlated with curvature. The jitter has no mean and a
+        # curve does, so the average is the signal - and under the dead band the trim
+        # is exactly zero instead of the quarter it took at 3 px.
         try:
-            gate = abs(float(debug.get("curve_px", 0.0))) / self.bias_gate_px
+            source = debug.get("curve_px_smooth")
+            if source is None:
+                source = debug.get("curve_px", 0.0)
+            gate = (abs(float(source)) - self.bias_dead_px) / (
+                self.bias_gate_px - self.bias_dead_px)
         except (TypeError, ValueError):
             gate = 0.0
-        err += self.bias_cm * (clamp(gate, 0.0, 1.0) if math.isfinite(gate) else 0.0)
+        # Two ends and the fade between them: the trim is bias_straight_cm on a straight
+        # and bias_cm once the curve is full. A dead band on the smoothed reading is
+        # what makes the straight end an exact number rather than wherever the ramp
+        # happened to be sitting.
+        blend = clamp(gate, 0.0, 1.0) if math.isfinite(gate) else 0.0
+        err += self.bias_straight_cm + (self.bias_cm - self.bias_straight_cm) * blend
         curve = bool(debug.get("curve_mode", False))
         # Scale after the bias, not before: on a curve the bias is most of the error
         # (bias 5 cm against a fused err near zero), so amplifying the raw reading
