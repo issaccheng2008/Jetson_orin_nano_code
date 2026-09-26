@@ -174,6 +174,10 @@ def main() -> int:
     smoother = CommandSmoother(args.max_vx_accel, args.max_wz_accel)
     step = 0
     vision_update = 0
+    # Rate counters for the log line, reset on every print so the numbers say
+    # what is happening now instead of growing forever.
+    log_step = log_vision = 0
+    log_time = time.monotonic()
 
     print(
         f"Connector: vision udp://{args.vision_bind}:{args.vision_port} -> "
@@ -217,16 +221,26 @@ def main() -> int:
             )
 
             if step % max(1, args.log_every) == 0:
-                age_text = f"{vision_age_s * 1000.0:6.1f}ms" if math.isfinite(vision_age_s) else " never"
-                print(
-                    f"[connector -> policy] publish={step:7d} "
-                    f"vision_update={vision_update:7d} fresh={vision_fresh} "
-                    f"age={age_text} qr={output['qr']} "
-                    f"cmd_velocity=[vx={output['vx']:+.3f} m/s, "
-                    f"vy={output['vy']:+.3f} m/s, wz={output['wz']:+.3f} rad/s] "
-                    f"target_velocity=[vx={target['vx']:+.3f} m/s, "
-                    f"wz={target['wz']:+.3f} rad/s]"
-                )
+                now = time.monotonic()
+                span = max(now - log_time, 1e-6)
+                publish_hz = (step - log_step) / span
+                vision_hz = (vision_update - log_vision) / span
+                log_time, log_step, log_vision = now, step, vision_update
+                # out = what the policy is actually given, in = how fast vision
+                # feeds it. The target only matters while it differs, i.e. during
+                # a slew or after vision went stale, so it is shown only then.
+                age_text = (f"{vision_age_s * 1000.0:5.1f}ms" if math.isfinite(vision_age_s)
+                            else "  never")
+                line = (f"[connector] {publish_hz:4.0f}Hz out  {vision_hz:4.0f}Hz in  "
+                        f"age={age_text}  vx={output['vx']:+.3f} wz={output['wz']:+.3f}")
+                if (abs(output["vx"] - target["vx"]) > 1e-3
+                        or abs(output["wz"] - target["wz"]) > 1e-3):
+                    line += f" -> {target['vx']:+.3f} {target['wz']:+.3f}"
+                if output["qr"] != -1 or "event_id" in output:
+                    line += f"  qr={output['qr']} event={output.get('event_id', 0)}"
+                if not vision_fresh:
+                    line += "  STALE"
+                print(line)
 
             step += 1
             next_tick += period
