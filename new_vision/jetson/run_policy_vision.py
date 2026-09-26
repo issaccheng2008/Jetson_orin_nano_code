@@ -13,6 +13,7 @@ Bar crossing is still not signalled.
 from __future__ import annotations
 
 import argparse
+import collections
 import math
 import os
 import signal
@@ -100,13 +101,19 @@ def parse_args():
                              "precision for firing on cards whose classification flickers")
     parser.add_argument("--card-clear-s", type=float,
                         default=float(os.getenv("CARD_CLEAR_S", "2.0")),
-                        help="After the action, drive straight at --card-slow-vx for at "
-                             "most this long, until the line detector recovers. The card "
-                             "is left 20-35 cm ahead, inside the near band, so steering "
-                             "from those frames is garbage")
+                        help="After the action, drive past the card on the replayed "
+                             "command for at most this long, until the line detector "
+                             "recovers. The card is left 20-35 cm ahead, inside the near "
+                             "band, so steering from those frames is garbage")
     parser.add_argument("--card-clear-conf", type=float,
                         default=float(os.getenv("CARD_CLEAR_CONF", "0.8")),
                         help="Confidence that counts as the detector having recovered")
+    parser.add_argument("--card-replay-s", type=float,
+                        default=float(os.getenv("CARD_REPLAY_S", "1.0")),
+                        help="During the clearance, hold the average command from this "
+                             "many seconds of normal driving before the stop instead of "
+                             "going straight - on a curve that keeps the turn rate, and "
+                             "the approach was already slowed by --card-slow-vx")
     parser.add_argument("--shape-every", type=int,
                         default=max(1, int(os.getenv("SHAPE_EVERY", "6"))),
                         help="Run card detection every N frames. Measured at 1280x720: "
@@ -142,6 +149,8 @@ def parse_args():
         parser.error("card-clear-s must be finite and nonnegative")
     if not math.isfinite(args.card_clear_conf) or not 0.0 <= args.card_clear_conf <= 1.0:
         parser.error("card-clear-conf must be in [0, 1]")
+    if not math.isfinite(args.card_replay_s) or args.card_replay_s < 0:
+        parser.error("card-replay-s must be finite and nonnegative")
     if args.shape_every < 1:
         parser.error("shape-every must be at least 1")
     return args
@@ -217,9 +226,11 @@ def main():
         card_absent = 0          # consecutive detection calls without one
         card_triggered = False   # this card has already been acted on
         card_action_triggered = False
-        clear_deadline = 0.0     # > 0 while driving straight past the card
+        clear_deadline = 0.0     # > 0 while driving past the card without steering
         clear_pending = False    # an action ran; clear the card once its window ends
         clear_good = 0           # consecutive healthy frames during the clearance
+        history = collections.deque()   # (t, vx, wz) of published commands
+        replay = (0.0, 0.0)      # average of the last --card-replay-s before the stop
         card_dbg = {}
         while not stopped:
             now = time.monotonic()
@@ -276,6 +287,14 @@ def main():
                         and cy >= args.card_trigger_frac):
                     card_triggered = True
                     stop_until = processed + args.card_stop_ms / 1000.0
+                    # Last look at what the robot was doing while it could still see
+                    # the line. The approach was already at --card-slow-vx, so this
+                    # carries the slowed speed and the curve's turn rate forward.
+                    recent = [h for h in history
+                              if h[0] >= processed - args.card_replay_s]
+                    if recent:
+                        replay = (sum(h[1] for h in recent) / len(recent),
+                                  sum(h[2] for h in recent) / len(recent))
                     controller.reset()
                     print(f"[shape] box centroid at {cy:.2f} -> stand still "
                           f"{args.card_stop_ms:.0f} ms", flush=True)
@@ -326,15 +345,21 @@ def main():
                 clear_pending = False
                 clear_good = 0
                 controller.reset()
-                print(f"[shape] driving straight past the card, up to "
-                      f"{args.card_clear_s:.1f}s", flush=True)
+                print(f"[shape] past the card holding vx={replay[0]:+.3f} "
+                      f"wz={replay[1]:+.3f}, up to {args.card_clear_s:.1f}s", flush=True)
             if clear_deadline > 0.0:
                 clear_good = clear_good + 1 if confidence >= args.card_clear_conf else 0
                 if clear_good >= 3 or processed >= clear_deadline:
                     print(f"[shape] line detector back at {confidence:.2f}", flush=True)
                     clear_deadline = 0.0
                 else:
-                    vx, wz = min(vx, args.card_slow_vx), 0.0
+                    # The replayed average, not zero: zero straightens the robot out
+                    # of a curve it has not left yet. Capped so a late trigger cannot
+                    # replay full speed while the near band is still blind.
+                    vx, wz = min(replay[0], args.card_slow_vx), replay[1]
+            history.append((processed, vx, wz))
+            while history and history[0][0] < processed - 2.0 * args.card_replay_s:
+                history.popleft()
             visible_qr = card_action if recognized_this_frame else -1
             event = ({"event_id": card_event_id, "event_action": card_action}
                      if card_event_id else {})
