@@ -54,8 +54,10 @@ because the shake is periodic.
 
 Seeing a card does **not** stop the robot. It keeps a per-card flag, drops the
 speed to `--card-slow-vx`, and rolls on until the box centroid reaches
-`--card-trigger-frac` - 0.75, the lower quarter of the frame - which is when the
-card is actually close. Only then does it stop, and detection then runs **every
+`--card-trigger-frac` - 0.5, the middle of the frame. Triggering later than that
+lands the stop with the card already about 10 cm away, because the robot keeps
+closing while the stop takes effect; 0.75 was the first setting and was too late.
+Only then does it stop, and detection then runs **every
 frame** instead of every `--shape-every`. Standing still the camera is steady,
 the quad path works, and the shape comes out of the tuned classifier - the one
 that is not to be touched. When the shape is known, a numbered event is
