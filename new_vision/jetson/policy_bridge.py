@@ -31,7 +31,7 @@ class SteeringController:
                  yaw_sign=1, step_len_cm=8.0, preview_gain=0.0,
                  straight_gains=(0.83, 0.004, 0.095),
                  curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0,
-                 lost_hold_s=0.2, deriv_pole=0.78, bias_cm=5.0, bias_gate_px=12.0,
+                 lost_hold_s=0.2, deriv_pole=0.78, bias_cm=0.0, bias_gate_px=12.0,
                  max_lateral_cm=0.0, max_wz_right=0.25, single_line_gain=1.0):
         values = (vx, max_wz, steer_full_scale_cm, yaw_sign, step_len_cm,
                   preview_gain, integral_limit, lost_hold_s, deriv_pole, bias_cm,
@@ -68,6 +68,8 @@ class SteeringController:
         # is removed by shifting where that balance reads zero, not by offsetting
         # wz - a constant wz would only bend a straight into a very large circle.
         # Gating it keeps a curve-only offset from pushing the straights off centre.
+        # Off by default. It is one track's measured standing offset, not a property of
+        # the loop, and at 5 cm the robot also rode left of centre on the straights.
         self.bias_cm = bias_cm
         self.bias_gate_px = bias_gate_px
         # OFF by default. The near band reports the line's lateral offset in cm, and

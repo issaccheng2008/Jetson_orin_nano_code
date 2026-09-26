@@ -85,6 +85,20 @@ class SteeringTests(unittest.TestCase):
         self.assertEqual(SteeringController(bias_cm=5.0)
                          .command({**detection(0.0), "curve_px": None}, 0.8, 0.02)[1], 0.0)
 
+    def test_the_standing_trim_is_off_unless_it_is_asked_for(self):
+        """5 cm used to be the default, and it rode left of centre on the straights as
+        well as turning harder in the curves. It is one track's measured offset, not a
+        property of the loop, so it is a knob again."""
+        gains = dict(straight_gains=(1, 0, 0), curve_gains=(1, 0, 0),
+                     steer_full_scale_cm=50)
+        trimmed = detection(10.0, curve=True, curve_px=-50.0)   # gate fully open
+        off = SteeringController(**gains)
+        off.command(trimmed, 0.8, 0.02)
+        self.assertAlmostEqual(off.last_err_eff, 10.0)          # the reading alone
+        on = SteeringController(bias_cm=5.0, **gains)
+        on.command(trimmed, 0.8, 0.02)
+        self.assertAlmostEqual(on.last_err_eff, 15.0)           # reading plus the trim
+
     def test_invalid_or_lost_detection_stops_and_resets(self):
         controller = SteeringController(lost_hold_s=0.0)
         controller.command(detection(), 0.8, 0.02)
