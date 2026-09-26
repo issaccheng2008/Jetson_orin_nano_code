@@ -221,7 +221,11 @@ class LineDetector:
         self.robust_decay_frames = 8
 
         # ── Internal state ──
-        self._state = {
+        self._state = self._initial_state()
+
+    def _initial_state(self):
+        """Every cross-frame memory, at its as-just-started value."""
+        return {
             "smoothed_err": 0.0,
             "lost_frames": 0,
             "last_base_err": 0.0,
@@ -241,6 +245,17 @@ class LineDetector:
             "red_bar_cy": 0.0,
             "red_bar_z_cm": 0.0,
         }
+
+    def reset_state(self):
+        """Drop every cross-frame memory, so the next frame starts from scratch.
+
+        Two of these are self-reinforcing and are why a detector that locks onto the
+        wrong thing stays locked: `last_lane_center_x` is the next frame's scan hint,
+        and `smoothed_err` is an EMA with a long memory. The fallback path also
+        republishes `last_base_err` / `last_angle_err` verbatim. A fresh process on
+        the same curve tracks fine, so a fresh state should behave the same.
+        """
+        self._state = self._initial_state()
 
     # ═══════════════════════════════════════════════════════════
     # Birdseye matrix (IPM: pinhole back-projection of ground plane)

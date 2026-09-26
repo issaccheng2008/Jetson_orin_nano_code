@@ -571,6 +571,68 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertEqual(out.getvalue().count("stand still"), 1)
 
 
+class LineDetectorStateTests(unittest.TestCase):
+    """The detector's cross-frame memory is what keeps a bad lock alive: the scan
+    hint feeds the next frame's search, and smoothed_err is a long EMA."""
+
+    def test_reset_state_restores_every_key_to_its_starting_value(self):
+        from line_detector_v1_warp import LineDetector
+        detector = LineDetector(1280, 720)
+        fresh = {k: (list(v) if isinstance(v, list) else v)
+                 for k, v in detector._state.items()}
+        detector._state["last_lane_center_x"] = 7.0
+        detector._state["smoothed_err"] = 0.9
+        detector._state["lost_frames"] = 12
+        detector._state["near_err_history"].append(3.0)
+        detector.reset_state()
+        self.assertEqual(detector._state, fresh)
+        # And the values have to be independent, not a shared mutable default.
+        detector._state["near_err_history"].append(1.0)
+        self.assertEqual(detector._initial_state()["near_err_history"], [])
+
+    def test_the_handover_resets_the_detector(self):
+        """A fresh process tracks the same curve, so the frame after a card stop
+        should start from a fresh state too."""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.side_effect = lambda *a, **k: (
+            (None, {"presence": True, "card_found": True, "presence_cy_frac": 0.9})
+            if reads[0] == 2
+            else (None, {"presence": False, "card_found": False,
+                         "presence_cy_frac": None}))
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 60:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        detector.reset_state.assert_called_once()
+
+
 class ObservationDumpTests(unittest.TestCase):
     """The stop->restart transient is invisible at the vision log's 2 Hz sampling,
     so policy_runner can dump all 49 observation components at 50 Hz instead."""

@@ -335,6 +335,13 @@ def main():
             # window once we do know it.
             window_open = processed < stop_until or processed < card_until
             if card_window_open and not window_open:
+                # Cold start on both halves. The controller was already being reset
+                # every stopped frame; the detector was not, and its state is what
+                # keeps a bad lock alive - last_lane_center_x is the next frame's
+                # scan hint and smoothed_err is a long EMA. A fresh process tracks
+                # this same curve fine, so start the frame the same way.
+                controller.reset(clear_hold=True)
+                detector.reset_state()
                 # One line at the handover: what the controller was left holding. If
                 # this shows a pre-stop vx/wz, the lost-line fallback will replay it.
                 print(f"[vision] card window closed; resuming the live controller "
