@@ -32,7 +32,7 @@ class SteeringController:
                  straight_gains=(0.83, 0.004, 0.095),
                  curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0,
                  lost_hold_s=0.2, deriv_pole=0.78, bias_cm=5.0, bias_gate_px=12.0,
-                 max_lateral_cm=17.5):
+                 max_lateral_cm=0.0):
         values = (vx, max_wz, steer_full_scale_cm, yaw_sign, step_len_cm,
                   preview_gain, integral_limit, lost_hold_s, deriv_pole, bias_cm,
                   bias_gate_px, max_lateral_cm, *straight_gains, *curve_gains)
@@ -48,8 +48,8 @@ class SteeringController:
             raise ValueError("lost hold window must be nonnegative")
         if not 0 <= deriv_pole < 1:
             raise ValueError("derivative filter pole must be in [0, 1)")
-        if max_lateral_cm <= 0:
-            raise ValueError("lateral sanity bound must be positive")
+        if max_lateral_cm < 0:
+            raise ValueError("lateral sanity bound must be nonnegative; 0 disables it")
         self.deriv_pole = deriv_pole
         self.vx, self.max_wz = vx, max_wz
         self.full_scale, self.yaw_sign = steer_full_scale_cm, yaw_sign
@@ -65,14 +65,13 @@ class SteeringController:
         # Gating it keeps a curve-only offset from pushing the straights off centre.
         self.bias_cm = bias_cm
         self.bias_gate_px = bias_gate_px
-        # The near band reports the line's lateral offset in cm. The lane is 35 cm
-        # wide, so anything past half of that puts the robot off the track - which
-        # cannot be true while it is following the line. The guard is on the
-        # magnitude, not on how steady the reading looks: on the robot 2026-09-26,
-        # walking with wz pinned at -0.5 and no card anywhere, err held -35.9 cm for
-        # twenty seconds (near band +73 px, far +54 px, conf 0.78) and wz stayed
-        # saturated the whole time. A reading that wrong driving a saturated turn is
-        # worse than no reading. Treat it as loss instead.
+        # OFF by default. The near band reports the line's lateral offset in cm, and
+        # the lane is 35 cm wide, so anything past half of that puts the robot off
+        # the track - which cannot be true while it follows the line. Field runs on
+        # 2026-09-26 showed such readings (err held -35.9 cm for twenty seconds while
+        # walking), but the bound was never measured against normal running, and
+        # turning a reading into an outright stop changes line following. Do not
+        # default it on: measure base_err_cm over a full lap first, then set it.
         self.max_lateral_cm = max_lateral_cm
         # Last frame rejected on the lateral bound, for the caller to log. None
         # otherwise, so a caller can print on the transition instead of every frame.
@@ -125,7 +124,8 @@ class SteeringController:
             valid = (all(math.isfinite(v) for v in (err, angle, lost, confidence, dt))
                      and confidence > 0 and lost == 0 and dt > 0)
             self.rejected_lateral = (
-                lateral if valid and abs(lateral) > self.max_lateral_cm else None)
+                lateral if valid and self.max_lateral_cm > 0
+                and abs(lateral) > self.max_lateral_cm else None)
             valid = valid and self.rejected_lateral is None
         except (KeyError, TypeError, ValueError, OverflowError):
             valid = False

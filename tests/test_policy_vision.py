@@ -128,7 +128,11 @@ class SteeringTests(unittest.TestCase):
         -35.9 cm for twenty seconds, rock steady. The lane is 35 cm wide, so the
         near band was reporting a line half a metre off - it had locked onto
         something else, and steering on it is a hard turn the wrong way."""
-        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
+        # Off unless asked for: defaulting it on changes line following.
+        self.assertNotEqual(
+            SteeringController().command(detection(lateral=-35.9), 0.8, 0.05), (0.0, 0.0))
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50,
+                                        max_lateral_cm=17.5)
         for lateral in (17.4, -17.4):
             self.assertNotEqual(
                 controller.command(detection(lateral=lateral), 0.8, 0.02), (0.0, 0.0))
@@ -148,7 +152,7 @@ class SteeringTests(unittest.TestCase):
                        dict(steer_full_scale_cm=0), dict(step_len_cm=-1),
                        dict(lost_hold_s=-1.0), dict(deriv_pole=1.0),
                        dict(deriv_pole=-0.1), dict(bias_cm=float("nan")),
-                       dict(bias_gate_px=0.0), dict(max_lateral_cm=0.0)):
+                       dict(bias_gate_px=0.0), dict(max_lateral_cm=-1.0)):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 SteeringController(**kwargs)
 

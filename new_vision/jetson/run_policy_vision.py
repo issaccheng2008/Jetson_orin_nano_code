@@ -65,11 +65,13 @@ def parse_args():
                         help="abs(curve_px) at which --bias-cm is fully applied; it fades "
                              "to zero by curve_px 0 so straights are untouched")
     parser.add_argument("--max-lateral-cm", type=float,
-                        default=float(os.getenv("MAX_LATERAL_CM", "17.5")),
-                        help="Half the lane width. The near band's lateral offset past "
-                             "this puts the robot off the track, which cannot be true "
-                             "while it follows the line, so the frame is treated as "
-                             "loss (hold, then stop) instead of steering on it")
+                        default=float(os.getenv("MAX_LATERAL_CM", "0")),
+                        help="0 disables. Otherwise, half the lane width: the near "
+                             "band's lateral offset past this puts the robot off the "
+                             "track, which cannot be true while it follows the line, "
+                             "so the frame counts as loss (hold, then stop) instead "
+                             "of steering on it. Off by default because the bound has "
+                             "not been measured against a normal lap yet")
     parser.add_argument("--no-shape-detect", action="store_true",
                         help="Skip geometric card detection entirely; qr stays -1")
     parser.add_argument("--card-hold-ms", type=float,
