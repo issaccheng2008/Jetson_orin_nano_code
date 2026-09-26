@@ -307,7 +307,10 @@ def main():
                     f"vx={vx:+.3f} wz={wz:+.3f} "
                     f"err={debug.get('fused_err_cm', 0.0):+.1f}cm "
                     f"conf={confidence:.2f} qr={visible_qr}"
-                    + (f"/ev{card_action}" if card_event_id else "") + " | "
+                    # Same id the connector and policy log, so the three can be
+                    # lined up by hand when an event goes missing in the middle.
+                    + (f"/ev{card_action}#{card_event_id}" if card_event_id else "")
+                    + " | "
                     f"steer={controller.last_steer:+.2f} eff={controller.last_err_eff:+.1f} "
                     f"ang={debug.get('angle_err_deg', 0.0):+.1f} "
                     f"curve={int(bool(debug.get('curve_mode', False)))}"
