@@ -847,6 +847,39 @@ class SingleLineTrackingTests(unittest.TestCase):
             detector.band_low_y0 / float(detector.bird_h),
             detector.band_low_y1 / float(detector.bird_h), 10, 5)
 
+    @staticmethod
+    def _arc_lane(k):
+        """A two-line lane whose far end is k*419^2 px left of its near end, so a
+        positive k is a left curve by the code's own convention (curve_px < 0)."""
+        import cv2
+        image = np.full((720, 1280, 3), 255, np.uint8)
+        for x0 in (560, 720):
+            points = np.array([[x0 - int(k * (719 - y) ** 2), y]
+                               for y in range(280, 720)], np.int32)
+            cv2.polylines(image, [points], False, (0, 0, 0), 20)
+        return image
+
+    def test_the_angle_term_pushes_the_way_the_curve_goes(self):
+        """Three encodings of one direction: fused_err > 0 is the left correction,
+        angle_err > 0 is "the lane ahead goes left", curve_px < 0 is a left curve. On
+        one measured left-curve fixture all three hold together, so the angle term has
+        to add to the correction. It was negated, which steered right on a left curve -
+        against the curve term and against run_robot.py:257, which carries the same
+        heading into its preview term with a plus."""
+        def steady(angle_gain):
+            detector = self._detector()
+            detector.pix_angle_gain = angle_gain
+            image = self._arc_lane(0.00057)
+            for _ in range(detector.startup_settle_frames + 4):
+                _, _, _, _, debug = detector.process(image)
+            return debug
+
+        curved = steady(self._detector().pix_angle_gain)
+        flat = steady(0.0)                                  # the same frame, no angle term
+        self.assertLess(curved["curve_px"], 0.0)
+        self.assertGreater(curved["angle_err_deg"], 0.0)
+        self.assertGreater(curved["fused_err_cm"], flat["fused_err_cm"])
+
     def test_a_zero_width_hint_does_not_shrink_the_inferred_centre(self):
         """The startup window hands the scan a width of 0, and 0 used to become
         max(0, min_track_width) = 24 px. Sizing the inferred half-lane off that put the

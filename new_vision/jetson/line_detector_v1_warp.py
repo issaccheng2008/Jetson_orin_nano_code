@@ -1496,7 +1496,14 @@ class LineDetector:
             fused_err = -near_norm
             fused_err += lookahead_dyn * (-far_norm)
             fused_err += self.pix_curve_gain * (-curve_norm)
-            fused_err += self.pix_angle_gain * (-angle_err / 45.0)
+            # Not negated. angle_err is the fitted lane heading, and the axes say
+            # larger row is nearer and larger column is right - so a lane that goes
+            # left as it recedes reads angle_err > 0, which is the same statement as
+            # fused_err > 0, the left correction. Negated, the term steered right on a
+            # left curve: on a measured left-curve fixture it took 1.36 cm back out of
+            # a 3.24 cm correction. run_robot.py:257 carries the same heading into its
+            # preview term with a plus, so the two ends of the repo disagreed.
+            fused_err += self.pix_angle_gain * (angle_err / 45.0)
             if curve_px < -self.left_curve_outward_px:
                 fused_err += self.left_curve_outward_gain * curve_norm
 
