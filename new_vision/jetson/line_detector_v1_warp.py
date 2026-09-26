@@ -644,28 +644,31 @@ class LineDetector:
                 best = run
         return best
 
-    def _infer_center_from_single_run(self, run, center_ref, lane_width_meas, x0, x1):
+    def _infer_center_from_single_run(self, run, lane_width_meas, x0, x1):
         """Place the boundary that is missing from the one run the row still has.
 
-        Which boundary it is is read off the run's side of the centre the band is
-        already tracking. That is the same rule the old nearest-hint comparison
-        implemented, just written as what it means.
+        The side comes from the run's position against the middle of the birdseye, not
+        against the centre being tracked. The middle is the column under the camera,
+        and the lane centre stays within a few px of it even on the tightest real
+        curve - ~12 px at 25 cm ahead on a 77.5 cm radius - while a boundary is half a
+        lane (70 px) away, so the discrimination holds until the robot is already off
+        the track. Reading the side off the tracked centre instead makes it a function
+        of the previous estimate: a centre that has drifted to the wrong side of the
+        run confirms its own error frame after frame. Against a constant there is no
+        loop to close.
         """
         c = 0.5 * (run[0] + run[1])
         # Only a row that measured both boundaries may set the width: a width taken
         # off an inferred row is the number this function just made up, and feeding it
         # back makes the estimate chase itself.
         w = float(lane_width_meas) if lane_width_meas > 0 else float(self.lane_width_init_px)
-        side = "left" if c < center_ref else "right"
+        side = "left" if c < self.center_x else "right"
+        # Bounded by construction: the side is a constant's comparison, so the centre
+        # lands w/2 to that side of the frame middle and w <= max_track_width. The old
+        # rule sided off the tracked centre, which can sit anywhere, and clamped the
+        # result - reporting the frame edge as a measurement, which is how one row
+        # handed the fusion a near_err_px of +/-160 on a 35 cm lane.
         center = c + 0.5 * w if side == "left" else c - 0.5 * w
-
-        # No clamping. A run close enough to the edge that the missing boundary lands
-        # outside the frame carries no usable centre: clamping it reports the edge as
-        # a real measurement, which is how a single row could hand the fusion a
-        # near_err_px of +/-160 - the full half width of the birdseye, and a larger
-        # error than any position on a 35 cm lane can justify.
-        if not x0 <= center <= x1:
-            return None
         return {
             "center_px": center,
             "lane_width_px": w,
@@ -747,7 +750,7 @@ class LineDetector:
                 best_run = self._choose_single_run_near_hint(runs, last_center)
                 if best_run is not None:
                     chosen = self._infer_center_from_single_run(
-                        best_run, last_center, last_width, x0, x1
+                        best_run, last_width, x0, x1
                     )
 
             if chosen is not None:

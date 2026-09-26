@@ -747,20 +747,25 @@ class SingleLineTrackingTests(unittest.TestCase):
         self.assertAlmostEqual(both["lane_width_px"], 140.0)
         self.assertEqual(both["pair_ratio"], 1.0)
 
-    def test_a_run_too_near_the_edge_cannot_invent_a_centre(self):
-        """Placing the missing boundary outside the frame is not a measurement. The old
-        clamp returned the frame edge instead, which let one row hand the fusion a near
-        error of +/-160 px - the birdseye's whole half width, and more than any position
-        on a 35 cm lane justifies."""
+    def test_the_inferred_centre_cannot_run_away_from_the_frame_middle(self):
+        """The side is read off the constant frame middle, so the centre lands w/2 to
+        that side of it - within half a lane (<= 150 px) wherever the run is. Siding
+        off the tracked centre, which can sit anywhere, is what let the old clamp report
+        the frame edge as a measurement: one row handing the fusion +/-160 px."""
         detector = self._detector()
-        self.assertIsNone(detector._infer_center_from_single_run(
-            (300, 309), 350.0, 140.0, 0, detector.bird_w - 1))    # centre would be 374.5
-        self.assertIsNone(detector._infer_center_from_single_run(
-            (10, 19), 5.0, 140.0, 0, detector.bird_w - 1))        # centre would be -55.5
-        inside = detector._infer_center_from_single_run(
-            (200, 209), 160.0, 140.0, 0, detector.bird_w - 1)
-        self.assertEqual(inside["side"], "right")
-        self.assertAlmostEqual(inside["center_px"], 204.5 - 70.0)
+        for start in (0, 40, 100, 159, 160, 220, 300, 310):
+            with self.subTest(start=start):
+                result = detector._infer_center_from_single_run(
+                    (start, start + 9), detector.lane_width_init_px, 0, detector.bird_w - 1)
+                run_center = start + 4.5
+                side = "left" if run_center < detector.center_x else "right"
+                self.assertEqual(result["side"], side)
+                self.assertAlmostEqual(
+                    result["center_px"],
+                    run_center + (70.0 if side == "left" else -70.0))
+                self.assertLessEqual(
+                    abs(result["center_px"] - detector.center_x),
+                    detector.max_track_width / 2.0)
 
     def test_a_single_line_curve_reaches_curve_mode(self):
         """The single-line gain is gated on curve_mode, and one visible boundary makes
