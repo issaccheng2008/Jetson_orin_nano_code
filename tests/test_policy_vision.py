@@ -316,7 +316,9 @@ class VisionEntryPointTests(unittest.TestCase):
         detector = Mock()
         detector.process.return_value = (0, 0, 0.8, None, detection())
         shape = Mock()
-        shape.update.side_effect = [(3, {})] + [(None, {})] * 2  # fires once, like the cooldown
+        # A shape is only acted on once the card has reached the trigger line; the
+        # centroid has to be reported for that to be knowable.
+        shape.update.side_effect = [(3, {"presence_cy_frac": 0.9})] + [(None, {})] * 2
         shape.action_map = {"square": 3}
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless",
@@ -521,6 +523,57 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         self.assertEqual(out.getvalue().count("stand still"), 1)
+
+    def test_a_shape_is_not_acted_on_until_the_card_reaches_the_trigger_line(self):
+        """Phase two waits for phase one. Acting on a card 50 cm away classified it
+        from a small warp: rules called it diamond then triangle while hu read circle
+        at distance 0.01-0.04 throughout."""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        plan = {2: 0.20, 3: 0.30, 4: 0.40, 5: 0.55, 6: 0.70}
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.side_effect = lambda *a, **k: (
+            (3, {"presence": True, "card_found": True,
+                 "presence_cy_frac": plan[reads[0]]})
+            if reads[0] in plan
+            else (None, {"presence": False, "card_found": False,
+                         "presence_cy_frac": None}))
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 20:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        out = io.StringIO()
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-trigger-frac", "0.5"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(out),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        # reads 2-4 are short of the line and must be ignored; read 5 reaches it.
+        qr = [call.args[2] for call in client_cls.return_value.publish.call_args_list]
+        self.assertEqual(qr[1:4], [-1, -1, -1])
+        self.assertEqual(qr[4], 3)
+        self.assertIn("qr=3", out.getvalue())
 
     def test_a_card_already_driven_past_cannot_trigger_a_second_stop(self):
         """The card just handled is still in frame, low and below the trigger line,

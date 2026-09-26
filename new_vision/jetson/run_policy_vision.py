@@ -282,7 +282,16 @@ def main():
                     else args.shape_every) == 0):
                 action, card_dbg = shape.update(
                     frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
-                if action is not None and not card_action_triggered and card_event_id == 0:
+                # Phase two waits for phase one. The classifier is only reliable on a
+                # card that is close, and the trigger line is what says it is. Acting
+                # as soon as a shape appears classified a card 50 cm away - top=186,
+                # cy=0.40 - on a small warp: rules called it diamond, then triangle,
+                # while hu read circle at distance 0.01-0.04 throughout and was the
+                # one that was right. The box only reaches that far down the frame
+                # after --card-trigger-frac, so nothing may act before it.
+                reach = card_dbg.get("presence_cy_frac")
+                reached = reach is not None and reach >= args.card_trigger_frac
+                if action is not None and reached and not card_action_triggered and card_event_id == 0:
                     card_action = action
                     card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
                     card_until = processed + args.card_hold_ms / 1000.0
