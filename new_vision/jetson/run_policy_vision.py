@@ -127,6 +127,11 @@ def parse_args():
     return args
 
 
+def fmt(value, spec):
+    """Format one detector debug value; '-' when the detector did not report it."""
+    return "-" if value is None else format(value, spec)
+
+
 def main():
     args = parse_args()
     # Reuse the dual-mode PID defaults/environment overrides of run_robot.py.
@@ -179,6 +184,7 @@ def main():
               f"max_wz={args.max_wz} rad/s; yaw_sign={args.yaw_sign}", flush=True)
         start = previous = time.monotonic()
         last_log = -math.inf
+        last_shape_log = -math.inf
         frames = 0
         card_action = -1
         card_event_id = 0
@@ -245,6 +251,28 @@ def main():
                     controller.reset()
                     print(f"[shape] box centroid at {cy:.2f} -> stand still "
                           f"{args.card_stop_ms:.0f} ms", flush=True)
+                # Why a card that is plainly in view did not become an action: the
+                # quad gates (found/closure), the classifier (shape/rules), or the
+                # consecutive-frame latch. Only while a card is around, at 4 Hz.
+                if ((card_dbg.get("card_found") or card_dbg.get("presence") or card_flag)
+                        and processed - last_shape_log >= 0.25):
+                    last_shape_log = processed
+                    hu_name = card_dbg.get("hu_best")
+                    print(
+                        f"[shape] found={int(bool(card_dbg.get('card_found')))} "
+                        f"presence={int(bool(card_dbg.get('presence')))} "
+                        f"shape={card_dbg.get('shape')} "
+                        f"rules={card_dbg.get('shape_rules')} "
+                        f"hu={hu_name + ':' if hu_name else '-'}"
+                        f"{fmt(card_dbg.get('hu_dist'), '.3f')} "
+                        f"closure={fmt(card_dbg.get('closure'), '.2f')} "
+                        f"top={fmt(card_dbg.get('box_top_work'), '.0f')}/"
+                        f"{fmt(card_dbg.get('y_mid'), '.0f')} "
+                        f"cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')} "
+                        f"cue={fmt(card_dbg.get('presence_cue'), '.2f')} "
+                        f"armed={int(bool(getattr(shape, 'armed', True)))} "
+                        f"cand={getattr(shape, 'candidate', None)}"
+                        f"x{getattr(shape, 'candidate_count', 0)}", flush=True)
             if card_action != -1 and processed >= card_until:
                 card_action = -1
                 card_event_id = 0
