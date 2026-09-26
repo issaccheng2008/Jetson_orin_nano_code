@@ -64,6 +64,12 @@ def parse_args():
                         default=float(os.getenv("STEER_BIAS_GATE_PX", "12")),
                         help="abs(curve_px) at which --bias-cm is fully applied; it fades "
                              "to zero by curve_px 0 so straights are untouched")
+    parser.add_argument("--max-lateral-cm", type=float,
+                        default=float(os.getenv("MAX_LATERAL_CM", "17.5")),
+                        help="Half the lane width. The near band's lateral offset past "
+                             "this puts the robot off the track, which cannot be true "
+                             "while it follows the line, so the frame is treated as "
+                             "loss (hold, then stop) instead of steering on it")
     parser.add_argument("--no-shape-detect", action="store_true",
                         help="Skip geometric card detection entirely; qr stays -1")
     parser.add_argument("--card-hold-ms", type=float,
@@ -154,6 +160,7 @@ def main():
         integral_limit=float(os.getenv("JETSON_PID_I_CLAMP", "60")),
         lost_hold_s=args.lost_hold_s, deriv_pole=args.deriv_pole,
         bias_cm=args.bias_cm, bias_gate_px=args.bias_gate_px,
+        max_lateral_cm=args.max_lateral_cm,
     )
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2

@@ -31,10 +31,11 @@ class SteeringController:
                  yaw_sign=1, step_len_cm=8.0, preview_gain=0.0,
                  straight_gains=(0.83, 0.004, 0.095),
                  curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0,
-                 lost_hold_s=0.2, deriv_pole=0.78, bias_cm=5.0, bias_gate_px=12.0):
+                 lost_hold_s=0.2, deriv_pole=0.78, bias_cm=5.0, bias_gate_px=12.0,
+                 max_lateral_cm=17.5):
         values = (vx, max_wz, steer_full_scale_cm, yaw_sign, step_len_cm,
                   preview_gain, integral_limit, lost_hold_s, deriv_pole, bias_cm,
-                  bias_gate_px, *straight_gains, *curve_gains)
+                  bias_gate_px, max_lateral_cm, *straight_gains, *curve_gains)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("controller settings must be finite")
         if not 0 <= vx <= 1 or not 0 <= max_wz <= 0.5:
@@ -47,6 +48,8 @@ class SteeringController:
             raise ValueError("lost hold window must be nonnegative")
         if not 0 <= deriv_pole < 1:
             raise ValueError("derivative filter pole must be in [0, 1)")
+        if max_lateral_cm <= 0:
+            raise ValueError("lateral sanity bound must be positive")
         self.deriv_pole = deriv_pole
         self.vx, self.max_wz = vx, max_wz
         self.full_scale, self.yaw_sign = steer_full_scale_cm, yaw_sign
@@ -62,6 +65,15 @@ class SteeringController:
         # Gating it keeps a curve-only offset from pushing the straights off centre.
         self.bias_cm = bias_cm
         self.bias_gate_px = bias_gate_px
+        # The near band reports the line's lateral offset in cm. The lane is 35 cm
+        # wide, so anything past half of that puts the robot off the track - which
+        # cannot be true while it is following the line. Measured on the robot
+        # 2026-09-26: standing still, with no card in the scene, err sat rock steady
+        # at -35.9 cm for twenty seconds (near band +73 px, far +54 px, conf 0.78).
+        # A wrong reading that stable is not noise, it is a lock onto something else
+        # (the other line, a lane edge), and steering on it is how the robot ends up
+        # turning hard the wrong way. Treat it as loss instead.
+        self.max_lateral_cm = max_lateral_cm
         self.last_err_eff = 0.0
         self.reset()
         self.lost_hold_s = lost_hold_s
@@ -106,8 +118,10 @@ class SteeringController:
             err = float(debug["fused_err_cm"])
             angle = float(debug["angle_err_deg"])
             lost = float(debug["lost_frames"])
+            lateral = float(debug["base_err_cm"])
             valid = (all(math.isfinite(v) for v in (err, angle, lost, confidence, dt))
-                     and confidence > 0 and lost == 0 and dt > 0)
+                     and confidence > 0 and lost == 0 and dt > 0
+                     and abs(lateral) <= self.max_lateral_cm)
         except (KeyError, TypeError, ValueError, OverflowError):
             valid = False
         if not valid:

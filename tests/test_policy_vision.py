@@ -29,10 +29,11 @@ from camera_config import to_model_z
 from shape_detector import WORK_H, WORK_W, ShapeDetector
 
 
-def detection(error=10.0, angle=0.0, lost=0, curve=False, curve_px=0.0):
+def detection(error=10.0, angle=0.0, lost=0, curve=False, curve_px=0.0,
+              lateral=0.0):
     return dict(fused_err=error / 52.8, fused_err_cm=error, angle_err_deg=angle,
                 lost_frames=lost, curve_mode=curve, bottom_lock_valid=True,
-                curve_px=curve_px)
+                curve_px=curve_px, base_err_cm=lateral)
 
 
 class SteeringTests(unittest.TestCase):
@@ -122,12 +123,30 @@ class SteeringTests(unittest.TestCase):
         # A NaN dt must not stall the accumulator and latch the hold for ever.
         self.assertEqual(controller.command(detection(lost=1), 0.8, float("nan")), (0.0, 0.0))
 
+    def test_an_impossible_lateral_offset_counts_as_line_loss(self):
+        """Measured on the robot: standing still with no card in view, err sat at
+        -35.9 cm for twenty seconds, rock steady. The lane is 35 cm wide, so the
+        near band was reporting a line half a metre off - it had locked onto
+        something else, and steering on it is a hard turn the wrong way."""
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
+        for lateral in (17.4, -17.4):
+            self.assertNotEqual(
+                controller.command(detection(lateral=lateral), 0.8, 0.02), (0.0, 0.0))
+        # Past the lane half-width it is loss: hold the last command, then stop.
+        held = controller.command(detection(), 0.8, 0.02)
+        self.assertEqual(held[0], 0.4)
+        self.assertEqual(
+            controller.command(detection(lateral=-35.9), 0.8, 0.05), held)
+        for _ in range(6):
+            final = controller.command(detection(lateral=-35.9), 0.8, 0.05)
+        self.assertEqual(final, (0.0, 0.0))
+
     def test_invalid_settings_are_rejected(self):
         for kwargs in (dict(max_wz=1.5), dict(vx=float("nan")), dict(yaw_sign=0),
                        dict(steer_full_scale_cm=0), dict(step_len_cm=-1),
                        dict(lost_hold_s=-1.0), dict(deriv_pole=1.0),
                        dict(deriv_pole=-0.1), dict(bias_cm=float("nan")),
-                       dict(bias_gate_px=0.0)):
+                       dict(bias_gate_px=0.0), dict(max_lateral_cm=0.0)):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 SteeringController(**kwargs)
 
