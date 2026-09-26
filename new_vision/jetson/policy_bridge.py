@@ -67,12 +67,12 @@ class SteeringController:
         self.bias_gate_px = bias_gate_px
         # The near band reports the line's lateral offset in cm. The lane is 35 cm
         # wide, so anything past half of that puts the robot off the track - which
-        # cannot be true while it is following the line. Measured on the robot
-        # 2026-09-26: standing still, with no card in the scene, err sat rock steady
-        # at -35.9 cm for twenty seconds (near band +73 px, far +54 px, conf 0.78).
-        # A wrong reading that stable is not noise, it is a lock onto something else
-        # (the other line, a lane edge), and steering on it is how the robot ends up
-        # turning hard the wrong way. Treat it as loss instead.
+        # cannot be true while it is following the line. The guard is on the
+        # magnitude, not on how steady the reading looks: on the robot 2026-09-26,
+        # walking with wz pinned at -0.5 and no card anywhere, err held -35.9 cm for
+        # twenty seconds (near band +73 px, far +54 px, conf 0.78) and wz stayed
+        # saturated the whole time. A reading that wrong driving a saturated turn is
+        # worse than no reading. Treat it as loss instead.
         self.max_lateral_cm = max_lateral_cm
         self.last_err_eff = 0.0
         self.reset()
