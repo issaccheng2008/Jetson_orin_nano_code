@@ -643,6 +643,37 @@ class LineDetectorStateTests(unittest.TestCase):
         detector._state["near_err_history"].append(1.0)
         self.assertEqual(detector._initial_state()["near_err_history"], [])
 
+    def test_a_low_confidence_frame_barely_moves_the_error(self):
+        """conf is the detector's own verdict on a reading, and the fusion has to
+        obey it. Before this, a 0.07-confidence frame moved smoothed_err exactly as
+        hard as a 0.99 one - which is how one garbage frame became full lock."""
+        from line_detector_v1_warp import confidence_weighted_ema
+        self.assertAlmostEqual(confidence_weighted_ema(0.0, 1.0, 0.72, 0.99), 0.2772)
+        self.assertAlmostEqual(confidence_weighted_ema(0.0, 1.0, 0.72, 0.07), 0.0196)
+        # A frame it gives no confidence to cannot move the error at all.
+        self.assertEqual(confidence_weighted_ema(0.5, -1.0, 0.72, 0.0), 0.5)
+
+    def test_the_fusion_update_goes_through_the_confidence_weight(self):
+        """Guards the call site, not just the helper - the inline EMA that used to
+        be there ignored confidence, and the helper test above would not notice it
+        coming back."""
+        import cv2
+        import line_detector_v1_warp as ld
+        frame = np.full((720, 1280, 3), 255, np.uint8)
+        cv2.line(frame, (610, 719), (670, 300), (0, 0, 0), 24)
+        detector = ld.LineDetector(1280, 720)
+        real = ld.confidence_weighted_ema
+        seen = []
+
+        def spy(previous, fused, alpha, confidence):
+            seen.append(confidence)
+            return real(previous, fused, alpha, confidence)
+
+        with patch.object(ld, "confidence_weighted_ema", side_effect=spy):
+            detector.process(frame)
+        self.assertEqual(len(seen), 1)
+        self.assertGreater(seen[0], 0.0)
+
     def test_the_handover_resets_the_detector_before_the_walking_frame(self):
         """A fresh process tracks the same curve, so the frame after a card stop
         should start from a fresh state too - and it has to be the FIRST walking

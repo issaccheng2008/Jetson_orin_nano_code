@@ -64,6 +64,19 @@ def line_fit(ys, xs):
     return a, b
 
 
+def confidence_weighted_ema(previous, fused, alpha, confidence):
+    """Blend a fused reading into the error EMA, in proportion to confidence.
+
+    The fusion never reads conf, so without this a frame the detector rates at
+    0.07 moves the error exactly as hard as one it rates at 0.99. A 2026-09-26
+    run had such a frame alone drive fused_err to a saturated birdseye-edge
+    reading and err_cm to -30 two frames after a clean +1.0 cm one; the
+    controller obeyed at full right lock and the line was never re-acquired.
+    """
+    update = (1.0 - alpha) * clamp(confidence, 0.0, 1.0)
+    return (1.0 - update) * previous + update * fused
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # LineDetector V1
 # ═══════════════════════════════════════════════════════════════════════
@@ -1427,8 +1440,8 @@ class LineDetector:
             if curve_px < -self.left_curve_outward_px:
                 fused_err += self.left_curve_outward_gain * curve_norm
 
-            state["smoothed_err"] = (
-                alpha_eff * state["smoothed_err"] + (1.0 - alpha_eff) * fused_err
+            state["smoothed_err"] = confidence_weighted_ema(
+                state["smoothed_err"], fused_err, alpha_eff, avg_conf
             )
 
             # Curve mode detection (for dual-mode PID)
