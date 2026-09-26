@@ -305,6 +305,7 @@ def main():
                         f"top={fmt(card_dbg.get('box_top_work'), '.0f')} "
                         f"cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')} "
                         f"cue={fmt(card_dbg.get('presence_cue'), '.2f')} "
+                        f"cuecy={fmt(card_dbg.get('cue_cy_frac'), '.2f')} "
                         f"armed={int(bool(getattr(shape, 'armed', True)))} "
                         f"cand={getattr(shape, 'candidate', None)}"
                         f"x{getattr(shape, 'candidate_count', 0)}", flush=True)

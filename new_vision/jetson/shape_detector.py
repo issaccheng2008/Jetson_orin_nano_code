@@ -381,13 +381,17 @@ class ShapeDetector:
                 q_orig[:, 1] += self._roi_y0
                 self._cue_box = (qw.astype(np.int32), q_orig.astype(np.int32),
                                  cue_score)
-            dbg["presence"] = bool(self.armed and self._cue_confirmed())
-            if dbg["presence"] and self._cue_box is not None:
+            # Gate one is the BOX again, as it was before 6ee00b8: no quad, no
+            # presence, nothing to trigger on. The cue is still computed and still
+            # reported, but only in the log - it no longer decides anything.
+            dbg["presence"] = False
+            confirmed = bool(self.armed and self._cue_confirmed())
+            if confirmed and self._cue_box is not None:
                 # 用最近一次命中框做可视化：累积确认期间框不闪
                 dbg["presence_box_work"], dbg["presence_box"], \
                     dbg["presence_cue"] = self._cue_box
                 ys = self._cue_box[0][:, 1]
-                dbg["presence_cy_frac"] = float(ys.min() + ys.max()) * 0.5 / WORK_H
+                dbg["cue_cy_frac"] = float(ys.min() + ys.max()) * 0.5 / WORK_H
 
         if shape is None:
             # 这一帧没检出图卡（框没进门槛，或抖动导致漏检）。不清零候选计数
