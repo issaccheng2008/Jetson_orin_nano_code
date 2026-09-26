@@ -112,6 +112,19 @@ def parse_args():
                              "31 ms with no card in view, 95-122 ms with one, against "
                              "29 ms for the line detector alone. 6 keeps the loop near "
                              "29 Hz clear and 23 Hz while a card is visible")
+    parser.add_argument("--card-every-stopped", type=int,
+                        default=max(1, int(os.getenv("CARD_EVERY_STOPPED", "2"))),
+                        help="Card detection period while stopped, instead of running "
+                             "the whole detector on every frame. Every frame costs "
+                             "94-122 ms, which drops the loop to 6-8 Hz and coarsens "
+                             "the steering the policy sees (a held packet lasts 6-8 "
+                             "of its 50 Hz ticks instead of 3). 2 roughly doubles the "
+                             "loop rate and still gives ~6 attempts a second")
+    parser.add_argument("--max-wz-right", type=float,
+                        default=float(os.getenv("MAX_WZ_RIGHT", "0.25")),
+                        help="Yaw-rate limit for right turns, as opposed to --max-wz "
+                             "for left. Negative wz is a right turn in the published "
+                             "log. A right curve needing more than this runs wide")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")
@@ -137,6 +150,8 @@ def parse_args():
         parser.error("card-clear-calls must be at least 1")
     if args.card_stable_frames < 1:
         parser.error("card-stable-frames must be at least 1")
+    if args.card_every_stopped < 1:
+        parser.error("card-every-stopped must be at least 1")
     if args.shape_every < 1:
         parser.error("shape-every must be at least 1")
     return args
@@ -163,6 +178,7 @@ def main():
         lost_hold_s=args.lost_hold_s, deriv_pole=args.deriv_pole,
         bias_cm=args.bias_cm, bias_gate_px=args.bias_gate_px,
         max_lateral_cm=args.max_lateral_cm,
+        max_wz_right=args.max_wz_right,
     )
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
@@ -238,9 +254,10 @@ def main():
             recognized_this_frame = False
             # Stopped in front of a card, the camera is steady, so the classification
             # can have every frame. --shape-every only throttles the driving case.
-            if shape is not None and (frames % args.shape_every == 0
-                                      or processed < stop_until
-                                      or processed < card_until):
+            if shape is not None and (frames % (
+                    args.card_every_stopped
+                    if (processed < stop_until or processed < card_until)
+                    else args.shape_every) == 0):
                 action, card_dbg = shape.update(
                     frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
                 if action is not None and not card_action_triggered and card_event_id == 0:

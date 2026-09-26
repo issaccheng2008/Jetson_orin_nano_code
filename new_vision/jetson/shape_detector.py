@@ -371,8 +371,9 @@ class ShapeDetector:
             # 找框全线为 0，才退到"细环 + 亮纸面"的存在信号兜底（省几毫秒，
             # 也避免两条通道给出不一致的框）。命中进时间窗，累积够了才认。
             box, cue_score = self._presence_cue(gray)
-            self._cue_hist.append(1 if box is not None else 0)
-            if box is not None:
+            hit = box is not None
+            self._cue_hist.append(1 if hit else 0)
+            if hit:
                 bx, by, bw, bh_ = box
                 qw = np.array([[bx, by], [bx + bw, by], [bx + bw, by + bh_],
                                [bx, by + bh_]], np.float32)
@@ -386,7 +387,13 @@ class ShapeDetector:
             # two or three strokes and no quad ever closes, so a box-only gate never
             # fires. Gate two, after the stop, is the quad and the classifier.
             dbg["presence"] = bool(self.armed and self._cue_confirmed())
-            if dbg["presence"] and self._cue_box is not None:
+            # hit, not just presence: presence is a window over the last calls, and
+            # _cue_box is whatever the last hit left there. Reading the box out of a
+            # miss frame reported a position up to three calls old - which is how a
+            # stationary robot's cy walked 0.51 -> 0.78. The caller gates on cy, so
+            # only a hit may supply one. presence itself stays windowed, or a single
+            # missed call would drop the card while walking.
+            if hit and dbg["presence"] and self._cue_box is not None:
                 # 用最近一次命中框做可视化：累积确认期间框不闪
                 dbg["presence_box_work"], dbg["presence_box"], \
                     dbg["presence_cue"] = self._cue_box

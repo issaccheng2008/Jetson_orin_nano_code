@@ -43,7 +43,8 @@ class SteeringTests(unittest.TestCase):
                                         yaw_sign=-1, preview_gain=4)
         np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.4, -0.1])
         self.assertGreater(controller.command(detection(-10), 0.8, 0.02)[1], 0)
-        self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], -0.5)
+        # Saturated negative is a right turn, and right is capped at max_wz_right.
+        self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], -0.25)
         self.assertEqual(controller.command(detection(-1000), 0.8, 0.02)[1], 0.5)
         self.assertLess(controller.command(detection(0, 30), 0.8, 0.02)[1], 0)
         reverse = SteeringController(yaw_sign=1)
@@ -147,12 +148,25 @@ class SteeringTests(unittest.TestCase):
             final = controller.command(detection(lateral=-35.9), 0.8, 0.05)
         self.assertEqual(final, (0.0, 0.0))
 
+    def test_right_turns_are_capped_lower_than_left(self):
+        """Negative wz is a right turn on the wire, and right is limited to half."""
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=1,
+                                        max_wz=0.5, max_wz_right=0.25)
+        self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], 0.5)     # left
+        self.assertEqual(controller.command(detection(-1000), 0.8, 0.02)[1], -0.25)  # right
+        # A command inside the cap is untouched on both sides.
+        left = controller.command(detection(0.2), 0.8, 0.02)[1]
+        right = controller.command(detection(-0.2), 0.8, 0.02)[1]
+        self.assertAlmostEqual(left, -right)
+
     def test_invalid_settings_are_rejected(self):
         for kwargs in (dict(max_wz=1.5), dict(vx=float("nan")), dict(yaw_sign=0),
                        dict(steer_full_scale_cm=0), dict(step_len_cm=-1),
                        dict(lost_hold_s=-1.0), dict(deriv_pole=1.0),
                        dict(deriv_pole=-0.1), dict(bias_cm=float("nan")),
-                       dict(bias_gate_px=0.0), dict(max_lateral_cm=-1.0)):
+                       dict(bias_gate_px=0.0), dict(max_lateral_cm=-1.0),
+                       dict(max_wz_right=0.0), dict(max_wz_right=-0.1),
+                       dict(max_wz_right=0.6)):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 SteeringController(**kwargs)
 
@@ -532,6 +546,87 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         self.assertEqual(out.getvalue().count("stand still"), 1)
+
+
+class ShapeDetectorReportingTests(unittest.TestCase):
+    """_cue_box is whatever the last hit left there and is never cleared, so a miss
+    frame used to report a position up to three calls old. The caller gates the
+    stop on that centroid, and a stale one walked 0.51 -> 0.78 while the robot was
+    standing still."""
+
+    def test_a_cue_miss_reports_no_centroid(self):
+        detector = ShapeDetector()
+        calls = []
+
+        def cue(_gray):
+            calls.append(1)
+            return ((40, 300, 120, 90), 4.0) if len(calls) == 1 else (None, 0.0)
+
+        detector._presence_cue = cue
+        detector._cue_hist.extend([1, 1, 1])          # window already confirmed
+        blank = np.zeros((720, 1280, 3), np.uint8)
+
+        _, first = detector.update(blank)
+        self.assertIsNotNone(first.get("presence_cy_frac"))
+        self.assertEqual(first.get("presence_cue"), 4.0)
+
+        _, second = detector.update(blank)
+        self.assertIsNone(second.get("presence_cy_frac"))   # nothing to gate on
+        self.assertEqual(second.get("presence_cue"), 0.0)   # and the log is honest
+        self.assertTrue(second.get("presence"))             # window still holds
+
+    def test_card_detection_runs_every_other_frame_while_stopped(self):
+        """Every frame costs 94-122 ms, which drops the loop to 6-8 Hz and makes the
+        policy see one held packet for 6-8 of its 50 Hz ticks instead of 3."""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.8, None, detection())
+        seen = []
+        shape = Mock()
+        shape.action_map = {"square": 3}
+
+        def update(*_a, **_k):
+            seen.append(reads[0])
+            if reads[0] in (2, 3):
+                return None, {"presence": True, "card_found": True,
+                              "presence_cy_frac": 0.9}
+            return None, {"presence": False, "card_found": False,
+                          "presence_cy_frac": None}
+
+        shape.update.side_effect = update
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 40:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-every-stopped", "2"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        # Read 3 triggers the stop; from read 4 the detector runs every second frame.
+        inside = [i for i in seen if i > 3]
+        self.assertEqual(inside[:10], [4, 6, 8, 10, 12, 14, 16, 18, 20, 22])
+        # And once the window closes it is back to --shape-every 1, every frame.
+        self.assertLess(shape.update.call_count, reads[0] * 0.75)
 
 
 class CardGeometryGateTests(unittest.TestCase):

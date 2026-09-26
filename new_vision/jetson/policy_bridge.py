@@ -32,10 +32,11 @@ class SteeringController:
                  straight_gains=(0.83, 0.004, 0.095),
                  curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0,
                  lost_hold_s=0.2, deriv_pole=0.78, bias_cm=5.0, bias_gate_px=12.0,
-                 max_lateral_cm=0.0):
+                 max_lateral_cm=0.0, max_wz_right=0.25):
         values = (vx, max_wz, steer_full_scale_cm, yaw_sign, step_len_cm,
                   preview_gain, integral_limit, lost_hold_s, deriv_pole, bias_cm,
-                  bias_gate_px, max_lateral_cm, *straight_gains, *curve_gains)
+                  bias_gate_px, max_lateral_cm, max_wz_right,
+                  *straight_gains, *curve_gains)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("controller settings must be finite")
         if not 0 <= vx <= 1 or not 0 <= max_wz <= 0.5:
@@ -50,6 +51,8 @@ class SteeringController:
             raise ValueError("derivative filter pole must be in [0, 1)")
         if max_lateral_cm < 0:
             raise ValueError("lateral sanity bound must be nonnegative; 0 disables it")
+        if not 0 < max_wz_right <= max_wz:
+            raise ValueError("right yaw limit must be in (0, max_wz]")
         self.deriv_pole = deriv_pole
         self.vx, self.max_wz = vx, max_wz
         self.full_scale, self.yaw_sign = steer_full_scale_cm, yaw_sign
@@ -73,6 +76,9 @@ class SteeringController:
         # turning a reading into an outright stop changes line following. Do not
         # default it on: measure base_err_cm over a full lap first, then set it.
         self.max_lateral_cm = max_lateral_cm
+        # Asymmetric yaw limit: right turns capped lower than left. Right is the
+        # negative wz the policy receives (wz sign is applied before this).
+        self.max_wz_right = max_wz_right
         # Last frame rejected on the lateral bound, for the caller to log. None
         # otherwise, so a caller can print on the transition instead of every frame.
         self.rejected_lateral = None
@@ -168,6 +174,10 @@ class SteeringController:
             return self.hold
         self.last_steer = clamp(steer, -50.0, 50.0)
         wz = self.yaw_sign * clamp(self.last_steer / self.full_scale, -1.0, 1.0) * self.max_wz
+        # Clamped here, not downstream, so the connector's slew limiter aims at the
+        # capped value instead of ramping toward 0.5 and being cut later.
+        if wz < -self.max_wz_right:
+            wz = -self.max_wz_right
         self.lost_s = 0.0
         self.hold = (self.vx, wz)
         return self.hold
