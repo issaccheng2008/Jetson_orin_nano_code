@@ -3,13 +3,50 @@
   "_说明": "相机参数表。active 指定当前使用的配置，也可用环境变量 CAMERA_PROFILE 覆盖。新增摄像头时在 cameras 里加一段即可。",
   "cameras": {
     "usb_main": {
-      "label": "USB相机（实车 1280×720，手工标定 2026-07-17）",
+      "label": "USB相机（实车 1280×720；棋盘格标定 2026-09-21）",
       "index": 0,
       "width": 1280,
       "height": 720,
-      "vfov_deg": 56.2,
-      "mount_height_cm": 40.0,
-      "pitch_deg": 45.0
+      "vfov_deg": 55.876,
+      "mount_height_cm": 32.5,
+      "pitch_deg": 45.0,
+      "_pose_verified": "2026-09-22 用实物验证：图卡平放地面、量到已知距离拍照，用 h=32.5 反解图卡边长得 9.68~10.09cm（与实物 9.x cm 吻合），俯角 45° 自洽。图卡黑框外缘实测约 9.9cm。",
+      "calibration": {
+        "_note": "本相机自身的棋盘格内参；此前的 56.2° 是另一颗同型号 USB 相机的值",
+        "source": "generated/camera_calibration_result_usb_main_current.json",
+        "images": "标定/最新cam/*.jpg",
+        "date": "2026-09-21",
+        "image_size": [
+          1920,
+          1080
+        ],
+        "board_inner_corners": [
+          7,
+          4
+        ],
+        "square_size_mm": 34.0,
+        "images_used": 46,
+        "rms_reprojection_error": 1.2981,
+        "fx": 1004.818,
+        "fy": 1018.251,
+        "cx": 957.124,
+        "cy": 604.858,
+        "hfov_deg": 87.387,
+        "dist_coeffs": [
+          -0.0047106,
+          0.01184,
+          0.0025756,
+          0.0047851,
+          -0.0263896
+        ]
+      },
+      "distance_calib": {
+        "_note": "线性拟合/ 共 12 张，真值 20.0~75.0cm",
+        "a": 1.13233,
+        "b": -2.4862,
+        "rms_cm": 0.187,
+        "raw_rms_cm": 3.92
+      }
     }
   }
 }

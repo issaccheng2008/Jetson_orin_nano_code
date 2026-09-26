@@ -5,7 +5,10 @@ and one-foot standing from `Humanoid_Robot_One_Foot_Standing`. Select the
 interface with `--policy walking` (default) or `--policy one-foot`.
 Walking can receive live `new_vision` commands with `--command-source vision`.
 See the [closed-loop setup and testing guide](docs/closed_loop_vision.md).
-Fixed-command walking remains the default; one-foot mode does not use vision.
+Shape-card actions in that vision mode are described in the
+[shape action deployment guide](docs/shape_action_deployment.md).
+Fixed-command walking remains the default. Standalone `--policy one-foot` does
+not use vision; shape actions switch to the one-foot model from walking vision mode.
 
 Walking defaults:
 
@@ -48,13 +51,13 @@ Add `--no-plot` for headless operation; CSV position and IMU logging stays enabl
 
 ## Run one-foot standing
 
-Export your one-foot standing checkpoint and copy it to
-`humanoid_jetson_deploy/models/one_foot.onnx`. This model is not bundled.
+The repository includes `humanoid_jetson_deploy/policy-one-foot-standing.onnx`.
+Use a checkpoint with the same 46-input interface if replacing it.
 From the repository root:
 
 ```bash
 cd humanoid_jetson_deploy
-python main.py --policy one-foot --model models/one_foot.onnx --port /dev/ttyACM0 --enable-motors --max-seconds 8
+python main.py --policy one-foot --model policy-one-foot-standing.onnx --port /dev/ttyACM0 --enable-motors --max-seconds 8
 ```
 
 The default sequence is command **0** for 1 second, **1** for 4 seconds,
@@ -84,15 +87,18 @@ output for the requested run; omitting it keeps the existing dry-run behavior.
 ## Vision code
 
 Use `new_vision/jetson/run_policy_vision.py` for the walking-policy integration.
-It uses the new line detector, PID steering and one-step preview, then sends
-`{vx, vy: 0, wz, qr: -1}` to `connector.py` on port 5006. The connector forwards
-commands to the policy on port 5005. Only the policy opens the STM32 serial port.
+It uses the new line detector and PID steering, then sends
+`{vx, vy: 0, wz, qr}` to `connector.py` on port 5006. Confirmed cards also carry
+`event_id` and `event_action`; `qr=-1` denotes no current recognition. The connector forwards
+commands to the policy on port 5005, slew-rate limiting `vx` and `wz` so the
+policy never receives a velocity step. Only the policy opens the STM32 serial port.
 The V2 CPU/GPU `run_robot.py` scripts are separate serial-controller entry points.
 
 See [the detailed guide](docs/closed_loop_vision.md) for camera setup, exact
 three-terminal commands, dry runs, physical tests, yaw-sign tuning and watchdogs.
-`old_vision/` is retained as reference. Shape actions and bar crossing are outside
-this line-following integration.
+Add `--one-foot-model humanoid_jetson_deploy/policy-one-foot-standing.onnx` to
+the walking vision command to enable shape actions. Bar crossing remains outside
+this integration.
 
 ## Tests
 

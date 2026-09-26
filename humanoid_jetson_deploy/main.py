@@ -11,6 +11,7 @@ import numpy as np
 
 import config
 from command_source import FixedCommandSource, UdpCommandSource
+from fixed_joint_policy import FixedJointPolicy
 from imu_filter import (
     projected_gravity_from_quaternion,
     roll_pitch_yaw_from_quaternion,
@@ -18,8 +19,11 @@ from imu_filter import (
 )
 from policy_runner import HumanoidPolicy
 from one_foot_policy import OneFootCommand, OneFootPolicy
+from shape_actions import ShapeActionController, UPPER_CARDS
 from position_monitor import LivePositionPlot, PositionCsvLogger
 from protocol import (
+    ACTION_BUSY,
+    ACTION_DONE,
     COMMAND_ENABLE,
     COMMAND_ESTOP,
     STATE_ENCODERS_VALID,
@@ -31,7 +35,9 @@ from serial_link import SerialLink
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", required=True, help="Path to policy.onnx")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--model", help="Path to policy.onnx")
+    source.add_argument("--fixed-policy", help="Path to joint_frames_v1 JSON")
     parser.add_argument(
         "--policy", choices=("walking", "one-foot"), default="walking",
         help="Observation/action interface: walking=49 inputs, one-foot=46 inputs",
@@ -48,6 +54,9 @@ def parse_args() -> argparse.Namespace:
         "--lift-seconds", type=float, default=4.0,
         help="One-foot mode: command-one duration, then command zero until exit",
     )
+    parser.add_argument("--one-foot-model", help="One-foot ONNX model for vision cards 3/4")
+    parser.add_argument("--shape-lift-seconds", type=float, default=4.0,
+                        help="Vision card lift hold duration, greater than 3 seconds")
     parser.add_argument("--port", default="/dev/ttyACM0", help="STM32 serial device")
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument(
@@ -121,6 +130,12 @@ def send_disable(link: SerialLink, q_motor: np.ndarray, estop: bool = False) -> 
 
 def main() -> int:
     args = parse_args()
+    if args.one_foot_model and (args.fixed_policy or args.policy != "walking"
+                                or args.command_source != "vision"):
+        raise SystemExit("--one-foot-model requires walking policy with --command-source vision")
+    if args.one_foot_model and (not np.isfinite(args.shape_lift_seconds)
+                                or args.shape_lift_seconds <= 3.0):
+        raise SystemExit("--shape-lift-seconds must exceed 3 seconds")
     config.validate_imu_configuration()
     if args.enable_motors and (
         not config.CALIBRATION_CONFIRMED or not config.IMU_CALIBRATION_CONFIRMED
@@ -135,7 +150,7 @@ def main() -> int:
         raise SystemExit("plot-every must be at least 1")
     if args.plot_history_seconds <= 0.0:
         raise SystemExit("plot-history-seconds must be positive")
-    if args.policy == "walking":
+    if not args.fixed_policy and args.policy == "walking":
         if args.command_source == "vision":
             if not 1 <= args.udp_command_port <= 65535:
                 raise SystemExit("udp-command-port must be between 1 and 65535")
@@ -158,7 +173,19 @@ def main() -> int:
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
 
-    if args.policy == "one-foot":
+    shape_controller = None
+    card_policy = None
+
+    if args.fixed_policy:
+        if args.policy != "walking" or args.command_source != "fixed":
+            raise SystemExit("--fixed-policy cannot be combined with one-foot or vision commands")
+        try:
+            policy = FixedJointPolicy(args.fixed_policy)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        command_source = None
+        command_source_description = f"fixed joint frames from {args.fixed_policy} at 50 Hz"
+    elif args.policy == "one-foot":
         try:
             command_source = OneFootCommand(args.stand_seconds, args.lift_seconds)
         except ValueError as exc:
@@ -172,6 +199,9 @@ def main() -> int:
     else:
         policy = HumanoidPolicy(args.model)
         if args.command_source == "vision":
+            if args.one_foot_model:
+                card_policy = OneFootPolicy(args.one_foot_model)
+                shape_controller = ShapeActionController(lift_seconds=args.shape_lift_seconds)
             command_source = UdpCommandSource(
                 args.udp_command_port, timeout_s=args.command_timeout,
                 bind=args.udp_command_bind,
@@ -199,7 +229,11 @@ def main() -> int:
                 "Run with --no-plot on a headless system; CSV logging will remain enabled."
             ) from exc
 
-    print(f"ONNX input={policy.input_name!r}, output={policy.output_name!r}")
+    if not args.fixed_policy:
+        print(f"ONNX input={policy.input_name!r}, output={policy.output_name!r}")
+        if card_policy is not None:
+            print(f"Shape one-foot ONNX input={card_policy.input_name!r}, "
+                  f"output={card_policy.output_name!r}")
     print(f"Policy command source: {command_source_description}")
     print(f"Opening {args.port} (line coding {args.baud}; native USB CDC ignores physical baud)")
     print("MOTORS ENABLED" if args.enable_motors else "DRY RUN: command enable flag is OFF")
@@ -237,9 +271,14 @@ def main() -> int:
         previous_tick = next_tick
         start_time = next_tick
         step = 0
+        card_policy_active = False
+        last_action_tx = -float("inf")
 
         while not stop_requested:
             now = time.monotonic()
+            if args.fixed_policy and policy.index >= len(policy.frames):
+                timed_run_completed = True
+                break
             if args.max_seconds > 0.0 and now - start_time >= args.max_seconds:
                 timed_run_completed = True
                 break
@@ -268,32 +307,79 @@ def main() -> int:
                 config.IMU_TO_POLICY,
                 sensor_to_world=config.IMU_QUATERNION_IS_SENSOR_TO_WORLD,
             )
-            if args.policy == "one-foot":
+            step_policy = policy
+            if args.fixed_policy:
+                q_policy_target = policy.next_target()
+                if q_policy_target is None:
+                    timed_run_completed = True
+                    break
+                action = np.zeros(config.ACTION_DIM, dtype=np.float32)
+                obs = np.zeros(1, dtype=np.float32)
+                latency_ms = 0.0
+                command_status = f"fixed_frame={policy.index}/{len(policy.frames)} "
+            elif args.policy == "one-foot":
                 lift_command = command_source.get(now - start_time)
                 command_values = {"lift_command": lift_command}
                 command_status = f"lift_command={int(lift_command)} support={args.support_foot} "
             else:
-                velocity_command = command_source.get()
+                snapshot = command_source.get_snapshot() if shape_controller else None
+                velocity_command = snapshot.velocity if snapshot is not None else command_source.get()
+                decision = None
+                if shape_controller is not None:
+                    if snapshot.event_id:
+                        if shape_controller.accept(snapshot.event_id, snapshot.event_action, now):
+                            print(f"[shape] event={snapshot.event_id} card={snapshot.event_action} accepted")
+                    status = (link.get_action_status(shape_controller.event_id)
+                              if shape_controller.action_id in UPPER_CARDS else 0)
+                    if not args.enable_motors and status == ACTION_BUSY:
+                        print(f"[shape] dry run: STM32 did not execute card={shape_controller.action_id}")
+                        status = ACTION_DONE
+                    was_busy = shape_controller.phase != "idle"
+                    stopped = (np.max(np.abs(velocity_command)) <= 0.02
+                               and np.max(np.abs(qd_policy)) <= 0.2)
+                    decision = shape_controller.advance(now, stopped, status)
+                    if was_busy and not decision.busy:
+                        print(f"[shape] event={shape_controller.event_id} card={shape_controller.action_id} complete")
+                    if decision.busy:
+                        velocity_command[:] = 0.0
+                    if decision.send_upper and now - last_action_tx >= 0.1:
+                        link.send_action(decision.event_id, decision.action_id)
+                        last_action_tx = now
+                    if decision.policy == "one-foot":
+                        if not card_policy_active:
+                            card_policy.select_support_foot(decision.support_foot)
+                            card_policy_active = True
+                        step_policy = card_policy
+                    elif card_policy_active:
+                        policy.reset()
+                        card_policy_active = False
                 # A fixed-test timer must never override live vision commands.
                 if (args.command_source == "fixed" and args.walk_seconds > 0
                         and now - start_time >= args.walk_seconds):
                     velocity_command[:] = 0.0  # vx=0, vy=0, wz=0
 
-                command_values = {"velocity_command": velocity_command}
-                command_status = (
-                    f"policy_target_velocity=[vx={velocity_command[0]:+.3f} m/s, "
-                    f"vy={velocity_command[1]:+.3f} m/s, "
-                    f"wz={velocity_command[2]:+.3f} rad/s] "
-                )
+                if step_policy is card_policy:
+                    command_values = {"lift_command": decision.lift_command}
+                    command_status = (f"shape={decision.action_id} one-foot "
+                                      f"support={decision.support_foot} "
+                                      f"lift={int(decision.lift_command)} ")
+                else:
+                    command_values = {"velocity_command": velocity_command}
+                    command_status = (
+                        f"policy_target_velocity=[vx={velocity_command[0]:+.3f} m/s, "
+                        f"vy={velocity_command[1]:+.3f} m/s, "
+                        f"wz={velocity_command[2]:+.3f} rad/s] "
+                    )
 
-            q_policy_target, action, obs, latency_ms = policy.step(
-                accel_m_s2=accel_policy,
-                gyro_rad_s=gyro_policy,
-                projected_gravity=projected_gravity,
-                **command_values,
-                joint_position_policy=q_policy,
-                joint_velocity_policy=qd_policy,
-            )
+            if not args.fixed_policy:
+                q_policy_target, action, obs, latency_ms = step_policy.step(
+                    accel_m_s2=accel_policy,
+                    gyro_rad_s=gyro_policy,
+                    projected_gravity=projected_gravity,
+                    **command_values,
+                    joint_position_policy=q_policy,
+                    joint_velocity_policy=qd_policy,
+                )
             q_policy_target = config.clamp_policy_target(q_policy_target)
             q_policy_target = slew_limit(q_policy_target, last_q_policy_target, dt)
             q_policy_target = config.clamp_policy_target_to_current(q_policy_target, q_policy)
@@ -308,6 +394,18 @@ def main() -> int:
                 args.kd_scale,
                 flags,
             )
+            if args.fixed_policy:
+                response_deadline = time.monotonic() + 0.05
+                response = link.get_latest_state(max_age_s=0.05)
+                while response.sequence == state.sequence:
+                    if time.monotonic() >= response_deadline:
+                        raise TimeoutError("No new STM32 state after a fixed frame")
+                    time.sleep(0.001)
+                    response = link.get_latest_state(max_age_s=0.05)
+                if response.status_flags & STATE_FAULT:
+                    raise RuntimeError(f"STM32 reports a fault: flags=0x{response.status_flags:08X}")
+                if (response.status_flags & required) != required:
+                    raise RuntimeError(f"IMU/encoder data invalid: flags=0x{response.status_flags:08X}")
 
             elapsed_s = now - start_time
             position_logger.write(
@@ -354,7 +452,7 @@ def main() -> int:
         position_logger.close()
         if position_plot is not None and not timed_run_completed:
             position_plot.close()
-        if args.policy == "walking":
+        if command_source is not None and args.policy == "walking":
             command_source.close()
         link.close()
 

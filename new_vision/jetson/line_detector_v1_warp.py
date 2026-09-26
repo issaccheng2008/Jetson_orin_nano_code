@@ -6,7 +6,7 @@ Key differences from V0:
   - Band definitions adapted for 400px birdseye (down 266-398, mid 132-264, up 0-130)
   - No PID/steer/lost controller code — pure vision pipeline
   - No JSON config loading — all params are hardcoded defaults
-  - Constructor: V1(cam_w=1280, cam_h=720, cam_height_cm=40, cam_vfov_deg=56.2)
+  - Constructor: V1(cam_w=1280, cam_h=720, cam_height_cm=32.5, cam_vfov_deg=55.876)
 """
 
 import cv2
@@ -69,13 +69,23 @@ def line_fit(ys, xs):
 # ═══════════════════════════════════════════════════════════════════════
 
 class LineDetector:
-    def __init__(self, cam_w=1280, cam_h=720, cam_height_cm=40.0, cam_pitch_deg=45.0, cam_vfov_deg=56.2):
+    def __init__(self, cam_w=1280, cam_h=720, cam_height_cm=32.5, cam_pitch_deg=45.0, cam_vfov_deg=55.876,
+                 z_calib=None):
         # ── Camera params ──
         self.cam_w = int(cam_w)
         self.cam_h = int(cam_h)
         self.cam_height = float(cam_height_cm)
         self.cam_pitch = np.radians(cam_pitch_deg)
         self.cam_vfov_deg = float(cam_vfov_deg)
+
+        # ── 距离线性校正（系数在 cameras.json，见 scripts/fit_camera_distance.py）──
+        if z_calib is None:
+            try:
+                from camera_config import distance_calib
+                z_calib = distance_calib()
+            except Exception:
+                z_calib = (1.0, 0.0)
+        self.z_a, self.z_b = float(z_calib[0]), float(z_calib[1])
 
         # ── Birdseye ──
         self.bird_h = 400
@@ -88,6 +98,11 @@ class LineDetector:
         self.z_per_px = (80.0 - 20.0) / float(self.bird_h - 1)  # vertical cm per px
         self._asp = self.cm_per_px / self.z_per_px  # pixel aspect ratio (~1.84)
 
+        # fused_err is the dimensionless near_err_px / (0.5*bird_w). Every consumer
+        # (PID gains, STEP_LEN_CM, steer_full_scale_cm) is calibrated in cm, so the
+        # conversion is published alongside it as fused_err_cm.
+        self.err_scale_cm = 0.5 * self.bird_w * self.cm_per_px
+
         # Pinhole intrinsics (16:9, square pixels) — exact red-bar distance
         vfov_rad = np.radians(self.cam_vfov_deg)
         hfov_rad = 2.0 * np.arctan(np.tan(vfov_rad / 2.0) * self.cam_w / self.cam_h)
@@ -97,7 +112,7 @@ class LineDetector:
         self.cy_px = self.cam_h / 2.0
 
         # ── Threshold params ──
-        self.th_offset = -2  # stricter: only truly dark pixels
+        self.th_offset = -12  # 反光把线打成亮斑时放宽，让不够黑的也进得来
         self.th_min = 25
         self.th_max = 80
         self.dark_margin = 24
@@ -117,7 +132,8 @@ class LineDetector:
 
         # ── Narrow gate detection ──
         self.narrow_gate_exit_ratio = 1.15
-        self.narrow_red_close_z_cm = 35.0    # red bar z < this → exiting
+        self.narrow_red_enter_z_cm = 70.0    # 进入窄门时红条约在此距离内
+        self.narrow_red_close_z_cm = 20.0    # red bar z < this → exiting
         self.narrow_line_close_z_cm = 50.0   # start line z < this → exiting
 
         # ── Simple Bottom Mode ──
@@ -126,6 +142,12 @@ class LineDetector:
         self.bottom_rows = 5
         self.bottom_step = 2
         self.single_line_conf = 0.30
+
+        # ── 质心定位（阈值法配不成对时兜底）──
+        # 走路抖动把线糊浅后，硬阈值可能整行取不到 run。匀速模糊的核近似对称，
+        # 对称核不改变一阶矩，所以亮度凹陷的质心仍是无偏的线中心。
+        self.centroid_conf = 0.85
+        self.centroid_min_contrast = 5.0   # 灰度凹陷峰值下限，低于此认为没线
 
         # ── Two-band direction detection (lower 2 of 8 layers: 300-349, 350-399) ──
         self.two_band_mode = True
@@ -282,6 +304,10 @@ class LineDetector:
         W = ground_w_far * 0.7
         return W / self.bird_w
 
+    def _to_true_z(self, z_model):
+        """相机模型读数 → 地面真值 cm（系数在 cameras.json 的 distance_calib）。"""
+        return self.z_a * z_model + self.z_b
+
     def _px_to_ground_cm(self, x, y):
         """Convert birdseye pixel (x, y) to ground cm.
         x_cm: horizontal offset from center (positive = right)
@@ -289,7 +315,7 @@ class LineDetector:
         """
         x_cm = (x - self.center_x) * self.cm_per_px
         z_cm = 20.0 + (self.bird_h - 1 - y) * self.z_per_px
-        return x_cm, z_cm
+        return x_cm, self._to_true_z(z_cm)
 
     # ═══════════════════════════════════════════════════════════
     # Otsu adaptive threshold
@@ -447,7 +473,7 @@ class LineDetector:
         a = (v_foot - self.cy_px) / self.fy_px
         z_cm = self.cam_height * (np.cos(self.cam_pitch) - a * np.sin(self.cam_pitch)) \
             / (a * np.cos(self.cam_pitch) + np.sin(self.cam_pitch))
-        return cx, v_foot, z_cm
+        return cx, v_foot, self._to_true_z(z_cm)
 
     # ═══════════════════════════════════════════════════════════
     # Run collection
@@ -466,6 +492,71 @@ class LineDetector:
         widths = falls - rises + 1
         valid = (widths >= self.min_line_width) & (widths <= self.max_line_width)
         return list(zip(rises[valid].tolist(), falls[valid].tolist()))
+
+    def _centroid_pair_center(self, gray_raw, y, hint_center, lane_width_hint,
+                              x0, x1):
+        """阈值法配不成对时，直接在鸟瞰灰度上找两条暗凹陷，用质心定中心。
+
+        为什么需要它：扫描输入是黑帽响应再被连通域掩膜削过的（面积<300 或高<80
+        就清零），走路模糊会把线打成小碎片，右线常在掩膜那步就没了，于是配不成对。
+        而**未经处理的鸟瞰灰度里两条线仍然清楚**。
+
+        为什么质心无偏：匀速运动模糊的核近似对称，对称核不改变一阶矩——线被抬灰、
+        边缘展宽，但凹陷的质心仍是真实中心，只是对比度下降。阈值法一过阈就归零。
+
+        不依赖 hint 定位窗口：hint 在线长期丢失时会自己退化成最小值，用它定窗口反而
+        会找错地方。这里全行搜凹陷，只把期望线宽当「挑哪一对」的偏好。
+        """
+        row = gray_raw[y, x0:x1 + 1].astype(np.float32)
+        bg = float(np.percentile(row, 60))
+        d = np.clip(bg - row, 0.0, None)
+        peak = float(d.max())
+        if peak < self.centroid_min_contrast:
+            return None
+
+        thr = max(self.centroid_min_contrast, 0.25 * peak)
+        mask = d >= thr
+        segs = []
+        i, n = 0, mask.size
+        while i < n:
+            if not mask[i]:
+                i += 1
+                continue
+            j = i
+            while j < n and mask[j]:
+                j += 1
+            # 贴着行边的暗段多半是鸟瞰图未定义的黑边，不是线
+            if i > 0 and j < n:
+                seg = d[i:j]
+                wsum = float(seg.sum())
+                if wsum > 1e-6:
+                    xs = np.arange(i, j, dtype=np.float32)
+                    segs.append(float((seg * xs).sum() / wsum))
+            i = j
+        if len(segs) < 2:
+            return None
+
+        want = (lane_width_hint if lane_width_hint >= self.min_track_width * 2
+                else self.lane_width_init_px)
+        best = None
+        for a in range(len(segs)):
+            for b in range(a + 1, len(segs)):
+                lane_w = segs[b] - segs[a]
+                if not (self.min_track_width <= lane_w <= self.max_track_width):
+                    continue
+                center = 0.5 * (segs[a] + segs[b])
+                score = abs(lane_w - want) + 0.3 * abs(center - hint_center)
+                if best is None or score < best[0]:
+                    best = (score, lane_w, center)
+
+        if best is None:
+            return None
+        return {
+            "center_px": best[2] + x0,
+            "lane_width_px": best[1],
+            "conf": self.centroid_conf,
+            "line_mode": 3,
+        }
 
     # ═══════════════════════════════════════════════════════════
     # Pair selection
@@ -553,8 +644,13 @@ class LineDetector:
 
     def _scan_band_midline(self, gray, bgr, black_th, track_is_dark,
                            hint_x, lane_width_hint,
-                           y_start_ratio, y_end_ratio, max_rows, row_step):
-        """Scan a band of rows on the birdseye, find midline per row."""
+                           y_start_ratio, y_end_ratio, max_rows, row_step,
+                           gray_raw=None):
+        """Scan a band of rows on the birdseye, find midline per row.
+
+        gray_raw: 未做黑帽/掩膜处理的鸟瞰灰度，只给质心兜底用。gray 上的线是
+        「亮峰压在 0 背景上」且被连通域掩膜削过，质心需要的是「灰底上的暗凹陷」。
+        """
         row_step = max(1, row_step)
         img_w = self.bird_w
         img_h = self.bird_h
@@ -603,6 +699,12 @@ class LineDetector:
             chosen = self._choose_pair_center_from_runs(
                 runs, last_center, last_width, x0, x1
             )
+            # 阈值配不成对时先试质心：它实打实量出两条线的位置，
+            # 信息量高于下面的单线盲推（后者只测到一条线，另一条按线宽硬挪）。
+            if chosen is None and gray_raw is not None:
+                chosen = self._centroid_pair_center(
+                    gray_raw, y, last_center, last_width, x0, x1
+                )
             if chosen is None and len(runs) >= 1:
                 best_run = self._choose_single_run_near_hint(runs, last_center)
                 if best_run is not None:
@@ -684,12 +786,13 @@ class LineDetector:
     # ═══════════════════════════════════════════════════════════
 
     def _bottom_quarter_midline(self, gray, bgr, black_th, track_is_dark,
-                                hint_x, lane_width_hint):
+                                hint_x, lane_width_hint, gray_raw=None):
         base = self._scan_band_midline(
             gray, bgr, black_th, track_is_dark,
             hint_x, lane_width_hint,
             self.bottom_start_ratio, 1.0,
             self.bottom_rows, self.bottom_step,
+            gray_raw=gray_raw,
         )
         if base is None:
             return None
@@ -701,7 +804,7 @@ class LineDetector:
     # ═══════════════════════════════════════════════════════════
 
     def _detect_two_band_lanes(self, gray, bgr, black_th, track_is_dark,
-                                hint_x, lane_width_hint):
+                                hint_x, lane_width_hint, gray_raw=None):
         """Scan two bands on birdseye: low(350-399), mid(300-349)."""
         band_specs = [
             ("low", self.band_low_y0 / float(self.bird_h),
@@ -720,6 +823,7 @@ class LineDetector:
                 gray, bgr, black_th, track_is_dark,
                 last_center, last_width,
                 ys, ye, rows, step,
+                gray_raw=gray_raw,
             )
             if res is None:
                 continue
@@ -959,26 +1063,26 @@ class LineDetector:
         if startup_active and self.startup_force_simple_bottom:
             res = self._bottom_quarter_midline(
                 gray_detect, bgr_bird, black_th, track_is_dark,
-                scan_hint_center, scan_hint_width,
+                scan_hint_center, scan_hint_width, gray_raw=gray,
             )
             if res is not None and res["conf"] >= conf_min_dyn:
                 roi_results.append(res)
             elif self.two_band_mode:
                 roi_results = self._detect_two_band_lanes(
                     gray_detect, bgr_bird, black_th, track_is_dark,
-                    scan_hint_center, scan_hint_width,
+                    scan_hint_center, scan_hint_width, gray_raw=gray,
                 )
                 roi_results = [r for r in roi_results if r["conf"] >= conf_min_dyn]
         elif self.two_band_mode:
             roi_results = self._detect_two_band_lanes(
                 gray_detect, bgr_bird, black_th, track_is_dark,
-                scan_hint_center, scan_hint_width,
+                scan_hint_center, scan_hint_width, gray_raw=gray,
             )
             roi_results = [r for r in roi_results if r["conf"] >= conf_min_dyn]
         elif self.simple_bottom_mode:
             res = self._bottom_quarter_midline(
                 gray_detect, bgr_bird, black_th, track_is_dark,
-                scan_hint_center, scan_hint_width,
+                scan_hint_center, scan_hint_width, gray_raw=gray,
             )
             if res is not None and res["conf"] >= conf_min_dyn:
                 roi_results.append(res)
@@ -1201,7 +1305,10 @@ class LineDetector:
             curve_px = far_err_px - near_err_px
 
             # ── Narrow gate detection ──
-            # Entering: width ratio shows "out" (mid wider) + red visible + start line visible
+            # Entering: 只看红条距离（<=70cm）。宽度比不作为判据 —— 鸟瞰的横向
+            #   比例尺随行变化（20cm 处比标称大 51%，80cm 处才对齐），一条等宽赛道
+            #   在低带会比中带凭空宽 11%，而判据要求窄 13%，畸变吃掉绝大部分余量。
+            #   且该畸变随相机高度/俯角变化，narrow_gate_exit_ratio 是按老几何调的。
             # Exiting:  red bar close OR start line close
             narrow_gate_detected = False
             narrow_gate_score = 1.0
@@ -1228,11 +1335,12 @@ class LineDetector:
                 line_visible = start_line_z > 0
 
             red_visible = red_bar_detected and red_bar_z_cm > 0
+            red_at_gate = red_visible and red_bar_z_cm <= self.narrow_red_enter_z_cm
             red_close = red_visible and red_bar_z_cm < self.narrow_red_close_z_cm
             line_close = line_visible and start_line_z < self.narrow_line_close_z_cm
 
-            # Entering: ratio shows out + red visible + line visible (triple confirm)
-            if ratio_out and red_visible and line_visible:
+            # Entering: 红条进入 70cm 内
+            if red_at_gate:
                 narrow_gate_detected = True
                 narrow_gate_dir = -1
 
@@ -1395,6 +1503,7 @@ class LineDetector:
             "curve_px": curve_px,
             "turn_gate": turn_gate,
             "fused_err": state["smoothed_err"],
+            "fused_err_cm": state["smoothed_err"] * self.err_scale_cm,
             "narrow_gate_detected": narrow_gate_detected,
             "narrow_gate_score": narrow_gate_score,
             "narrow_gate_dir": narrow_gate_dir,

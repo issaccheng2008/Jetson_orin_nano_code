@@ -1,5 +1,29 @@
 # Humanoid Robot: Jetson Orin Nano ONNX Deployment
 
+## Fixed joint-angle frames (without ONNX)
+
+Use `examples/fixed_joint_frames.json` as a template. `format` must be
+`joint_frames_v1`, `hz` must be `50`, and `joint_names` must match
+`config.JOINT_NAMES` exactly. Each entry of `frames` has 12 **policy-frame
+radian** targets in that order: six right-leg joints, then six left-leg joints.
+One entry is consumed per 20 ms control tick. To hold a pose, repeat the same
+entry for as many ticks as needed. Playback stops and sends disable packets
+after the last entry; it does not loop.
+
+```bash
+python main.py --fixed-policy examples/fixed_joint_frames.json --no-plot
+python main.py --fixed-policy examples/fixed_joint_frames.json --enable-motors --no-plot
+```
+
+The first command is a dry run. The second can move the robot. Use overhead
+support and verify joint order on the physical machine before enabling motors.
+The existing joint-limit, target-speed and encoder-relative target limits still
+apply, so a large jump in file values is sent as a limited target rather than
+as an instantaneous jump. Every fixed-policy command requires a new STM32
+state sequence in response; missing or stale feedback triggers a fault and
+disable packets. Fixed playback does not require an ONNX model or
+`onnxruntime`. The existing `--model` mode is unchanged.
+
 This package runs the current `Humanoid_Robot_RSL_RL` walking policy or the
 `Humanoid_Robot_One_Foot_Standing` policy on a Jetson Orin Nano and exchanges state/target data with an STM32. It is intentionally split into:
 

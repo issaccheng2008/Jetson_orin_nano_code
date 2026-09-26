@@ -18,9 +18,10 @@ _DEFAULTS = {
     "index": 0,
     "width": 1280,
     "height": 720,
-    "vfov_deg": 56.2,
-    "mount_height_cm": 40.0,
+    "vfov_deg": 55.876,
+    "mount_height_cm": 32.5,
     "pitch_deg": 45.0,
+    "distance_calib": {"a": 1.0, "b": 0.0},
 }
 
 
@@ -38,3 +39,32 @@ def load(profile=None):
     except Exception:
         pass
     return cam
+
+
+_calib_cache = {}
+
+
+def distance_calib(profile=None):
+    """距离线性校正系数 (a, b)。"""
+    key = profile or os.environ.get("CAMERA_PROFILE")
+    if key not in _calib_cache:
+        c = load(profile).get("distance_calib") or {}
+        _calib_cache[key] = (float(c.get("a", 1.0)), float(c.get("b", 0.0)))
+    return _calib_cache[key]
+
+
+def to_true_z(z_est, profile=None):
+    """相机模型算出的距离 → 地面真值 cm。
+
+    模型（cy=图高/2、fy 由 vfov 反推的合成针孔）系统性低估距离，
+    20cm 处 −1.8%、75cm 处 −9.1%。系数由地面尺子实测拟合，见
+    scripts/fit_camera_distance.py。
+    """
+    a, b = distance_calib(profile)
+    return a * z_est + b
+
+
+def to_model_z(z_true, profile=None):
+    """地面真值 → 相机模型读数 cm。用于把"希望它在多少厘米处"反推成像素门槛。"""
+    a, b = distance_calib(profile)
+    return (z_true - b) / a

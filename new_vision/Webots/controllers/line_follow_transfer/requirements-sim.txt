@@ -1,3 +1,0 @@
-# Webots controller: sim_opencv_distort=True needs these in the *Webots* Python, not only system Python.
-opencv-python-headless>=4.5.0
-numpy>=1.19.0

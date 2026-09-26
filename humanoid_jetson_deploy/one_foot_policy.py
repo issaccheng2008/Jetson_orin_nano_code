@@ -32,7 +32,7 @@ class OneFootCommand:
     def get(self, elapsed_s: float) -> float:
         if not math.isfinite(elapsed_s) or elapsed_s < 0:
             raise ValueError("elapsed_s must be finite and nonnegative")
-        return float(self.stand_seconds <= elapsed_s)
+        return float(self.stand_seconds <= elapsed_s < self.stand_seconds + self.lift_seconds)
 
 
 class OneFootPolicy(HumanoidPolicy):
@@ -45,6 +45,13 @@ class OneFootPolicy(HumanoidPolicy):
         # Fixed for this run, including command-zero phases, just as in training.
         self.support_is_left = support_foot == "left"
         super().__init__(model_path)
+
+    def select_support_foot(self, support_foot: str) -> None:
+        """Select the physical support side at the start of a new card action."""
+        if support_foot not in ("right", "left"):
+            raise ValueError("support_foot must be right or left")
+        self.support_is_left = support_foot == "left"
+        self.reset()
 
     def build_observation(
         self,

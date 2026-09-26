@@ -5,6 +5,10 @@ import unittest
 import numpy as np
 
 from protocol import (
+    ActionRequestPacket,
+    ActionStatusPacket,
+    pack_action_request,
+    pack_action_status,
     COMMAND_ENABLE,
     CommandPacket,
     FrameDecoder,
@@ -15,6 +19,14 @@ from protocol import (
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_action_request_and_status_round_trip_without_changing_existing_frames(self):
+        request = ActionRequestPacket(sequence=7, event_id=123456, action_id=5)
+        status = ActionStatusPacket(sequence=8, event_id=123456, action_id=5, status=2)
+        decoded = list(FrameDecoder().feed(pack_action_request(request) + pack_action_status(status)))
+        self.assertEqual(decoded, [request, status])
+        self.assertEqual(len(pack_action_request(request)), 15)
+        self.assertEqual(len(pack_action_status(status)), 16)
+
     def test_fragmented_state_round_trip(self):
         source = StatePacket(
             sequence=65535,

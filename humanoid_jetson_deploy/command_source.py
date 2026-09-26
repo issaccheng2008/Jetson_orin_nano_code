@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import socket
 import threading
 import time
 
 import numpy as np
+
+
+@dataclass(frozen=True)
+class CommandSnapshot:
+    velocity: np.ndarray
+    qr: int = -1
+    event_id: int = 0
+    event_action: int = -1
 
 
 def clamp_command(command) -> np.ndarray:
@@ -36,11 +45,14 @@ class FixedCommandSource:
 
 
 class UdpCommandSource:
-    """Receive connector JSON; extra fields such as ``qr`` are ignored."""
+    """Receive connector JSON and expose velocity plus shape metadata."""
 
     def __init__(self, port: int, timeout_s: float = 0.25, bind: str = "127.0.0.1") -> None:
         self.timeout_s = timeout_s
         self.command = np.zeros(3, dtype=np.float32)
+        self.qr = -1
+        self.event_id = 0
+        self.event_action = -1
         self.last_update = 0.0
         self.lock = threading.Lock()
         self.stop = threading.Event()
@@ -61,17 +73,33 @@ class UdpCommandSource:
                 if not isinstance(message, dict):
                     raise ValueError("command must be a JSON object")
                 command = clamp_command([message["vx"], message.get("vy", 0.0), message["wz"]])
+                qr = int(message.get("qr", -1))
+                if qr not in (-1, 1, 2, 3, 4, 5, 6):
+                    raise ValueError("invalid qr")
+                event_id = int(message.get("event_id", 0))
+                event_action = int(message.get("event_action", -1))
+                if event_id < 0 or event_id > 0xFFFFFFFF or (event_id > 0 and event_action not in (1, 2, 3, 4, 5, 6)):
+                    raise ValueError("invalid shape event")
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError):
                 continue
             with self.lock:
                 self.command = command
+                self.qr = qr
+                self.event_id = event_id
+                self.event_action = event_action if event_id else -1
                 self.last_update = time.monotonic()
 
     def get(self) -> np.ndarray:
+        return self.get_snapshot().velocity
+
+    def get_snapshot(self) -> CommandSnapshot:
         with self.lock:
             command = self.command.copy()
+            qr, event_id, event_action = self.qr, self.event_id, self.event_action
             age = time.monotonic() - self.last_update
-        return command if age <= self.timeout_s else np.zeros(3, dtype=np.float32)
+        if age > self.timeout_s:
+            return CommandSnapshot(np.zeros(3, dtype=np.float32))
+        return CommandSnapshot(command, qr, event_id, event_action)
 
     def close(self) -> None:
         self.stop.set()

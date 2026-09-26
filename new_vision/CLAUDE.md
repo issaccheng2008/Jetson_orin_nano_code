@@ -13,7 +13,7 @@ RoboCup Humanoid competition (2026规则) — a biped robot follows a black line
 - 场地/赛道/限宽门尺寸不变（3660×2440mm，614cm，350mm，限宽门240mm）
 
 **两个视觉平台：**
-- **Jetson Nano** (实车主力): USB camera 1280×720, VFOV=56.2°, 高度40cm, 俯角45°. `jetson/`
+- **Jetson Nano** (实车主力): USB camera 1280×720, VFOV=55.876°, 高度32.5cm, 俯角45°. `jetson/`
 - **OpenMV H7+** (嵌入式备选): 320×240, `openmv/`
 - **Webots R2025a** (仿真): `Webots/controllers/`
 

@@ -1,7 +1,0 @@
-IST8310  1.5mA
-spl06-001  1.5mA
-mpu6050  3.5mA
-MCU 25mA
-nrf24l01 20mA
-w25q64  15mA
-LED 100mA

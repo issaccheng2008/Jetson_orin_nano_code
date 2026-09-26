@@ -5,7 +5,17 @@ from __future__ import annotations
 import time
 
 import numpy as np
-import onnxruntime as ort
+try:
+    import onnxruntime as ort
+except ModuleNotFoundError:
+    # Fixed-frame playback does not need ONNX Runtime. Keep the module's
+    # inference entry point available for tests and fail only if ONNX is used.
+    class _MissingOnnxRuntime:
+        @staticmethod
+        def InferenceSession(*_args, **_kwargs):
+            raise ModuleNotFoundError("onnxruntime is required for --model")
+
+    ort = _MissingOnnxRuntime()
 
 import config
 

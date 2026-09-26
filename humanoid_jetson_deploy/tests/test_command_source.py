@@ -11,6 +11,29 @@ from command_source import UdpCommandSource, clamp_command
 
 
 class CommandSourceTests(unittest.TestCase):
+    def test_shape_event_snapshot_survives_repeated_udp_packets_and_expires(self) -> None:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        source = UdpCommandSource(port, timeout_s=0.1)
+        publisher = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            data = json.dumps({"vx": 0, "wz": 0, "qr": -1,
+                               "event_id": 123, "event_action": 4}).encode()
+            publisher.sendto(data, ("127.0.0.1", port))
+            deadline = time.monotonic() + 0.5
+            while source.get_snapshot().event_id != 123 and time.monotonic() < deadline:
+                time.sleep(0.005)
+            snapshot = source.get_snapshot()
+            self.assertEqual((snapshot.qr, snapshot.event_id, snapshot.event_action), (-1, 123, 4))
+            publisher.sendto(data, ("127.0.0.1", port))
+            time.sleep(0.12)
+            self.assertEqual(source.get_snapshot().event_id, 0)
+        finally:
+            publisher.close()
+            source.close()
+
     def test_clamp_rejects_non_finite_command(self) -> None:
         with self.assertRaises(ValueError):
             clamp_command([float("nan"), 0.0, 0.0])

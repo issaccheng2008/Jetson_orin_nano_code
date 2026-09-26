@@ -16,6 +16,13 @@ MAGIC_BYTES = struct.pack("<H", MAGIC)
 VERSION = 2
 MSG_STATE = 1
 MSG_COMMAND = 2
+MSG_ACTION_REQUEST = 3
+MSG_ACTION_STATUS = 4
+ACTION_ACCEPTED = 1
+ACTION_DONE = 2
+ACTION_BUSY = 3
+ACTION_INVALID = 4
+ACTION_FAILED = 5
 MAX_PAYLOAD = 512
 
 COMMAND_ENABLE = 1 << 0
@@ -32,6 +39,8 @@ HEADER = struct.Struct("<HBBHH")
 CRC = struct.Struct("<H")
 STATE_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "f" * NUM_JOINTS + "3f3f4fI")
 COMMAND_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "ffI")
+ACTION_REQUEST_PAYLOAD = struct.Struct("<IB")
+ACTION_STATUS_PAYLOAD = struct.Struct("<IBB")
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,21 @@ class CommandPacket:
     kp_scale: float
     kd_scale: float
     command_flags: int
+
+
+@dataclass(frozen=True)
+class ActionRequestPacket:
+    sequence: int
+    event_id: int
+    action_id: int
+
+
+@dataclass(frozen=True)
+class ActionStatusPacket:
+    sequence: int
+    event_id: int
+    action_id: int
+    status: int
 
 
 def crc16_ccitt(data: bytes, initial: int = 0xFFFF) -> int:
@@ -104,6 +128,18 @@ def pack_command(packet: CommandPacket) -> bytes:
     return _pack_frame(MSG_COMMAND, packet.sequence, payload)
 
 
+def pack_action_request(packet: ActionRequestPacket) -> bytes:
+    if not 0 < packet.event_id <= 0xFFFFFFFF or packet.action_id not in (1, 2, 5, 6):
+        raise ValueError("invalid upper-body action request")
+    return _pack_frame(MSG_ACTION_REQUEST, packet.sequence,
+                       ACTION_REQUEST_PAYLOAD.pack(packet.event_id, packet.action_id))
+
+
+def pack_action_status(packet: ActionStatusPacket) -> bytes:
+    return _pack_frame(MSG_ACTION_STATUS, packet.sequence,
+                       ACTION_STATUS_PAYLOAD.pack(packet.event_id, packet.action_id, packet.status))
+
+
 def decode_state(sequence: int, payload: bytes) -> StatePacket:
     values = STATE_PAYLOAD.unpack(payload)
     i = 1
@@ -134,9 +170,13 @@ class FrameDecoder:
         self.crc_errors = 0
         self.format_errors = 0
 
-    def feed(self, data: bytes) -> Iterable[StatePacket | CommandPacket]:
+    def feed(self, data: bytes) -> Iterable[
+        StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket
+    ]:
         self.buffer.extend(data)
-        decoded: list[StatePacket | CommandPacket] = []
+        decoded: list[
+            StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket
+        ] = []
 
         while True:
             start = self.buffer.find(MAGIC_BYTES)
@@ -175,6 +215,10 @@ class FrameDecoder:
                     decoded.append(decode_state(sequence, payload))
                 elif message_type == MSG_COMMAND and payload_len == COMMAND_PAYLOAD.size:
                     decoded.append(decode_command(sequence, payload))
+                elif message_type == MSG_ACTION_REQUEST and payload_len == ACTION_REQUEST_PAYLOAD.size:
+                    decoded.append(ActionRequestPacket(sequence, *ACTION_REQUEST_PAYLOAD.unpack(payload)))
+                elif message_type == MSG_ACTION_STATUS and payload_len == ACTION_STATUS_PAYLOAD.size:
+                    decoded.append(ActionStatusPacket(sequence, *ACTION_STATUS_PAYLOAD.unpack(payload)))
                 else:
                     raise ValueError("Unknown message type or payload size")
             except (ValueError, struct.error):
