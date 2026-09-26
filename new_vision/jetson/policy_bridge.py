@@ -32,10 +32,10 @@ class SteeringController:
                  straight_gains=(0.83, 0.004, 0.095),
                  curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0,
                  lost_hold_s=0.2, deriv_pole=0.78, bias_cm=5.0, bias_gate_px=12.0,
-                 max_lateral_cm=0.0, max_wz_right=0.25):
+                 max_lateral_cm=0.0, max_wz_right=0.25, single_line_gain=1.0):
         values = (vx, max_wz, steer_full_scale_cm, yaw_sign, step_len_cm,
                   preview_gain, integral_limit, lost_hold_s, deriv_pole, bias_cm,
-                  bias_gate_px, max_lateral_cm, max_wz_right,
+                  bias_gate_px, max_lateral_cm, max_wz_right, single_line_gain,
                   *straight_gains, *curve_gains)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("controller settings must be finite")
@@ -53,6 +53,8 @@ class SteeringController:
             raise ValueError("lateral sanity bound must be nonnegative; 0 disables it")
         if not 0 < max_wz_right <= max_wz:
             raise ValueError("right yaw limit must be in (0, max_wz]")
+        if single_line_gain <= 0:
+            raise ValueError("single-line gain must be positive")
         self.deriv_pole = deriv_pole
         self.vx, self.max_wz = vx, max_wz
         self.full_scale, self.yaw_sign = steer_full_scale_cm, yaw_sign
@@ -79,6 +81,9 @@ class SteeringController:
         # Asymmetric yaw limit: right turns capped lower than left. Right is the
         # negative wz the policy receives (wz sign is applied before this).
         self.max_wz_right = max_wz_right
+        # Loop-gain multiplier that applies only while a single boundary is visible on
+        # a curve. Left at 1.0 it leaves the loop exactly as it was.
+        self.single_line_gain = single_line_gain
         # Last frame rejected on the lateral bound, for the caller to log. None
         # otherwise, so a caller can print on the transition instead of every frame.
         self.rejected_lateral = None
@@ -165,8 +170,14 @@ class SteeringController:
         except (TypeError, ValueError):
             gate = 0.0
         err += self.bias_cm * (clamp(gate, 0.0, 1.0) if math.isfinite(gate) else 0.0)
-        self.last_err_eff = err
         curve = bool(debug.get("curve_mode", False))
+        # Scale after the bias, not before: on a curve the bias is most of the error
+        # (bias 5 cm against a fused err near zero), so amplifying the raw reading
+        # alone would be a no-op exactly where the correction is needed. Scaling here
+        # takes P, I and D along together, which is what a loop gain should do.
+        if curve and debug.get("single_line"):
+            err *= self.single_line_gain
+        self.last_err_eff = err
         # Clear only on the curve -> straight transition. The previous condition
         # (bottom lock valid AND previous frame was a curve) fired on every frame
         # of a long curve, so the integral never accumulated across it.

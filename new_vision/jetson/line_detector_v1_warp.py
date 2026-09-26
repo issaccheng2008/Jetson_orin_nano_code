@@ -222,6 +222,7 @@ class LineDetector:
         self.pix_curve_gain = 0.18       # narrower band → weaker curve signal
         self.pix_angle_gain = 0.15 / self._asp  # compensated: angle×gain unchanged
         self.curve_switch_px = 18.0      # ~1/3 of 50px band separation
+        self.curve_angle_deg = 8.0       # fitted heading past which one band is a curve
         self.left_curve_outward_gain = 0.35
         self.left_curve_outward_px = 6.0
 
@@ -643,27 +644,34 @@ class LineDetector:
                 best = run
         return best
 
-    def _infer_center_from_single_run(self, run, hint_center, lane_width_hint, x0, x1):
+    def _infer_center_from_single_run(self, run, center_ref, lane_width_meas, x0, x1):
+        """Place the boundary that is missing from the one run the row still has.
+
+        Which boundary it is is read off the run's side of the centre the band is
+        already tracking. That is the same rule the old nearest-hint comparison
+        implemented, just written as what it means.
+        """
         c = 0.5 * (run[0] + run[1])
-        w = max(float(lane_width_hint), float(self.min_track_width))
-        img_cx = self.center_x
+        # Only a row that measured both boundaries may set the width: a width taken
+        # off an inferred row is the number this function just made up, and feeding it
+        # back makes the estimate chase itself.
+        w = float(lane_width_meas) if lane_width_meas > 0 else float(self.lane_width_init_px)
+        side = "left" if c < center_ref else "right"
+        center = c + 0.5 * w if side == "left" else c - 0.5 * w
 
-        cand_left = c + 0.5 * w
-        cand_right = c - 0.5 * w
-
-        if abs(cand_left - hint_center) < abs(cand_right - hint_center):
-            center = cand_left
-        elif abs(cand_left - hint_center) > abs(cand_right - hint_center):
-            center = cand_right
-        else:
-            center = cand_left if c < img_cx else cand_right
-
-        center = clamp(center, x0, x1)
+        # No clamping. A run close enough to the edge that the missing boundary lands
+        # outside the frame carries no usable centre: clamping it reports the edge as
+        # a real measurement, which is how a single row could hand the fusion a
+        # near_err_px of +/-160 - the full half width of the birdseye, and a larger
+        # error than any position on a 35 cm lane can justify.
+        if not x0 <= center <= x1:
+            return None
         return {
             "center_px": center,
             "lane_width_px": w,
             "conf": self.single_line_conf,
             "line_mode": 1,
+            "side": side,
         }
 
     # ═══════════════════════════════════════════════════════════
@@ -700,6 +708,8 @@ class LineDetector:
         single_rows = 0
         red_block_rows = 0
         black_block_rows = 0
+        left_seen = False
+        right_seen = False
 
         last_center = hint_x
         last_width = lane_width_hint
@@ -761,12 +771,19 @@ class LineDetector:
                 ys.append(y)
                 zs_cm.append(z_cm)
                 conf_sum += chosen["conf"]
-                if int(chosen.get("line_mode", 1)) >= 2:
+                mode = int(chosen.get("line_mode", 1))
+                if mode >= 2:
+                    # Paired off the runs, or measured as two dips in the raw gray, so
+                    # both boundaries were really seen.
                     pair_rows += 1
+                    left_seen = right_seen = True
                 else:
                     single_rows += 1
+                    left_seen = left_seen or chosen.get("side") == "left"
+                    right_seen = right_seen or chosen.get("side") == "right"
                 last_center = center_px
-                last_width = lane_w
+                if mode >= 2:
+                    last_width = lane_w
 
             rows_done += 1
             y += row_step
@@ -807,6 +824,11 @@ class LineDetector:
             "black_block_ratio": black_block_rows / float(max(1, max_rows)),
             "ys_list": ys,
             "centers_list": centers_px,
+            "left_seen": left_seen,
+            "right_seen": right_seen,
+            "single_side": ("left" if left_seen and not right_seen
+                            else "right" if right_seen and not left_seen
+                            else None),
         }
 
     # ═══════════════════════════════════════════════════════════
@@ -1128,6 +1150,10 @@ class LineDetector:
         bottom_sym_err_px = 0.0
         center_lock_quality = 1.0
         bottom_lock_valid = True
+        left_seen = False
+        right_seen = False
+        single_line = False
+        single_side = None
         near_err_px_pre_lock = 0.0
         far_err_px_saved = 0.0
         curve_px = 0.0
@@ -1194,6 +1220,11 @@ class LineDetector:
             near = self._pick_result_by_band(roi_results, ("low", "mid"))
             if near is None:
                 near = min(roi_results, key=lambda r: r["dist_cm"])
+
+            left_seen = bool(near.get("left_seen", False))
+            right_seen = bool(near.get("right_seen", False))
+            single_line = left_seen != right_seen
+            single_side = "left" if left_seen else "right" if right_seen else None
 
             far = self._pick_result_by_band(roi_results, ("mid", "low"))
             if far is None:
@@ -1418,7 +1449,10 @@ class LineDetector:
             avg_conf = sum(
                 (r["conf"] * self._result_quality_weight(r)) for r in roi_results
             ) / float(len(roi_results))
-            if not bottom_lock_valid:
+            # One visible boundary cannot pair, so the bottom lock is meant to report
+            # nothing here. Penalising that is what pushed single-line frames under
+            # conf_min and turned them into line loss.
+            if not bottom_lock_valid and not single_line:
                 avg_conf *= (
                     1.0 - self.bottom_lock_conf_penalty * (1.0 - center_lock_quality)
                 )
@@ -1446,8 +1480,12 @@ class LineDetector:
 
             # Curve mode detection (for dual-mode PID)
             _cm = abs(curve_px) >= self.curve_switch_px
-            if LineDetector._single_band_mask(band_mask):
-                _cm = _cm or abs(angle_err) >= 8.0
+            # One visible boundary leaves curve_px nothing to measure: both bands place
+            # the same half-width offset off the same run, so their difference is ~0 on
+            # precisely the frames the single-line gain exists for. The fitted heading
+            # of that one boundary is then the only curve evidence there is.
+            if single_line or LineDetector._single_band_mask(band_mask):
+                _cm = _cm or abs(angle_err) >= self.curve_angle_deg
             if ((not bottom_lock_valid) and bottom_pair_ratio > 0.0
                     and abs(bottom_sym_err_px) > self.bottom_lock_sym_tol_px):
                 _cm = True
@@ -1543,6 +1581,10 @@ class LineDetector:
             "ng_enter_z": ng_enter_z,
             "inside_narrow": inside_narrow,
             "curve_mode": curve_mode,
+            "left_seen": left_seen,
+            "right_seen": right_seen,
+            "single_line": single_line,
+            "single_side": single_side,
         }
 
         debug["vision_speed_cm_s"] = 0.0

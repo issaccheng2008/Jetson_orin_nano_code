@@ -189,9 +189,35 @@ class SteeringTests(unittest.TestCase):
                        dict(deriv_pole=-0.1), dict(bias_cm=float("nan")),
                        dict(bias_gate_px=0.0), dict(max_lateral_cm=-1.0),
                        dict(max_wz_right=0.0), dict(max_wz_right=-0.1),
-                       dict(max_wz_right=0.6)):
+                       dict(max_wz_right=0.6),
+                       dict(single_line_gain=0.0),
+                       dict(single_line_gain=-1.0)):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 SteeringController(**kwargs)
+
+    def test_the_single_line_gain_only_applies_on_a_curve(self):
+        """The gain is for the frames where one boundary is all the detector has. It
+        must leave a normally-detected frame alone, and 1.0 - the value the robot
+        ships with - must leave the loop exactly as it was."""
+        gains = dict(straight_gains=(1, 0, 0), curve_gains=(1, 0, 0),
+                     steer_full_scale_cm=50)
+        doubled = SteeringController(single_line_gain=2.0, **gains)
+        plain = SteeringController(**gains)
+
+        both = detection(curve=True)
+        single = detection(curve=True)
+        single["single_line"] = True
+        single_straight = detection(curve=False)
+        single_straight["single_line"] = True
+
+        self.assertAlmostEqual(doubled.command(both, 0.8, 0.02)[1],
+                               plain.command(both, 0.8, 0.02)[1])
+        self.assertAlmostEqual(doubled.command(single, 0.8, 0.02)[1],
+                               2.0 * plain.command(single, 0.8, 0.02)[1])
+        self.assertAlmostEqual(doubled.command(single_straight, 0.8, 0.02)[1],
+                               plain.command(single_straight, 0.8, 0.02)[1])
+        self.assertAlmostEqual(SteeringController(**gains).command(single, 0.8, 0.02)[1],
+                               plain.command(both, 0.8, 0.02)[1])
 
 
 class SmoothedStopReachesThePolicyTests(unittest.TestCase):
@@ -661,6 +687,102 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         self.assertEqual(out.getvalue().count("stand still"), 1)
+
+
+class SingleLineTrackingTests(unittest.TestCase):
+    """On a curve one boundary can shrink out of the field of view, and the other one
+    then has to place the centre on its own - which means it has to know which
+    boundary it is. That is what the left/right flags report."""
+
+    @staticmethod
+    def _detector():
+        from line_detector_v1_warp import LineDetector
+        detector = LineDetector(1280, 720)
+        detector.red_detect_enable = False
+        return detector
+
+    def _band(self, detector, stripes, hint_width=140.0):
+        gray = np.zeros((detector.bird_h, detector.bird_w), np.uint8)
+        for x in stripes:
+            gray[:, x:x + 10] = 255
+        bgr = np.zeros((detector.bird_h, detector.bird_w, 3), np.uint8)
+        return detector._scan_band_midline(
+            gray, bgr, 128, False, 160.0, hint_width,
+            detector.band_low_y0 / float(detector.bird_h),
+            detector.band_low_y1 / float(detector.bird_h), 10, 5)
+
+    def test_a_zero_width_hint_does_not_shrink_the_inferred_centre(self):
+        """The startup window hands the scan a width of 0, and 0 used to become
+        max(0, min_track_width) = 24 px. Sizing the inferred half-lane off that put the
+        centre 12 px from the line instead of 70 - 19 cm right of the lane, which
+        steers right - and the 24 was written back as the next frame's width, after
+        which the pair gate rejected the real span and it never grew back."""
+        detector = self._detector()
+        result = self._band(detector, [200], hint_width=0.0)
+        self.assertAlmostEqual(result["center_px"], 204.5 - 70.0)
+        self.assertAlmostEqual(result["lane_width_px"], detector.lane_width_init_px)
+        # Feeding the reported width back, as process() does, is a fixed point.
+        again = self._band(detector, [200], hint_width=result["lane_width_px"])
+        self.assertAlmostEqual(again["center_px"], result["center_px"])
+        self.assertAlmostEqual(again["lane_width_px"], detector.lane_width_init_px)
+
+    def test_the_bands_report_which_boundary_they_saw(self):
+        detector = self._detector()
+        one = self._band(detector, [200])            # run centre 204.5, band hint 160
+        self.assertFalse(one["left_seen"])
+        self.assertTrue(one["right_seen"])
+        self.assertEqual(one["single_side"], "right")
+        self.assertEqual(one["pair_ratio"], 0.0)
+
+        both = self._band(detector, [100, 240])
+        self.assertTrue(both["left_seen"])
+        self.assertTrue(both["right_seen"])
+        self.assertIsNone(both["single_side"])
+
+    def test_only_a_paired_row_may_report_a_width(self):
+        """The runs here are 140 px apart. A row that saw one boundary is quoting the
+        memory, and the memory in turn may only take a measurement."""
+        detector = self._detector()
+        both = self._band(detector, [100, 240])
+        self.assertAlmostEqual(both["lane_width_px"], 140.0)
+        self.assertEqual(both["pair_ratio"], 1.0)
+
+    def test_a_run_too_near_the_edge_cannot_invent_a_centre(self):
+        """Placing the missing boundary outside the frame is not a measurement. The old
+        clamp returned the frame edge instead, which let one row hand the fusion a near
+        error of +/-160 px - the birdseye's whole half width, and more than any position
+        on a 35 cm lane justifies."""
+        detector = self._detector()
+        self.assertIsNone(detector._infer_center_from_single_run(
+            (300, 309), 350.0, 140.0, 0, detector.bird_w - 1))    # centre would be 374.5
+        self.assertIsNone(detector._infer_center_from_single_run(
+            (10, 19), 5.0, 140.0, 0, detector.bird_w - 1))        # centre would be -55.5
+        inside = detector._infer_center_from_single_run(
+            (200, 209), 160.0, 140.0, 0, detector.bird_w - 1)
+        self.assertEqual(inside["side"], "right")
+        self.assertAlmostEqual(inside["center_px"], 204.5 - 70.0)
+
+    def test_a_single_line_curve_reaches_curve_mode(self):
+        """The single-line gain is gated on curve_mode, and one visible boundary makes
+        curve_px read ~0 - both bands place the same half-width offset off the same run.
+        Without the heading clause the gain could never fire on the frames it exists
+        for; without the straight case it would fire on straights."""
+        import cv2
+        def frame(dx):
+            image = np.full((720, 1280, 3), 255, np.uint8)
+            cv2.line(image, (640, 719), (640 + dx, 300), (0, 0, 0), 20)
+            return image
+
+        def steady(dx):
+            detector = self._detector()
+            for _ in range(detector.startup_settle_frames + 3):
+                _, _, _, _, debug = detector.process(frame(dx))
+            return debug
+
+        straight = steady(0)
+        self.assertTrue(straight["single_line"])
+        self.assertFalse(straight["curve_mode"])
+        self.assertTrue(steady(160)["curve_mode"])
 
 
 class LineDetectorStateTests(unittest.TestCase):

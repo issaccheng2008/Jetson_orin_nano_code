@@ -130,6 +130,11 @@ def parse_args():
                         help="Yaw-rate limit for right turns, as opposed to --max-wz "
                              "for left. Negative wz is a right turn in the published "
                              "log. A right curve needing more than this runs wide")
+    parser.add_argument("--single-line-gain", type=float,
+                        default=float(os.getenv("SINGLE_LINE_GAIN", "1")),
+                        help="Loop-gain multiplier applied only while one track "
+                             "boundary is visible on a curve. 1.0 (default) leaves "
+                             "the gains exactly as they are")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")
@@ -184,6 +189,7 @@ def main():
         bias_cm=args.bias_cm, bias_gate_px=args.bias_gate_px,
         max_lateral_cm=args.max_lateral_cm,
         max_wz_right=args.max_wz_right,
+        single_line_gain=args.single_line_gain,
     )
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
@@ -222,7 +228,8 @@ def main():
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
               f"{args.connector_host}:{args.connector_port}; vx={args.vx} m/s; "
               f"max_wz={args.max_wz} rad/s; yaw_sign={args.yaw_sign}; "
-              f"red={'off' if args.no_red_detect else 'on'}", flush=True)
+              f"red={'off' if args.no_red_detect else 'on'}; "
+              f"sl_gain={args.single_line_gain}", flush=True)
         start = previous = time.monotonic()
         last_log = -math.inf
         last_shape_log = -math.inf
@@ -426,6 +433,11 @@ def main():
                     f"curve={int(bool(debug.get('curve_mode', False)))}"
                     f"/{debug.get('curve_px', 0.0):+.0f} "
                     f"far={debug.get('far_err_px', 0.0):+.0f} "
+                    # Which track boundaries the near band actually saw: lr=11 both,
+                    # lr=01 only the right one (and the centre is then inferred from
+                    # it), lr=00 neither.
+                    f"lr={int(bool(debug.get('left_seen', False)))}"
+                    f"{int(bool(debug.get('right_seen', False)))} "
                     # Why a frame produced nothing: the bottom lock (the pairing
                     # check that keeps the near band on the right line) and how many
                     # rows it paired. conf=0 with pair=0 means no band at all; conf=0
