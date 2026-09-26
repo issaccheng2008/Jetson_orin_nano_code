@@ -218,6 +218,7 @@ def main():
         card_flag = False        # a card is in view on this approach
         card_absent = 0          # consecutive detection calls without one
         card_triggered = False   # this card has already been acted on
+        card_armed = True        # and it has since been seen far enough to trigger
         card_action_triggered = False
         clear_deadline = 0.0     # > 0 while driving past the card without steering
         clear_pending = False    # an action ran; clear the card once its window ends
@@ -274,9 +275,18 @@ def main():
                 # Seeing a card only slows the robot down. Stopping waits until the box
                 # centroid has come down to the trigger line, i.e. the card is close.
                 cy = card_dbg.get("presence_cy_frac")
-                if (card_flag and not card_triggered and cy is not None
+                # A trigger has to be earned again by seeing the card well above the
+                # line. presence is armed-gated, so the action firing makes it read
+                # false and card_absent clears card_triggered on its own; the card the
+                # robot just drove past is still in frame at cy 0.84, well below the
+                # line, and stopped the robot a second time mid-curve. A card that is
+                # already low in the frame has not been approached, so it cannot fire.
+                if cy is not None and cy < args.card_trigger_frac:
+                    card_armed = True
+                if (card_flag and not card_triggered and card_armed and cy is not None
                         and cy >= args.card_trigger_frac):
                     card_triggered = True
+                    card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
                     controller.reset()
                     print(f"[shape] box centroid at {cy:.2f} -> stand still "
