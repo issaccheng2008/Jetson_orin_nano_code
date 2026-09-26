@@ -13,6 +13,7 @@ Bar crossing is still not signalled.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import signal
@@ -80,6 +81,11 @@ def parse_args():
                              "not been measured against a normal lap yet")
     parser.add_argument("--no-shape-detect", action="store_true",
                         help="Skip geometric card detection entirely; qr stays -1")
+    parser.add_argument("--shape-dump", default="",
+                        help="Directory to write a frame and its detection dict into, "
+                             "on every shape call where a card is in view. Empty is off. "
+                             "Needs a card to be present, so a lap writes tens of pairs, "
+                             "not thousands")
     parser.add_argument("--no-red-detect", action="store_true",
                         help="Ignore red completely: no red bar, no narrow gate, and "
                              "a red row no longer blocks the band scan or the bottom "
@@ -266,6 +272,9 @@ def main():
         card_dbg = {}
         lateral_warned = None    # None until the lateral bound first trips
         card_window_open = False
+        dumped = 0
+        if args.shape_dump:
+            os.makedirs(args.shape_dump, exist_ok=True)
         while not stopped:
             now = time.monotonic()
             if args.max_seconds > 0 and now - start >= args.max_seconds:
@@ -320,13 +329,27 @@ def main():
                     else args.shape_every) == 0):
                 action, card_dbg = shape.update(
                     frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
+                if args.shape_dump and (card_dbg.get("card_found")
+                                        or card_dbg.get("presence")):
+                    dumped += 1
+                    stem = os.path.join(
+                        args.shape_dump,
+                        f"{dumped:04d}_{card_dbg.get('shape')}"
+                        f"_cy{card_dbg.get('presence_cy_frac')}"
+                        f"_g{card_dbg.get('card_found') and 1 or 0}")
+                    cv2.imwrite(stem + ".jpg", frame)
+                    with open(stem + ".json", "w", encoding="utf-8") as handle:
+                        json.dump({"t": processed, **card_dbg}, handle,
+                                  indent=1, default=str)
                 # Phase two waits for phase one. The classifier is only reliable on a
                 # card that is close, and the trigger line is what says it is. Acting
                 # as soon as a shape appears classified a card 50 cm away - top=186,
-                # cy=0.40 - on a small warp: rules called it diamond, then triangle,
-                # while hu read circle at distance 0.01-0.04 throughout and was the
-                # one that was right. The box only reaches that far down the frame
-                # after --card-trigger-frac, so nothing may act before it.
+                # cy=0.40 - on a small warp. The box only reaches that far down the
+                # frame after --card-trigger-frac, so nothing may act before it.
+                # (hu was cited here as the reading that was right. It is not: on the
+                # 2026-09-26 laps every frame of every card read hu=circle at 0.005
+                # to 0.07, including the pentagram and the cross. It is degenerate,
+                # not corroborating.)
                 reach = card_dbg.get("presence_cy_frac")
                 reached = reach is not None and reach >= args.card_trigger_frac
                 if action is not None and reached and not card_action_triggered and card_event_id == 0:

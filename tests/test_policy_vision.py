@@ -1096,6 +1096,62 @@ class LineDetectorStateTests(unittest.TestCase):
         self.assertEqual(len(seen), 1)
         self.assertGreater(seen[0], 0.0)
 
+    def test_shape_dump_leaves_the_frame_and_its_detection_dict_behind(self):
+        """Twice now the classifier has been called wrong on the field with nothing left
+        to look at but the tallies. This is what leaves a frame to look at."""
+        with tempfile.TemporaryDirectory() as folder:
+            frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+            camera = Mock()
+            camera.isOpened.return_value = True
+            camera.get.side_effect = [1280, 720]
+            detector = Mock()
+            detector.process.return_value = (0, 0, 0.9, None, detection())
+            shape = Mock()
+            shape.action_map = {"square": 3}
+            shape.update.return_value = (None, {
+                "card_found": True, "presence": True, "shape": "diamond",
+                "rules": "diamond", "hu": "circle:0.01", "top": 130,
+                "presence_cy_frac": 0.29})
+            clock = [0.0]
+
+            def tick():
+                clock[0] += 0.03
+                return clock[0]
+
+            with (
+                patch("sys.argv", ["run_policy_vision.py", "--headless",
+                                   "--shape-every", "1", "--shape-dump", folder]),
+                patch.object(run_policy_vision.signal, "signal") as signals,
+                patch.object(run_policy_vision, "ConnectorClient"),
+                patch("utils.open_camera", return_value=camera),
+                patch("line_detector_v1_warp.LineDetector", return_value=detector),
+                patch("shape_detector.ShapeDetector", return_value=shape),
+                patch.object(run_policy_vision.time, "monotonic", side_effect=tick),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                reads = 0
+
+                def read():
+                    nonlocal reads
+                    reads += 1
+                    if reads <= 3:
+                        return True, frame
+                    signals.call_args.args[1](None, None)
+                    return False, None
+
+                camera.read.side_effect = read
+                self.assertEqual(run_policy_vision.main(), 0)
+
+            written = sorted(Path(folder).iterdir())
+            self.assertGreaterEqual(len(written), 4)      # a frame and a dict per call
+            self.assertEqual(len([p for p in written if p.suffix == ".jpg"]),
+                             len([p for p in written if p.suffix == ".json"]))
+            with open(written[-1], encoding="utf-8") as handle:
+                saved = json.load(handle)
+            self.assertTrue(saved["card_found"])
+            self.assertEqual(saved["rules"], "diamond")
+            self.assertEqual(saved["hu"], "circle:0.01")
+
     def test_the_handover_resets_the_detector_before_the_walking_frame(self):
         """A fresh process tracks the same curve, so the frame after a card stop
         should start from a fresh state too - and it has to be the FIRST walking
