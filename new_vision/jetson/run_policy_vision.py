@@ -185,6 +185,8 @@ def main():
         start = previous = time.monotonic()
         last_log = -math.inf
         last_shape_log = -math.inf
+        last_log_at = start
+        log_frames = 0
         frames = 0
         card_action = -1
         card_event_id = 0
@@ -213,6 +215,7 @@ def main():
             _, _, confidence, visualization, debug = detector.process(frame)
             processed = time.monotonic()
             frames += 1
+            log_frames += 1
             recognized_this_frame = False
             # Stopped in front of a card, the camera is steady, so the classification
             # can have every frame. --shape-every only throttles the driving case.
@@ -290,17 +293,22 @@ def main():
                      if card_event_id else {})
             client.publish(vx, wz, visible_qr, **event)
             if processed - last_log >= 0.5:
-                print(f"[vision -> connector] vx={vx:+.3f} m/s wz={wz:+.3f} rad/s "
-                      f"steer={controller.last_steer:+.2f}cm "
-                      f"err={debug.get('fused_err_cm', 0.0):+.1f}cm "
-                      f"err_eff={controller.last_err_eff:+.1f}cm "
-                      f"ang={debug.get('angle_err_deg', 0.0):+.1f}deg "
-                      f"curve={int(bool(debug.get('curve_mode', False)))} "
-                      f"curve_px={debug.get('curve_px', 0.0):+.0f}(thr18) "
-                      f"far_px={debug.get('far_err_px', 0.0):+.0f} "
-                      f"conf={confidence:.3f} lost={debug.get('lost_frames', '?')} "
-                      f"qr={card_action}", flush=True)
+                # Left of the bar is what the robot is doing; right of it is why.
+                # Read only the left if it is behaving.
+                print(
+                    f"[vision] {log_frames / max(processed - last_log_at, 1e-6):4.0f}Hz "
+                    f"vx={vx:+.3f} wz={wz:+.3f} "
+                    f"err={debug.get('fused_err_cm', 0.0):+.1f}cm "
+                    f"conf={confidence:.2f} qr={card_action} | "
+                    f"steer={controller.last_steer:+.2f} eff={controller.last_err_eff:+.1f} "
+                    f"ang={debug.get('angle_err_deg', 0.0):+.1f} "
+                    f"curve={int(bool(debug.get('curve_mode', False)))}"
+                    f"/{debug.get('curve_px', 0.0):+.0f} "
+                    f"far={debug.get('far_err_px', 0.0):+.0f} "
+                    f"lost={debug.get('lost_frames', '?')}", flush=True)
                 last_log = processed
+                last_log_at = processed
+                log_frames = 0
             if not args.headless:
                 cv2.putText(frame, f"vx={vx:+.3f} wz={wz:+.3f} Q=quit", (10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
