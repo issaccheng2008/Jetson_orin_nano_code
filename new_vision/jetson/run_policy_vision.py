@@ -274,7 +274,13 @@ def main():
                 # already low in the frame has not been approached, so it cannot fire.
                 if cy is not None and cy < args.card_trigger_frac:
                     card_armed = True
-                if (card_flag and not card_triggered and card_armed and cy is not None
+                # card_found, not the cue: the phase-one cue answers "is there a card"
+                # to slow down for, but its blob centroid says nothing about distance,
+                # and it fires on very weak evidence. The field log has it stopping
+                # the robot at cy 0.74 with quad=512g0v0 - no box at all - and cue
+                # 0.25. Only a real box measures the approach.
+                if (card_flag and not card_triggered and card_armed
+                        and card_dbg.get("card_found") and cy is not None
                         and cy >= args.card_trigger_frac):
                     card_triggered = True
                     card_armed = False
