@@ -308,6 +308,45 @@ class VisionEntryPointTests(unittest.TestCase):
             client_cls.return_value.close.assert_called_once()
             camera.release.assert_called_once()
 
+    def test_no_red_detect_turns_off_both_red_paths(self):
+        """Red reaches line following twice - _detect_red_bar, and the row blocker
+        that blanks the band scan and the bottom lock - and both hang off the one
+        flag, so the switch has to reach the detector the runner actually builds."""
+        from line_detector_v1_warp import LineDetector
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.8, None, detection())
+        detector.red_detect_enable = True
+        clock = [0.0]
+        def tick():
+            clock[0] += 0.03
+            return clock[0]
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--no-shape-detect", "--no-red-detect"]),
+            patch.object(run_policy_vision.signal, "signal") as signals,
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch.object(run_policy_vision.time, "monotonic", side_effect=tick),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            reads = 0
+            def read():
+                nonlocal reads
+                reads += 1
+                if reads <= 3:
+                    return True, frame
+                signals.call_args.args[1](None, None)
+                return False, None
+            camera.read.side_effect = read
+            self.assertEqual(run_policy_vision.main(), 0)
+        self.assertFalse(detector.red_detect_enable)
+        self.assertTrue(LineDetector(1280, 720).red_detect_enable)  # on unless asked
+
     def test_card_event_is_held_but_qr_clears_when_card_disappears(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()

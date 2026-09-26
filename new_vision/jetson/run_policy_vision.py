@@ -74,6 +74,11 @@ def parse_args():
                              "not been measured against a normal lap yet")
     parser.add_argument("--no-shape-detect", action="store_true",
                         help="Skip geometric card detection entirely; qr stays -1")
+    parser.add_argument("--no-red-detect", action="store_true",
+                        help="Ignore red completely: no red bar, no narrow gate, and "
+                             "a red row no longer blocks the band scan or the bottom "
+                             "lock. Temporary, for isolating red's effect on line "
+                             "following")
     parser.add_argument("--card-hold-ms", type=float,
                         default=float(os.getenv("CARD_HOLD_MS", "5000")),
                         help="Once the shape is identified: keep the event available and stay "
@@ -212,9 +217,12 @@ def main():
         detector = LineDetector(width, height, cam_height_cm=args.camera_height_cm,
                                 cam_pitch_deg=args.camera_pitch_deg,
                                 cam_vfov_deg=args.camera_vfov_deg)
+        if args.no_red_detect:
+            detector.red_detect_enable = False
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
               f"{args.connector_host}:{args.connector_port}; vx={args.vx} m/s; "
-              f"max_wz={args.max_wz} rad/s; yaw_sign={args.yaw_sign}", flush=True)
+              f"max_wz={args.max_wz} rad/s; yaw_sign={args.yaw_sign}; "
+              f"red={'off' if args.no_red_detect else 'on'}", flush=True)
         start = previous = time.monotonic()
         last_log = -math.inf
         last_shape_log = -math.inf
