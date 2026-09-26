@@ -232,6 +232,7 @@ def main():
         card_action_triggered = False
         card_dbg = {}
         lateral_warned = None    # None until the lateral bound first trips
+        card_window_open = False
         while not stopped:
             now = time.monotonic()
             if args.max_seconds > 0 and now - start >= args.max_seconds:
@@ -332,7 +333,15 @@ def main():
             # Two windows, whichever ends later: --card-stop-ms caps how long we wait
             # for a shape that may never settle, --card-hold-ms is the rules' action
             # window once we do know it.
-            if processed < stop_until or processed < card_until:
+            window_open = processed < stop_until or processed < card_until
+            if card_window_open and not window_open:
+                # One line at the handover: what the controller was left holding. If
+                # this shows a pre-stop vx/wz, the lost-line fallback will replay it.
+                print(f"[vision] card window closed; resuming the live controller "
+                      f"(hold={controller.hold[0]:+.2f},{controller.hold[1]:+.2f} "
+                      f"lost_s={controller.lost_s:.2f})", flush=True)
+            card_window_open = window_open
+            if window_open:
                 # Do not run the controller here. It is fed the card-corrupted err for
                 # the whole stop, and its integral and filtered derivative then carry
                 # that corruption into the first real frame - the loop restarts off
@@ -340,7 +349,10 @@ def main():
                 # curve. Idle and reset instead: the first frame after the stop is a
                 # clean start from the live frame.
                 vx, wz = 0.0, 0.0
-                controller.reset()
+                # clear_hold: otherwise the first invalid frame after the stop
+                # republishes the pre-stop (vx, wz) as the lost-line fallback, which
+                # is the replayed command all over again.
+                controller.reset(clear_hold=True)
             else:
                 vx, wz = controller.command(debug, confidence, processed - previous)
                 # Printed on the transition, not every frame: one line per time the

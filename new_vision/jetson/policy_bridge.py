@@ -90,13 +90,23 @@ class SteeringController:
         self.lost_s = 0.0
         self.hold = (0.0, 0.0)
 
-    def reset(self):
+    def reset(self, clear_hold=False):
+        """Clear the loop state.
+
+        clear_hold also drops the stored last-good command. Callers that are
+        deliberately not driving - the card stop - want that: leaving it means the
+        first invalid frame after the stop republishes the pre-stop vx and wz,
+        which is the replayed command that was already tried and rejected.
+        """
         self.integral = 0.0
         self.last_curve = False
         self.last_steer = 0.0
         self.err_window = []
         self.last_median = None
         self.derivative = 0.0
+        if clear_hold:
+            self.lost_s = 0.0
+            self.hold = (0.0, 0.0)
 
     def filtered_derivative(self, err):
         """Median-of-3, then a first-order low-pass, over a nominal frame period.

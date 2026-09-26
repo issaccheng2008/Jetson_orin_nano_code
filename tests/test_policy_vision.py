@@ -1,12 +1,15 @@
 """Hardware-free controller and real UDP bridge tests."""
 from __future__ import annotations
 
+import csv
 import json
 import math
+import os
 from pathlib import Path
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from unittest.mock import patch, Mock
@@ -22,6 +25,7 @@ sys.path.insert(0, str(ROOT / "humanoid_jetson_deploy"))
 from connector import CommandSmoother
 from policy_bridge import ConnectorClient, SteeringController
 from command_source import UdpCommandSource, clamp_command
+import policy_runner
 from policy_runner import HumanoidPolicy
 import config
 import run_policy_vision
@@ -158,6 +162,25 @@ class SteeringTests(unittest.TestCase):
         left = controller.command(detection(0.2), 0.8, 0.02)[1]
         right = controller.command(detection(-0.2), 0.8, 0.02)[1]
         self.assertAlmostEqual(left, -right)
+
+    def test_the_stop_does_not_leave_a_command_to_replay(self):
+        """reset() keeps `hold` for lost-line patience, so while the controller is
+        idle through a card stop it still holds the pre-stop (vx, wz). If the first
+        frame after the stop is invalid, command() would republish exactly the
+        pre-stop command - the replay that was already tried and rejected."""
+        controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=10)
+        moving = controller.command(detection(20.0), 0.9, 0.05)   # a curve command
+        self.assertEqual(moving, (0.4, 0.5))
+        # Idle through the stop; clear_hold is what run_policy_vision passes.
+        for _ in range(5):
+            controller.reset(clear_hold=True)
+        self.assertEqual(controller.hold, (0.0, 0.0))
+        self.assertEqual(controller.command(detection(lost=1), 0.9, 0.05), (0.0, 0.0))
+        # And without it, the old behaviour is still there for the lost-line case.
+        kept = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=10)
+        kept.command(detection(20.0), 0.9, 0.05)
+        kept.reset()
+        self.assertEqual(kept.command(detection(lost=1), 0.9, 0.05), (0.4, 0.5))
 
     def test_invalid_settings_are_rejected(self):
         for kwargs in (dict(max_wz=1.5), dict(vx=float("nan")), dict(yaw_sign=0),
@@ -546,6 +569,39 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         self.assertEqual(out.getvalue().count("stand still"), 1)
+
+
+class ObservationDumpTests(unittest.TestCase):
+    """The stop->restart transient is invisible at the vision log's 2 Hz sampling,
+    so policy_runner can dump all 49 observation components at 50 Hz instead."""
+
+    def test_it_names_every_component_and_stays_off_by_default(self):
+        self.assertIsNone(policy_runner.open_observation_dump())
+        names = policy_runner.observation_columns()
+        self.assertEqual(len(names), config.OBS_DIM)
+        self.assertEqual(len(set(names)), config.OBS_DIM)
+        self.assertEqual(names[9], "cmd_vx")
+        self.assertEqual(names[11], "step_distance")
+
+    def test_a_row_records_the_observation_and_the_zero_command_flag(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "obs.csv"
+            with patch.dict(os.environ, {"POLICY_OBS_CSV": str(path)}):
+                dump = policy_runner.open_observation_dump()
+                self.assertIsNotNone(dump)
+                obs = np.arange(config.OBS_DIM, dtype=np.float32)
+                action = np.zeros(config.ACTION_DIM, dtype=np.float32)
+                dump.append(obs, action, np.zeros(3, dtype=np.float32))
+                dump.append(obs, action, np.array([0.4, 0.0, 0.5], dtype=np.float32))
+                dump.file.close()
+            with open(path, newline="", encoding="utf-8") as handle:
+                rows = list(csv.reader(handle))
+        self.assertEqual(len(rows), 3)                       # header + two ticks
+        self.assertEqual(rows[0][3:3 + config.OBS_DIM],
+                         policy_runner.observation_columns())
+        self.assertEqual(rows[1][2], "1")                    # command exactly zero
+        self.assertEqual(rows[2][2], "0")
+        self.assertEqual(rows[1][3 + 11], "11")              # step_distance column
 
 
 class ShapeDetectorReportingTests(unittest.TestCase):

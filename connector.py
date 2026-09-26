@@ -148,6 +148,15 @@ def parse_args() -> argparse.Namespace:
         default=25,
         help="Print the current connector-to-policy target every N 50 Hz publications",
     )
+    parser.add_argument(
+        "--tap-port",
+        type=int,
+        default=0,
+        help="Mirror every published packet verbatim to this port on the same host "
+             "(0 = off). A listener there sees the true 50 Hz command ramp, which "
+             "the vision log's 2 Hz sampling hides; being on the same clock as the "
+             "policy's observation dump is the point.",
+    )
     return parser.parse_args()
 
 
@@ -165,6 +174,7 @@ def main() -> int:
     receiver.setblocking(False)
     receiver.bind((args.vision_bind, args.vision_port))
     publisher = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    tap = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) if args.tap_port else None
 
     latest = {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}
     last_vision_update = 0.0
@@ -215,10 +225,14 @@ def main() -> int:
             dt = min(max(now - last_tick, 0.0), 2.0 * period)
             last_tick = now
             output = smoother.update(target, dt)
-            publisher.sendto(
-                json.dumps(output, separators=(",", ":")).encode("utf-8"),
-                (args.policy_host, args.policy_port),
-            )
+            wire = json.dumps(output, separators=(",", ":")).encode("utf-8")
+            publisher.sendto(wire, (args.policy_host, args.policy_port))
+            if tap is not None:
+                # Same bytes, same tick: the tap has to be the wire, not a re-encode.
+                # The default 50 Hz stream carries no host time, so a listener that
+                # needs to align it with policy_runner's POLICY_OBS_CSV should stamp
+                # arrival time itself - both live on this machine's clock.
+                tap.sendto(wire, (args.policy_host, args.tap_port))
 
             if step % max(1, args.log_every) == 0:
                 now = time.monotonic()
@@ -267,6 +281,8 @@ def main() -> int:
             publisher.sendto(stop, (args.policy_host, args.policy_port))
         receiver.close()
         publisher.close()
+        if tap is not None:
+            tap.close()
 
     print("Connector stopped; zero command sent")
     return 0
