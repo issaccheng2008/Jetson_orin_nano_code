@@ -104,8 +104,10 @@ def parse_args():
                              "--card-slow-vx for at most this long, until the line "
                              "detector recovers. The card is left ~30 cm ahead, inside "
                              "the near band, so steering from those frames is garbage. "
-                             "1.6 s is 32 cm, which puts the card under the robot; "
-                             "longer only drives further blind")
+                             "Measured in seconds, not centimetres: the achieved speed "
+                             "is below the commanded vx (see the deployment notes), so "
+                             "multiplying by --card-slow-vx gives a distance the robot "
+                             "does not actually cover")
     parser.add_argument("--card-clear-conf", type=float,
                         default=float(os.getenv("CARD_CLEAR_CONF", "0.8")),
                         help="Confidence that counts as the detector having recovered")
