@@ -841,13 +841,14 @@ class ShapeDetector:
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL,
                                        cv2.CHAIN_APPROX_SIMPLE)
         quads = []
+        # 顶点数闸（原 3<=len(approxPolyDP)<=6）已移除：这条通道用 minAreaRect
+        # 造框，顶点数对它毫无意义，而它是"这轮廓像不像卡框"的粗代理。
+        # 真正判"是不是 10cm 卡"的是 _geom_ok 里的 _square_on_ground，模块注释
+        # 自己就是这么写的。保留它的代价是实测致命：五角星外轮廓 10 个角、
+        # 十字 12 个，全被挡在门外 —— 五4 的 cc 通道出 0 个框，而卡在二值图上
+        # 完整清晰。尺寸闸（min_w/min_h、area_min..area_max）留下，它们既够用
+        # 又能把细线条碎片挡掉（长线的 contourArea 很小）。
         for cnt in contours:
-            peri = cv2.arcLength(cnt, True)
-            if peri <= 0:
-                continue
-            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
-            if not (3 <= len(approx) <= 6):
-                continue
             rect = cv2.minAreaRect(cnt)
             w, h = rect[1]
             if w < c["min_w"] or h < c["min_h"]:
