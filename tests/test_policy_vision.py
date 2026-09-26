@@ -590,15 +590,25 @@ class LineDetectorStateTests(unittest.TestCase):
         detector._state["near_err_history"].append(1.0)
         self.assertEqual(detector._initial_state()["near_err_history"], [])
 
-    def test_the_handover_resets_the_detector(self):
+    def test_the_handover_resets_the_detector_before_the_walking_frame(self):
         """A fresh process tracks the same curve, so the frame after a card stop
-        should start from a fresh state too."""
+        should start from a fresh state too - and it has to be the FIRST walking
+        frame. Resetting after detector.process() left that frame computed from the
+        polluted state, and the first frame is the one that decides where it goes."""
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
         camera.isOpened.return_value = True
         camera.get.side_effect = [1280, 720]
+        entries = []
+
+        def record(kind, value):
+            entries.append((kind, reads[0]))
+            return value
+
         detector = Mock()
-        detector.process.return_value = (0, 0, 0.9, None, detection())
+        detector.process.side_effect = lambda _f: record(
+            "process", (0, 0, 0.9, None, detection()))
+        detector.reset_state.side_effect = lambda: record("reset", None)
         shape = Mock()
         shape.action_map = {"square": 3}
         shape.update.side_effect = lambda *a, **k: (
@@ -621,7 +631,7 @@ class LineDetectorStateTests(unittest.TestCase):
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1"]),
             patch.object(run_policy_vision.signal, "signal"),
-            patch.object(run_policy_vision, "ConnectorClient"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
             patch("line_detector_v1_warp.LineDetector", return_value=detector),
             patch("shape_detector.ShapeDetector", return_value=shape),
@@ -631,6 +641,18 @@ class LineDetectorStateTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         detector.reset_state.assert_called_once()
+        # publish index i belongs to read i+1, so the first frame it walks again
+        # after the stop is the one whose process call carries that number.
+        published = client_cls.return_value.publish.call_args_list
+        resumed = next(i for i, call in enumerate(published)
+                       if i > 2 and call.args[0] > 0.0)
+        walking_read = resumed + 1
+        first_walk_process = next(
+            i for i, entry in enumerate(entries) if entry == ("process", walking_read))
+        reset_at = [k for k, _ in entries].index("reset")
+        # Before that process call. Placed below detector.process() instead, the
+        # reset lands after it and only the second walking frame would be clean.
+        self.assertLess(reset_at, first_walk_process)
 
 
 class ObservationDumpTests(unittest.TestCase):
