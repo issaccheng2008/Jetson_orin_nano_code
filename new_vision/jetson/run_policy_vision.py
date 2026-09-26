@@ -93,6 +93,11 @@ def parse_args():
                         help="Consecutive detection calls with no card before the flag "
                              "drops and the same card may trigger again. One absent frame "
                              "used to be enough, which let a flickering cue re-trigger")
+    parser.add_argument("--card-stable-frames", type=int,
+                        default=max(1, int(os.getenv("CARD_STABLE_FRAMES", "2"))),
+                        help="Detection calls that must return the same shape name before "
+                             "the card is acted on. run_robot.py used 3; 2 trades a little "
+                             "precision for firing on cards whose classification flickers")
     parser.add_argument("--shape-every", type=int,
                         default=max(1, int(os.getenv("SHAPE_EVERY", "6"))),
                         help="Run card detection every N frames. Measured at 1280x720: "
@@ -122,6 +127,8 @@ def parse_args():
         parser.error("card-trigger-frac must be in (0, 1]")
     if args.card_clear_calls < 1:
         parser.error("card-clear-calls must be at least 1")
+    if args.card_stable_frames < 1:
+        parser.error("card-stable-frames must be at least 1")
     if args.shape_every < 1:
         parser.error("shape-every must be at least 1")
     return args
@@ -156,8 +163,9 @@ def main():
     shape = shape_names = None
     if not args.no_shape_detect:
         from shape_detector import ShapeDetector
-        # Same confirmation/cooldown run_robot.py uses, so a card triggers once.
-        shape = ShapeDetector(stable_frames=3, cooldown_ms=3200, debug=False)
+        # run_robot.py's cooldown, so a card cannot re-fire while it is still in view.
+        shape = ShapeDetector(stable_frames=args.card_stable_frames,
+                              cooldown_ms=3200, debug=False)
         shape_names = {number: name for name, number in shape.action_map.items()}
 
     stopped = False
@@ -298,7 +306,8 @@ def main():
                     f"[vision] {log_frames / max(processed - last_log_at, 1e-6):4.0f}Hz "
                     f"vx={vx:+.3f} wz={wz:+.3f} "
                     f"err={debug.get('fused_err_cm', 0.0):+.1f}cm "
-                    f"conf={confidence:.2f} qr={card_action} | "
+                    f"conf={confidence:.2f} qr={visible_qr}"
+                    + (f"/ev{card_action}" if card_event_id else "") + " | "
                     f"steer={controller.last_steer:+.2f} eff={controller.last_err_eff:+.1f} "
                     f"ang={debug.get('angle_err_deg', 0.0):+.1f} "
                     f"curve={int(bool(debug.get('curve_mode', False)))}"
