@@ -363,6 +363,12 @@ def main():
                     f"curve={int(bool(debug.get('curve_mode', False)))}"
                     f"/{debug.get('curve_px', 0.0):+.0f} "
                     f"far={debug.get('far_err_px', 0.0):+.0f} "
+                    # Why a frame produced nothing: the bottom lock (the pairing
+                    # check that keeps the near band on the right line) and how many
+                    # rows it paired. conf=0 with pair=0 means no band at all; conf=0
+                    # with lock=0 means the near band was rejected as asymmetric.
+                    f"lock={int(bool(debug.get('bottom_lock_valid', False)))}"
+                    f"pair={debug.get('bottom_pair_ratio', 0.0):.2f} "
                     f"lost={debug.get('lost_frames', '?')}", flush=True)
                 last_log = processed
                 last_log_at = processed
