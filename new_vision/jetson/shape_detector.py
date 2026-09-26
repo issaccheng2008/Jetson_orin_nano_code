@@ -289,9 +289,15 @@ class ShapeDetector:
         # 不采样不warp），通过的才做完整验证（采样+DT+warp200）——
         # 实测512候选完整验证2.5s → 预筛后剩几十个
         best, best_score, scores = None, 0.0, []
+        # Which stage killed the box: no candidate at all means the binarization
+        # gave nothing to work with, candidates that never reach _verify_quad mean
+        # the geometry gate is too tight, and an empty scores list with candidates
+        # means the verification thresholds rejected everything.
+        quad_total, quad_geom = len(quads), 0
         for q in quads:
             if not self._geom_ok(q):
                 continue
+            quad_geom += 1
             r = self._refine_quad(binary, q)
             # refine 偶尔会把本来合格的框推坏（远处小卡的角点通道），此时退回原框
             q = r if self._geom_ok(r) else q
@@ -314,6 +320,7 @@ class ShapeDetector:
         shape = None
         dbg = {"card_found": best is not None, "roi_y0": self._roi_y0,
                "roi_ratio": self.roi_ratio, "scores": scores[:8],
+               "quad_total": quad_total, "quad_geom": quad_geom,
                "binary": binary, "gray": gray,
                "presence_box": None, "presence_box_work": None,
                "presence_cue": 0.0, "presence_cy_frac": None}

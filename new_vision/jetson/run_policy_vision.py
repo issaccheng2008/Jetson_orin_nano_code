@@ -296,6 +296,10 @@ def main():
                         f"hu={hu_name + ':' if hu_name else '-'}"
                         f"{fmt(card_dbg.get('hu_dist'), '.3f')} "
                         f"score={fmt(card_dbg.get('closure'), '.2f')} "
+                        f"quad={card_dbg.get('quad_total', '?')}"
+                        f"g{card_dbg.get('quad_geom', '?')}"
+                        f"v{len(card_dbg.get('scores') or [])} "
+                        f"sc={[(s, round(c, 2)) for s, c in (card_dbg.get('scores') or [])[:3]]} "
                         f"top={fmt(card_dbg.get('box_top_work'), '.0f')} "
                         f"cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')} "
                         f"cue={fmt(card_dbg.get('presence_cue'), '.2f')} "
@@ -307,7 +311,12 @@ def main():
                 card_event_id = 0
             vx, wz = controller.command(debug, confidence, processed - previous)
             previous = processed
-            if card_flag and not card_triggered:
+            # card_flag alone, not "and not card_triggered": a card that never got
+            # classified lets --card-stop-ms expire, and the robot used to resume at
+            # full speed straight past it - the one place the near band is fully
+            # covered by the card. Creep instead, so the classifier still has frames
+            # to work with before the card is behind the robot.
+            if card_flag:
                 vx = min(vx, args.card_slow_vx)
             # Two windows, whichever ends later: --card-stop-ms caps how long we wait
             # for a shape that may never settle, --card-hold-ms is the rules' action
