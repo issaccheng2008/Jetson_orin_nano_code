@@ -171,6 +171,7 @@ class ShapeDetector:
         # 否则动作结束→恢复巡线时同一张卡还在视野内，会被反复触发停车
         self.armed = True
         self.miss_count = 0
+        self._geom_rejects = {}
         # 已通过连续确认的形状（"可信 flag"）。识别阶段全图累积，与位置无关；
         # 触发阶段才查位置。图卡离开或触发后清除。
         self.trusted = None
@@ -300,6 +301,7 @@ class ShapeDetector:
         # 性能：候选可能数百个（视频帧纹理），先轻量几何预筛（纯数值，
         # 不采样不warp），通过的才做完整验证（采样+DT+warp200）——
         # 实测512候选完整验证2.5s → 预筛后剩几十个
+        self._geom_rejects = {}
         best, best_score, scores = None, 0.0, []
         # Which stage killed the box: no candidate at all means the binarization
         # gave nothing to work with, candidates that never reach _verify_quad mean
@@ -333,6 +335,7 @@ class ShapeDetector:
         dbg = {"card_found": best is not None, "roi_y0": self._roi_y0,
                "roi_ratio": self.roi_ratio, "scores": scores[:8],
                "quad_total": quad_total, "quad_geom": quad_geom,
+               "geom_rejects": self._geom_rejects,
                "binary": binary, "gray": gray,
                "presence_box": None, "presence_box_work": None,
                "presence_cue": 0.0, "presence_cy_frac": None}
@@ -1004,6 +1007,11 @@ class ShapeDetector:
                 return False
         return True
 
+    def _reject(self, reason):
+        """Tally why _geom_ok turned a candidate down; dbg carries the totals."""
+        self._geom_rejects[reason] = self._geom_rejects.get(reason, 0) + 1
+        return False
+
     def _geom_ok(self, quad):
         """轻量几何预筛（纯数值，不采样）：面积/宽高/宽高比/内角/地面方形。"""
         c = self.cfg
@@ -1013,12 +1021,12 @@ class ShapeDetector:
         # "图卡在画面上占的外接矩形"。换成 contourArea 会小 ~20%（斜置四边形），
         # 结果把最远那批卡（面积正好卡在门槛上）全判掉。
         if not (c["area_min"] <= w * h <= c["area_max"]):
-            return False
+            return self._reject("area_min" if w * h < c["area_min"] else "area_max")
         if w < c["min_w"] or h < c["min_h"]:
-            return False
+            return self._reject("min_wh")
         aspect = max(w, h) / max(min(w, h), 1.0)
         if not (c["aspect_min"] <= aspect <= c["aspect_max"]):
-            return False
+            return self._reject("aspect")
         for i in range(4):
             p1 = q[(i - 1) % 4]
             p2 = q[i]
@@ -1028,8 +1036,8 @@ class ShapeDetector:
             cos = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-9)
             ang = np.degrees(np.arccos(np.clip(cos, -1, 1)))
             if not (c["ang_min"] <= ang <= c["ang_max"]):
-                return False
-        return self._square_on_ground(q)
+                return self._reject("angle")
+        return True if self._square_on_ground(q) else self._reject("ground")
 
     def _verify_quad(self, binary, dt, quad):
         """返回 (score, closure) 或 None。闭合度/线宽/环内含量（几何闸门在_geom_ok）。"""

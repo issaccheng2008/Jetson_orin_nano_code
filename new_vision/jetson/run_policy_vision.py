@@ -85,6 +85,11 @@ def parse_args():
                              "settle, counted from the moment the box came close enough. "
                              "Bounds the wait when no shape is ever identified. "
                              "0 disables stopping")
+    parser.add_argument("--card-cue-min", type=float,
+                        default=float(os.getenv("CARD_CUE_MIN", "2.5")),
+                        help="Presence-cue score that counts as a card when no box was "
+                             "built. Field log: real cards read 4.2 / 5.5 / 7.6 / 3.5, "
+                             "the false stop that prompted this read 0.25")
     parser.add_argument("--card-trigger-frac", type=float,
                         default=float(os.getenv("CARD_TRIGGER_FRAC", "0.5")),
                         help="Box centroid height in the frame (0=top, 1=bottom) at which "
@@ -274,14 +279,16 @@ def main():
                 # already low in the frame has not been approached, so it cannot fire.
                 if cy is not None and cy < args.card_trigger_frac:
                     card_armed = True
-                # card_found, not the cue: the phase-one cue answers "is there a card"
-                # to slow down for, but its blob centroid says nothing about distance,
-                # and it fires on very weak evidence. The field log has it stopping
-                # the robot at cy 0.74 with quad=512g0v0 - no box at all - and cue
-                # 0.25. Only a real box measures the approach.
-                if (card_flag and not card_triggered and card_armed
-                        and card_dbg.get("card_found") and cy is not None
-                        and cy >= args.card_trigger_frac):
+                # A real box, or a cue hit strong enough to be a card. Requiring the
+                # box alone stopped the robot missing cards entirely: the field log
+                # has quad=512g0v0 for the whole approach while cue read 4.2, 5.5,
+                # 7.6 - plainly a card, driven straight past. Requiring the cue alone
+                # is what stopped it on cue 0.25 earlier. So: either, and the weak
+                # cue is what --card-cue-min keeps out.
+                cue = card_dbg.get("presence_cue") or 0.0
+                located = bool(card_dbg.get("card_found")) or cue >= args.card_cue_min
+                if (card_flag and not card_triggered and card_armed and located
+                        and cy is not None and cy >= args.card_trigger_frac):
                     card_triggered = True
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
@@ -306,6 +313,7 @@ def main():
                         f"quad={card_dbg.get('quad_total', '?')}"
                         f"g{card_dbg.get('quad_geom', '?')}"
                         f"v{len(card_dbg.get('scores') or [])} "
+                        f"rej={card_dbg.get('geom_rejects') or {}} "
                         f"sc={[(s, round(c, 2)) for s, c in (card_dbg.get('scores') or [])[:3]]} "
                         f"top={fmt(card_dbg.get('box_top_work'), '.0f')} "
                         f"cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')} "

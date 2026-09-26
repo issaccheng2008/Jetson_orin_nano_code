@@ -437,9 +437,10 @@ class VisionEntryPointTests(unittest.TestCase):
         _, _, confidence, _, debug = detector.process(np.full((720, 1280, 3), 255, np.uint8))
         self.assertEqual(SteeringController().command(debug, confidence, 0.03), (0, 0))
 
-    def test_the_presence_cue_alone_never_stops_the_robot(self):
-        """Field log: the cue fired at cy 0.74 with quad=512g0v0 - not one box found
-        - and cue 0.25, and the robot stopped on a card that was never located."""
+    def test_a_weak_presence_cue_never_stops_the_robot(self):
+        """Phase one is meant to stop the robot on the cue alone - that is the design.
+        What it must not do is stop on a bad cue: the field log has it stopping at cy
+        0.74, quad=512g0v0 (not one box) and cue 0.25, on a card that was not there."""
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
         camera.isOpened.return_value = True
@@ -449,11 +450,14 @@ class VisionEntryPointTests(unittest.TestCase):
         shape = Mock()
         shape.action_map = {"square": 3}
         shape.update.side_effect = lambda *a, **k: (
-            (None, {"presence": True, "card_found": False, "presence_cy_frac": 0.30})
+            (None, {"presence": True, "card_found": False, "presence_cy_frac": 0.30,
+                    "presence_cue": 4.0})
             if reads[0] == 2 else
-            (None, {"presence": False, "card_found": False, "presence_cy_frac": None})
+            (None, {"presence": False, "card_found": False, "presence_cy_frac": None,
+                    "presence_cue": 0.0})
             if reads[0] < 5 else
-            (None, {"presence": True, "card_found": False, "presence_cy_frac": 0.90}))
+            (None, {"presence": True, "card_found": False, "presence_cy_frac": 0.90,
+                    "presence_cue": 0.25}))
         clock = [0.0]
         reads = [0]
 
@@ -486,6 +490,54 @@ class VisionEntryPointTests(unittest.TestCase):
         vx = [call.args[0] for call in published[:-1]]
         self.assertTrue(all(v > 0.0 for v in vx), vx)      # slowed, never stopped
         self.assertAlmostEqual(vx[-1], 0.2)                # held at the cue's slow cap
+
+    def test_a_strong_presence_cue_stops_it_even_with_no_box(self):
+        """Phase one, on the board: quad=512g0v0 for the whole approach while the cue
+        read 4.2, 5.5, 7.6 - plainly a card, and it was driven straight past."""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.side_effect = lambda *a, **k: (
+            (None, {"presence": True, "card_found": False, "presence_cy_frac": 0.30,
+                    "presence_cue": 4.0})
+            if reads[0] == 2 else
+            (None, {"presence": True, "card_found": False, "presence_cy_frac": 0.80,
+                    "presence_cue": 5.5})
+            if reads[0] >= 3 else
+            (None, {"presence": False, "card_found": False, "presence_cy_frac": None,
+                    "presence_cue": 0.0}))
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 20:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        out = io.StringIO()
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-trigger-frac", "0.5"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(out),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        self.assertEqual(out.getvalue().count("stand still"), 1)
 
     def test_a_card_already_driven_past_cannot_trigger_a_second_stop(self):
         """The card just handled is still in frame, low and below the trigger line,
