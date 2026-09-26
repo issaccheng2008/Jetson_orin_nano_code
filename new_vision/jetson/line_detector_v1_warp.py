@@ -154,7 +154,14 @@ class LineDetector:
         self.bottom_start_ratio = 0.875   # y=350, bottom 1/8
         self.bottom_rows = 5
         self.bottom_step = 2
-        self.single_line_conf = 0.30
+        # What these two decide is how much of a single-boundary band's weight survives
+        # - and that same product is what the error EMA is updated by, so a low value
+        # is a lag on every single-line correction. At 0.30 x 0.42 the frame reached the
+        # loop with confidence 0.127, i.e. a 1.75 s time constant against 0.23 s for a
+        # paired frame; 0.70 x 0.85 puts it at 0.60 and 0.45 s. The side is read off a
+        # constant now, which is what makes the reading worth trusting this much.
+        self.single_line_conf = 0.70
+        self.one_line_quality = 0.85
 
         # ── 质心定位（阈值法配不成对时兜底）──
         # 走路抖动把线糊浅后，硬阈值可能整行取不到 run。匀速模糊的核近似对称，
@@ -1012,13 +1019,18 @@ class LineDetector:
         return None
 
     def _result_quality_weight(self, r):
+        """How far to trust this band's centre, from its paired fraction.
+
+        pair_ratio cannot tell "one boundary is out of frame" from "the pair failed to
+        lock": pair_ratio + single_ratio is 1 by construction, so the old pair_ratio
+        penalty fired only on the legitimate single-boundary band and never on the case
+        it was written for. Three factors there came to 0.42 on exactly the frames the
+        side rule now handles deliberately, and the same product is the weight the
+        error EMA is updated by.
+        """
         pair_ratio = float(r.get("pair_ratio", 0.0))
-        single_ratio = float(r.get("single_ratio", 1.0 - pair_ratio))
-        q = 0.60 + 0.40 * pair_ratio
-        if pair_ratio < self.min_pair_ratio:
-            q *= 0.80
-        q *= (1.0 - 0.12 * clamp(single_ratio, 0.0, 1.0))
-        return clamp(q, 0.20, 1.00)
+        return clamp(self.one_line_quality
+                     + (1.0 - self.one_line_quality) * pair_ratio, 0.20, 1.00)
 
     # ═══════════════════════════════════════════════════════════
     # Main process entry

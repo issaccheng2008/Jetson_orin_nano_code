@@ -937,6 +937,34 @@ class SingleLineTrackingTests(unittest.TestCase):
         self.assertGreater(abs(debug["curve_px"]), 12.0)        # the spike
         self.assertLess(abs(debug["curve_px_smooth"]), 4.0)     # held back by the EMA
 
+    def test_a_single_boundary_band_keeps_most_of_its_weight(self):
+        """A band that saw one boundary cannot pair, and pair_ratio cannot tell that
+        apart from a pair that failed to lock - pair_ratio + single_ratio is 1 by
+        construction, so the old pair_ratio penalty fired on exactly these frames. The
+        weight it left behind is also the rate the error EMA is updated at."""
+        detector = self._detector()
+        one = self._band(detector, [200])
+        self.assertGreater(one["conf"], 0.6)
+        self.assertGreater(detector._result_quality_weight(one), 0.8)
+        # Both boundaries in frame still weigh the most: a measured midpoint.
+        both = self._band(detector, [100, 240])
+        self.assertAlmostEqual(detector._result_quality_weight(both), 1.0)
+
+    def test_a_one_line_frame_reaches_the_loop_quickly(self):
+        """The frame's confidence is the weight of its step into the error EMA, so a
+        low value here is latency. At 0.127 against 0.99 for a paired frame it put the
+        single-line correction about 1.75 s behind instead of 0.23 s."""
+        import cv2
+        image = np.full((720, 1280, 3), 255, np.uint8)
+        cv2.line(image, (640, 719), (760, 300), (0, 0, 0), 20)
+        detector = self._detector()
+        for _ in range(detector.startup_settle_frames + 3):
+            _, _, confidence, _, debug = detector.process(image)
+        self.assertTrue(debug["single_line"])
+        self.assertGreater(confidence, 0.5)
+        # And the step it actually takes, against a fully-paired frame's 0.28.
+        self.assertGreaterEqual((1.0 - detector.smooth_alpha) * confidence, 0.15)
+
 
 class LineDetectorStateTests(unittest.TestCase):
     """The detector's cross-frame memory is what keeps a bad lock alive: the scan
