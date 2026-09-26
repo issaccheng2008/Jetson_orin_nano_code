@@ -98,6 +98,15 @@ def parse_args():
                         help="Detection calls that must return the same shape name before "
                              "the card is acted on. run_robot.py used 3; 2 trades a little "
                              "precision for firing on cards whose classification flickers")
+    parser.add_argument("--card-clear-s", type=float,
+                        default=float(os.getenv("CARD_CLEAR_S", "2.0")),
+                        help="After the action, drive straight at --card-slow-vx for at "
+                             "most this long, until the line detector recovers. The card "
+                             "is left 20-35 cm ahead, inside the near band, so steering "
+                             "from those frames is garbage")
+    parser.add_argument("--card-clear-conf", type=float,
+                        default=float(os.getenv("CARD_CLEAR_CONF", "0.8")),
+                        help="Confidence that counts as the detector having recovered")
     parser.add_argument("--shape-every", type=int,
                         default=max(1, int(os.getenv("SHAPE_EVERY", "6"))),
                         help="Run card detection every N frames. Measured at 1280x720: "
@@ -129,6 +138,10 @@ def parse_args():
         parser.error("card-clear-calls must be at least 1")
     if args.card_stable_frames < 1:
         parser.error("card-stable-frames must be at least 1")
+    if not math.isfinite(args.card_clear_s) or args.card_clear_s < 0:
+        parser.error("card-clear-s must be finite and nonnegative")
+    if not math.isfinite(args.card_clear_conf) or not 0.0 <= args.card_clear_conf <= 1.0:
+        parser.error("card-clear-conf must be in [0, 1]")
     if args.shape_every < 1:
         parser.error("shape-every must be at least 1")
     return args
@@ -204,6 +217,9 @@ def main():
         card_absent = 0          # consecutive detection calls without one
         card_triggered = False   # this card has already been acted on
         card_action_triggered = False
+        clear_deadline = 0.0     # > 0 while driving straight past the card
+        clear_pending = False    # an action ran; clear the card once its window ends
+        clear_good = 0           # consecutive healthy frames during the clearance
         card_dbg = {}
         while not stopped:
             now = time.monotonic()
@@ -237,6 +253,7 @@ def main():
                     card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
                     card_until = processed + args.card_hold_ms / 1000.0
                     card_action_triggered = True
+                    clear_pending = True
                     recognized_this_frame = True
                     print(f"[shape] qr={action} ({shape_names.get(action, '?')}) "
                           f"held {args.card_hold_ms:.0f} ms", flush=True)
@@ -295,6 +312,29 @@ def main():
             # window once we do know it.
             if processed < stop_until or processed < card_until:
                 vx, wz = 0.0, 0.0
+            # Once the action is over the card is still 20-35 cm ahead, which is the
+            # line detector's near band (z 20-27 cm). The near band then tracks the
+            # card's border instead of the lane and confidence collapses, so any
+            # steering derived from those frames is garbage - on the robot it swung
+            # between the yaw limits. Drive straight at the slow speed until the
+            # detector is healthy again, rather than for a fixed distance.
+            # clear_pending, not card_triggered: the armed latch drops out a few
+            # detection calls after the action fires (presence is armed-gated), so
+            # card_triggered is already false by the time the 5 s window closes.
+            if clear_pending and clear_deadline == 0.0 and processed >= max(stop_until, card_until):
+                clear_deadline = processed + args.card_clear_s
+                clear_pending = False
+                clear_good = 0
+                controller.reset()
+                print(f"[shape] driving straight past the card, up to "
+                      f"{args.card_clear_s:.1f}s", flush=True)
+            if clear_deadline > 0.0:
+                clear_good = clear_good + 1 if confidence >= args.card_clear_conf else 0
+                if clear_good >= 3 or processed >= clear_deadline:
+                    print(f"[shape] line detector back at {confidence:.2f}", flush=True)
+                    clear_deadline = 0.0
+                else:
+                    vx, wz = min(vx, args.card_slow_vx), 0.0
             visible_qr = card_action if recognized_this_frame else -1
             event = ({"event_id": card_event_id, "event_action": card_action}
                      if card_event_id else {})

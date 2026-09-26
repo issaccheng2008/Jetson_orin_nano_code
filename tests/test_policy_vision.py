@@ -342,6 +342,12 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertEqual(published[resumed - 1].args[:2], (0.0, 0.0))
         self.assertEqual(published[resumed - 1].kwargs["event_action"], 3)
         self.assertEqual(published[resumed].args[2], -1)      # released with the resume
+        # Then it drives straight past the card, slowly, until confidence is back:
+        # the mock reports 0.8, which is --card-clear-conf, so three frames of it.
+        for offset in (0, 1):
+            self.assertAlmostEqual(published[resumed + offset].args[0], 0.2)
+            self.assertAlmostEqual(published[resumed + offset].args[1], 0.0)
+        self.assertGreater(published[resumed + 2].args[0], 0.3)
 
     def test_a_distant_card_only_slows_down_and_a_flicker_does_not_re_trigger(self):
         """The cue drops out while walking. One absent call used to re-arm the stop,
