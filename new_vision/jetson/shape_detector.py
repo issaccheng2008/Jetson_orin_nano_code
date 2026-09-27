@@ -32,6 +32,16 @@ WORK_W = 960
 WORK_H = 540
 
 
+def _quad_4pt(cnt):
+    """把闭合轮廓收成 4 角；收不出 4 个凸点就返回 None（不猜）。"""
+    peri = cv2.arcLength(cnt, True)
+    for frac in np.arange(0.01, 0.25, 0.01):
+        ap = cv2.approxPolyDP(cnt, float(frac) * peri, True)
+        if len(ap) == 4 and cv2.isContourConvex(ap):
+            return ap.reshape(4, 2).astype(np.float32)
+    return None
+
+
 class ShapeDetector:
     def __init__(
         self,
@@ -313,6 +323,7 @@ class ShapeDetector:
         quads += self._lsd_quads(binary, lsegs)
         quads += self._corner_quads(binary, hsegs + lsegs)
         quads += self._cc_quads(binary)
+        quads += self._ring_quads(gray)
 
         # S3 验证 + 评分
         # 性能：候选可能数百个（视频帧纹理），先轻量几何预筛（纯数值，
@@ -873,6 +884,44 @@ class ShapeDetector:
                 continue
             box = cv2.boxPoints(rect)
             quads.append(box)
+        return quads
+
+    def _ring_quads(self, gray):
+        """卡框是个闭合细环 —— 在原始灰度上直接分割，取带孔的轮廓拟合 4 角。
+
+        `_binary_selective` 那条链是为压 2cm 巡线调的（blackhat 核9 + 笔画宽
+        [1.5,7] + 细长度过滤），代价是把 0.5cm 的卡框锯出锯齿：实测 6card 31 张
+        里，只有 10 张的卡框轮廓在 eps=0.02 下能降成 4 个顶点，而那 10 张恰好
+        就是整条管线能过的全部。这条通道绕开它 —— 卡在画面里是"白纸 + 黑框"，
+        局部 Otsu 就能干净切开，不需要压巡线（巡线是开放曲线，不闭合，没有孔）。
+
+        "有孔"是这条通道的全部选择性来源：巡线/道线是开放曲线，轮廓是细长条没有
+        孔；卡内的图形（星/圆/方）是实心块也没有孔；只有卡框是闭合环。
+        实测 6card：ground 闸通过 26/31（现有四通道合起来是 16/31）。
+        """
+        c = self.cfg
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        _t, ink = cv2.threshold(blur, 0, 255,
+                                cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        ink = cv2.morphologyEx(
+            ink, cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
+        cnts, hier = cv2.findContours(ink, cv2.RETR_CCOMP,
+                                      cv2.CHAIN_APPROX_SIMPLE)
+        if hier is None:
+            return []
+        quads = []
+        for i, cnt in enumerate(cnts):
+            if hier[0][i][3] != -1:      # 只要最外层
+                continue
+            if hier[0][i][2] == -1:      # 没有孔 → 不是环
+                continue
+            area = cv2.contourArea(cnt)
+            if not (c["area_min"] <= area <= c["area_max"]):
+                continue
+            q = _quad_4pt(cnt)
+            if q is not None:
+                quads.append(q)
         return quads
 
     # ═══════════════════════════════════════════════════════════
