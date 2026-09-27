@@ -1250,19 +1250,27 @@ class ShapeDetector:
         cands = []
         for c in contours:
             a = cv2.contourArea(c)
-            if a >= area_ref * 0.92:
-                continue
-            M = cv2.moments(c)
-            if M["m00"] <= 0:
-                continue
-            cx = M["m10"] / M["m00"]
-            cy = M["m01"] / M["m00"]
-            if (abs(cx - cw / 2) > cw * 0.15
-                    or abs(cy - ch / 2) > ch * 0.15):
+            if a >= area_ref * 0.99:
                 continue
             ix, iy, iw, ih = cv2.boundingRect(c)
-            if max(iw, ih) > size_ref * 0.95:
-                continue
+            # 居中闸和外接框闸是挡"quad 偏了残留的外框环"的 —— 环是细的，
+            # 面积/最小外接矩形很低。方格卡的图形几乎填满 warp（6card 实测
+            # fill 0.98、bbox 贴边、质心也在正中偏外），与环残留同签名，
+            # 原来会被一起误杀：正3 那张的 warp 特征是完全正确的方形
+            # （fill 0.98 / solidity 0.98 / 顶点 4），却连 _classify_contour
+            # 都没走到。所以实心块（≥0.85）放行这两道，细环照旧受管。
+            (rw, rh) = cv2.minAreaRect(c)[1]
+            if a < 0.85 * max(rw * rh, 1e-6):
+                M = cv2.moments(c)
+                if M["m00"] <= 0:
+                    continue
+                cx = M["m10"] / M["m00"]
+                cy = M["m01"] / M["m00"]
+                if (abs(cx - cw / 2) > cw * 0.15
+                        or abs(cy - ch / 2) > ch * 0.15):
+                    continue
+                if max(iw, ih) > size_ref * 0.95:
+                    continue
             cands.append((a, c, (ix, iy, iw, ih)))
         if not cands:
             return None
@@ -1344,7 +1352,10 @@ class ShapeDetector:
         # 凸形
         if n_vertices == 3:
             return "triangle"
-        if fill_rect >= 0.90:
+        # 方格的下界 0.85，不是 0.90：6card 实测方格 fills 0.89~0.98，
+        # 圆/菱那一簇 0.73~0.81 —— 中间 0.81~0.89 是空的，界线放中间。
+        # 0.90 时正7（0.89）只差 0.01 就掉进菱那一档，判成 diamond = 抬错腿。
+        if fill_rect >= 0.85:
             return "square"
         # 圆 vs 菱形：两者的 fill 都 ≈0.78（实测圆 0.73~0.81、菱 0.76~0.78），
         # 只能靠顶点数分（圆 5~8、菱 4）。
@@ -1352,7 +1363,7 @@ class ShapeDetector:
         # 旧代码要求 ≥0.80 —— 圆永远过不去，于是掉到 ang(minAreaRect 对圆无意义)
         # 和最后那行 return "triangle" 兜底。它就是圆卡判错的直接原因。
         # 落在带外的返回 None：站着不动比举错腿安全。
-        if 0.62 <= fill_rect <= 0.89:
+        if 0.62 <= fill_rect <= 0.84:
             if n_vertices >= 5:
                 return "circle"
             if n_vertices == 4:
