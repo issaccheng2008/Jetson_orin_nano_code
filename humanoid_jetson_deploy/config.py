@@ -6,7 +6,7 @@ import numpy as np
 
 
 NUM_JOINTS = 12
-OBS_DIM = 49
+OBS_DIM = 47
 ACTION_DIM = 12
 POLICY_HZ = 50.0
 POLICY_DT = 1.0 / POLICY_HZ
@@ -14,9 +14,12 @@ ACTION_SCALE = 0.25
 ACCEL_OBS_SCALE = 0.1
 
 # Humanoid_Robot_RSL_RL main at 4eb3d5b4d72a792c610ad46f0a8c65b931ed3b22.
-DEFAULT_STEP_DISTANCE = 0.08  # metres, signed longitudinal touchdown target
+#
+# 2026-09-28: the policy no longer observes the step-distance/crossing pair, so the
+# observation dropped those two columns (49 -> 47) and the robot no longer commands
+# a step length at all -- it sends velocity and the policy picks the gait itself.
+# The speed it was trained over is 0.05 to 0.4 m/s, so keep --vx inside that.
 DEFAULT_FORWARD_VELOCITY = 0.4  # m/s, standard walking command
-CROSSING_COMMAND = 0.0  # normal walking only
 
 JOINT_NAMES = (
     "r_leg_pitch_joint",

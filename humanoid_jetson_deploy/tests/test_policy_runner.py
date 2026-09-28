@@ -11,7 +11,7 @@ from policy_runner import HumanoidPolicy
 
 
 class PolicyInterfaceTests(unittest.TestCase):
-    def make_policy(self, width=49, batch=1):
+    def make_policy(self, width=47, batch=1):
         with patch("policy_runner.ort.InferenceSession") as factory:
             session = factory.return_value
             session.get_inputs.return_value = [
@@ -32,7 +32,7 @@ class PolicyInterfaceTests(unittest.TestCase):
             joint_velocity_policy=np.arange(12) + 20,
         )
         expected = np.concatenate([
-            [0.1, 0.2, 0.981, 4, 5, 6, 0, 0, -1, 0.4, 0, 0.08, 0],
+            [0.1, 0.2, 0.981, 4, 5, 6, 0, 0, -1, 0.4, 0],
             np.arange(12) / 100, np.arange(12) + 20, np.zeros(12),
         ]).astype(np.float32)
         target, action, obs, _ = policy.step(**values)
@@ -40,13 +40,16 @@ class PolicyInterfaceTests(unittest.TestCase):
         np.testing.assert_allclose(target, config.Q_DEFAULT + 0.25 * np.arange(12))
         np.testing.assert_array_equal(session.run.call_args.args[1]["obs"], obs[None, :])
         next_obs = policy.build_observation(**values)
-        np.testing.assert_array_equal(next_obs[37:49], action)
-        np.testing.assert_allclose(next_obs[9:13], [0.4, 0, 0.08, 0])
+        np.testing.assert_array_equal(next_obs[35:47], action)
+        # Command block is [vx, wz]; q_rel starts immediately after it.
+        np.testing.assert_allclose(next_obs[9:11], [0.4, 0])
         policy.reset()
-        np.testing.assert_array_equal(policy.build_observation(**values)[37:], np.zeros(12))
+        np.testing.assert_array_equal(policy.build_observation(**values)[35:], np.zeros(12))
 
     def test_rejects_legacy_models_before_inference(self):
-        for width in (47, 48):
+        # 46 is the one-foot policy's width, 48 and 49 are the older walking
+        # layouts that still observed a step-distance command.
+        for width in (46, 48, 49):
             with self.subTest(width=width), self.assertRaisesRegex(RuntimeError, "legacy"):
                 self.make_policy(width)
 

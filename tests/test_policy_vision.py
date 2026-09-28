@@ -1220,7 +1220,7 @@ class LineDetectorStateTests(unittest.TestCase):
 
 class ObservationDumpTests(unittest.TestCase):
     """The stop->restart transient is invisible at the vision log's 2 Hz sampling,
-    so policy_runner can dump all 49 observation components at 50 Hz instead."""
+    so policy_runner can dump all 47 observation components at 50 Hz instead."""
 
     def test_it_names_every_component_and_stays_off_by_default(self):
         self.assertIsNone(policy_runner.open_observation_dump())
@@ -1228,7 +1228,10 @@ class ObservationDumpTests(unittest.TestCase):
         self.assertEqual(len(names), config.OBS_DIM)
         self.assertEqual(len(set(names)), config.OBS_DIM)
         self.assertEqual(names[9], "cmd_vx")
-        self.assertEqual(names[11], "step_distance")
+        # The command block is [vx, wz] and nothing else: the step-distance and
+        # crossing columns are gone, so the joint block starts right after it.
+        self.assertEqual(names[10], "cmd_wz")
+        self.assertEqual(names[11], "q_rel_r_leg_pitch_joint")
 
     def test_a_row_records_the_observation_and_the_zero_command_flag(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -1248,7 +1251,8 @@ class ObservationDumpTests(unittest.TestCase):
                          policy_runner.observation_columns())
         self.assertEqual(rows[1][2], "1")                    # command exactly zero
         self.assertEqual(rows[2][2], "0")
-        self.assertEqual(rows[1][3 + 11], "11")              # step_distance column
+        self.assertEqual(rows[1][3 + 10], "10")              # cmd_wz, last command column
+        self.assertEqual(rows[1][3 + 11], "11")              # first q_rel column
 
 
 class ShapeDetectorReportingTests(unittest.TestCase):
@@ -1408,7 +1412,9 @@ class UdpIntegrationTests(unittest.TestCase):
                     accel_m_s2=np.array([0, 0, 9.81]), gyro_rad_s=np.zeros(3),
                     projected_gravity=np.array([0, 0, -1]), velocity_command=source.get(),
                     joint_position_policy=config.Q_DEFAULT, joint_velocity_policy=np.zeros(12))
-            np.testing.assert_allclose(observation()[9:13], [0.4, -0.1, config.DEFAULT_STEP_DISTANCE, 0])
+            # [cmd_vx, cmd_wz] then straight into the q_rel block: there is no
+            # step-distance column in the observation any more.
+            np.testing.assert_allclose(observation()[9:13], [0.4, -0.1, 0.0, 0.0])
             # A confirmed event crosses both UDP hops even when qr has returned to -1.
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline:

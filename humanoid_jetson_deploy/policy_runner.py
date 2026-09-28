@@ -23,14 +23,13 @@ import config
 
 
 def observation_columns():
-    """Name every element of the 49-wide observation, in build_observation order.
+    """Name every element of the 47-wide observation, in build_observation order.
 
     Written out rather than inferred so a dump can be read without counting
     offsets by hand; keep it in step with build_observation.
     """
     names = ["accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z",
-             "grav_x", "grav_y", "grav_z", "cmd_vx", "cmd_wz", "step_distance",
-             "crossing"]
+             "grav_x", "grav_y", "grav_z", "cmd_vx", "cmd_wz"]
     names += [f"q_rel_{j}" for j in config.JOINT_NAMES]
     names += [f"qd_{j}" for j in config.JOINT_NAMES]
     names += [f"last_action_{j}" for j in config.JOINT_NAMES]
@@ -43,7 +42,7 @@ class ObservationDump:
     """Append every policy tick's observation to a CSV, when POLICY_OBS_CSV is set.
 
     A card stop is invisible in the vision log at 2 Hz and in main.py's `|obs|max`
-    summary; this is the only place all 49 components exist at 50 Hz. Off unless the
+    summary; this is the only place all 47 components exist at 50 Hz. Off unless the
     env var is set, so a normal run pays nothing.
     """
 
@@ -140,14 +139,6 @@ class HumanoidPolicy:
                 np.asarray(gyro_rad_s, dtype=np.float32),
                 np.asarray(projected_gravity, dtype=np.float32),
                 policy_velocity_command,
-                np.array(
-                    [
-                        0.0 if np.all(velocity_command == 0.0)
-                        else config.DEFAULT_STEP_DISTANCE,
-                        config.CROSSING_COMMAND,
-                    ],
-                    dtype=np.float32,
-                ),
                 q_rel,
                 np.asarray(joint_velocity_policy, dtype=np.float32),
                 self.last_action,
