@@ -139,6 +139,13 @@ class ShapeDetector:
             # 视角后，真实图卡实测边比 1.20、对角比 1.15、角差 11°；
             # 无卡视频 448 个候选里边比 p10 就有 2.84。
             "square_side_min_cm": 6.0,       # 地面边长范围（图卡黑框外缘约 9.9cm）
+            # ring 通道专用的边长下限。地面坐标整体正比于相机高度 h，而 h 有标定
+            # 误差（同一批卡实测量出 5.2~9.4cm，真值 9.9cm）—— 尺寸是地面四项里
+            # 唯一不可靠的一项。ring 的框就是卡框轮廓本身，尺寸误差只剩 h 这一项；
+            # 别的通道的框是拟合出来的，尺寸偏多少没有上限。实测放宽只给 ring：
+            # 正6（ratio 1.13/对角比 1.11/角差 8.1° 的漂亮方形，边长量到 5.2cm）进得来，
+            # 而五2（根本没有 ring 候选）仍然被拒 —— 全局放宽时它会被放进来答成方块。
+            "square_side_min_ring_cm": 4.5,
             "square_side_max_cm": 14.0,
             "square_side_ratio_max": 1.35,   # 地面最长/最短边比
             "square_diag_ratio_max": 1.22,   # 地面两对角线比
@@ -375,7 +382,7 @@ class ShapeDetector:
         # means the verification thresholds rejected everything.
         quad_total, quad_geom = len(quads), 0
         for q, from_ring in quads:
-            if not self._geom_ok(q):
+            if not self._geom_ok(q, from_ring):
                 continue
             quad_geom += 1
             if from_ring:
@@ -1093,10 +1100,12 @@ class ShapeDetector:
                         * (h * math.sin(th) + z * math.cos(th)), z))
         return pts
 
-    def _square_on_ground(self, quad):
+    def _square_on_ground(self, quad, from_ring=False):
         """图卡在地面平面上必须是个正方形 —— 视角无关的判据。
 
         透视空间里量"四边等长"是在拿常数硬凑视角，见 cfg 里 square_* 的说明。
+
+        from_ring 时边长下限放宽（见 cfg 里 square_side_min_ring_cm）。
         """
         c = self.cfg
         g = self._quad_to_ground(quad)
@@ -1105,14 +1114,15 @@ class ShapeDetector:
         sides = [math.dist(g[i], g[(i + 1) % 4]) for i in range(4)]
         if min(sides) < 1e-6:
             return False
-        if min(sides) < c["square_side_min_cm"] or max(sides) > c["square_side_max_cm"]:
-            return False
-        if max(sides) / min(sides) > c["square_side_ratio_max"]:
+        side_ratio = max(sides) / min(sides)
+        if side_ratio > c["square_side_ratio_max"]:
             return False
         d1 = math.dist(g[0], g[2])
         d2 = math.dist(g[1], g[3])
-        if max(d1, d2) / max(min(d1, d2), 1e-6) > c["square_diag_ratio_max"]:
+        diag_ratio = max(d1, d2) / max(min(d1, d2), 1e-6)
+        if diag_ratio > c["square_diag_ratio_max"]:
             return False
+        worst_ang = 0.0
         for i in range(4):
             p0, p1, p2 = g[(i - 1) % 4], g[i], g[(i + 1) % 4]
             v1 = (p0[0] - p1[0], p0[1] - p1[1])
@@ -1121,17 +1131,28 @@ class ShapeDetector:
             n2 = math.hypot(v2[0], v2[1])
             cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2 + 1e-9)
             ang = math.degrees(math.acos(max(-1.0, min(1.0, cos))))
-            if abs(ang - 90.0) > c["square_angle_tol_deg"]:
+            worst_ang = max(worst_ang, abs(ang - 90.0))
+            if worst_ang > c["square_angle_tol_deg"]:
                 return False
-        return True
+        # 边长是这四项里唯一不可靠的：地面坐标整体正比于相机高度 h，而 h 有标定
+        # 误差（实测同一批卡量出 5.2~9.4cm，真值 9.9cm）。边比/对角比/内角都是
+        # 尺度无关量，不受它影响。所以方形测得越准，尺寸允许越小 —— 正6 的环是
+        # ratio 1.13 / 对角比 1.11 / 角差 8.1° 的漂亮方形，只因边长量到 5.2cm
+        # 卡在 6.0 外白丢；而一张量得又小又歪的框，还是该拒。
+        side_min = (c["square_side_min_ring_cm"] if from_ring
+                    else c["square_side_min_cm"])
+        return side_min <= min(sides) and max(sides) <= c["square_side_max_cm"]
 
     def _reject(self, reason):
         """Tally why _geom_ok turned a candidate down; dbg carries the totals."""
         self._geom_rejects[reason] = self._geom_rejects.get(reason, 0) + 1
         return False
 
-    def _geom_ok(self, quad):
-        """轻量几何预筛（纯数值，不采样）：面积/宽高/宽高比/内角/地面方形。"""
+    def _geom_ok(self, quad, from_ring=False):
+        """轻量几何预筛（纯数值，不采样）：面积/宽高/宽高比/内角/地面方形。
+
+        from_ring 放宽地面边长下限，见 _square_on_ground。
+        """
         c = self.cfg
         q = quad.astype(np.float32)
         x, y, w, h = cv2.boundingRect(q.astype(np.int32))
@@ -1155,7 +1176,8 @@ class ShapeDetector:
             ang = np.degrees(np.arccos(np.clip(cos, -1, 1)))
             if not (c["ang_min"] <= ang <= c["ang_max"]):
                 return self._reject("angle")
-        return True if self._square_on_ground(q) else self._reject("ground")
+        return (True if self._square_on_ground(q, from_ring)
+                else self._reject("ground"))
 
     def _verify_quad(self, binary, dt, quad):
         """返回 (score, closure) 或 None。闭合度/线宽/环内含量（几何闸门在_geom_ok）。"""
