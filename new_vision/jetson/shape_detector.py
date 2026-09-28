@@ -61,6 +61,18 @@ def _drop_nested(quads):
     return keep
 
 
+def _card_ink(gray):
+    """"白纸 + 黑框"的卡在原始灰度上直接 Otsu 就能切开，不需要压巡线。
+
+    巡线是开放曲线，不闭合，没有孔 —— 所以"有孔"这件事本身就是卡框的选择性来源。
+    """
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    _t, ink = cv2.threshold(blur, 0, 255,
+                            cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    return cv2.morphologyEx(ink, cv2.MORPH_CLOSE,
+                            cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
+
+
 class ShapeDetector:
     def __init__(
         self,
@@ -335,17 +347,21 @@ class ShapeDetector:
         # S1 线宽选择性二值化（线=白255）
         binary = self._binary_selective(gray)
         dt = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+        # 卡框是一条闭合细环，而上面那条链是为压 2cm 巡线调的，卡框在它里面是碎的。
+        # ring 通道用它自己那张原始灰度 Otsu 墨迹图，后续的闭合度/线宽/环内含量
+        # 也在同一张图上量 —— 拿一套阈值去量一张被锯碎的图，是在惩罚正确的框。
+        ink = _card_ink(gray)
 
-        # S2 候选生成。候选带一个"要不要 refine"的标记：ring 通道的框来自原始
-        # 灰度上的环轮廓，本身就是框线的外缘，没有可滑的余地；而 Hough/LSD 的线段
-        # 是框线中心线、CC 的 minAreaRect 是外接矩形，都需要 slid 到框线上。
-        # 在 6card 上把 refine 全局关掉是 21/31（更差），只给 ring 关掉才是对的。
+        # S2 候选生成。候选带一个"来自 ring 通道"的标记：那一路的框是原始灰度上
+        # 的环轮廓，本身就是框线外缘，既不该被 _refine_quad 滑到框线上，也不该在
+        # 线宽选择性二值图上受检。在 6card 上把 refine 全局关掉是 21/31（更差），
+        # 只有 ring 这一路该跳过它。
         hsegs, lsegs = self._detect_segments(binary)
-        quads = [(q, True) for q in self._hough_quads(binary, hsegs)]
-        quads += [(q, True) for q in self._lsd_quads(binary, lsegs)]
-        quads += [(q, True) for q in self._corner_quads(binary, hsegs + lsegs)]
-        quads += [(q, True) for q in self._cc_quads(binary)]
-        quads += [(q, False) for q in self._ring_quads(gray)]
+        quads = [(q, False) for q in self._hough_quads(binary, hsegs)]
+        quads += [(q, False) for q in self._lsd_quads(binary, lsegs)]
+        quads += [(q, False) for q in self._corner_quads(binary, hsegs + lsegs)]
+        quads += [(q, False) for q in self._cc_quads(binary)]
+        quads += [(q, True) for q in self._ring_quads(ink)]
 
         # S3 验证 + 评分
         # 性能：候选可能数百个（视频帧纹理），先轻量几何预筛（纯数值，
@@ -358,15 +374,22 @@ class ShapeDetector:
         # the geometry gate is too tight, and an empty scores list with candidates
         # means the verification thresholds rejected everything.
         quad_total, quad_geom = len(quads), 0
-        for q, want_refine in quads:
+        for q, from_ring in quads:
             if not self._geom_ok(q):
                 continue
             quad_geom += 1
-            if want_refine:
+            if from_ring:
+                # 这个框就是那条环轮廓本身，"边上有没有墨"是已经知道的事。
+                # 实测它反而在拒好框：五3 的四边命中 [0.53 1.00 0.47 1.00]、
+                # 正5 [1.00 0.93 1.00 0.47]，两条边过不了 0.65 —— 而这两张卡
+                # 单独 warp 出来判得完全正确。选择性由这条通道自己的闸（最外层、
+                # 有孔、能收成 4 角、面积区间）加 _geom_ok 的地面方形判据承担。
+                v = (1.0, 1.0)
+            else:
                 r = self._refine_quad(binary, q)
                 # refine 偶尔会把本来合格的框推坏（远处小卡的角点通道），此时退回原框
                 q = r if self._geom_ok(r) else q
-            v = self._verify_quad(binary, dt, q)
+                v = self._verify_quad(binary, dt, q)
             if v is not None:
                 score, closure = v
                 scores.append((round(score, 3), closure))
@@ -909,26 +932,19 @@ class ShapeDetector:
             quads.append(box)
         return quads
 
-    def _ring_quads(self, gray):
+    def _ring_quads(self, ink):
         """卡框是个闭合细环 —— 在原始灰度上直接分割，取带孔的轮廓拟合 4 角。
 
         `_binary_selective` 那条链是为压 2cm 巡线调的（blackhat 核9 + 笔画宽
         [1.5,7] + 细长度过滤），代价是把 0.5cm 的卡框锯出锯齿：实测 6card 31 张
         里，只有 10 张的卡框轮廓在 eps=0.02 下能降成 4 个顶点，而那 10 张恰好
-        就是整条管线能过的全部。这条通道绕开它 —— 卡在画面里是"白纸 + 黑框"，
-        局部 Otsu 就能干净切开，不需要压巡线（巡线是开放曲线，不闭合，没有孔）。
+        就是整条管线能过的全部。这条通道绕开它，改用 `_card_ink`。
 
         "有孔"是这条通道的全部选择性来源：巡线/道线是开放曲线，轮廓是细长条没有
         孔；卡内的图形（星/圆/方）是实心块也没有孔；只有卡框是闭合环。
         实测 6card：ground 闸通过 26/31（现有四通道合起来是 16/31）。
         """
         c = self.cfg
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        _t, ink = cv2.threshold(blur, 0, 255,
-                                cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        ink = cv2.morphologyEx(
-            ink, cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
         cnts, hier = cv2.findContours(ink, cv2.RETR_CCOMP,
                                       cv2.CHAIN_APPROX_SIMPLE)
         if hier is None:
