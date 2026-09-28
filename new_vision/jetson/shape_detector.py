@@ -42,6 +42,25 @@ def _quad_4pt(cnt):
     return None
 
 
+def _drop_nested(quads):
+    """卡框是最外层那个闭合环 —— 落在别人框里的，不是卡框。
+
+    一张卡上通常有两圈环：外框，和卡片内部的图形（方块卡的内部就是个方框）。
+    两圈都能收成 4 角、都能过 `_square_on_ground`，只是内部图形小一圈。选错就是
+    正1 那样：拿内圈去 warp，warp 出一圈粗断环，`solidity` 0.27 读成十字，和真
+    十字（十2 是 0.25）根本分不开。按面积从大到小留，中心落在已留下的框里的丢掉。
+    """
+    keep = []
+    for q in sorted(quads, key=lambda x: -abs(cv2.contourArea(x))):
+        c = q.mean(axis=0)
+        if any(cv2.pointPolygonTest(k.reshape(-1, 1, 2),
+                                    (float(c[0]), float(c[1])), False) > 0
+               for k in keep):
+            continue
+        keep.append(q)
+    return keep
+
+
 class ShapeDetector:
     def __init__(
         self,
@@ -317,13 +336,16 @@ class ShapeDetector:
         binary = self._binary_selective(gray)
         dt = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
 
-        # S2 候选生成
+        # S2 候选生成。候选带一个"要不要 refine"的标记：ring 通道的框来自原始
+        # 灰度上的环轮廓，本身就是框线的外缘，没有可滑的余地；而 Hough/LSD 的线段
+        # 是框线中心线、CC 的 minAreaRect 是外接矩形，都需要 slid 到框线上。
+        # 在 6card 上把 refine 全局关掉是 21/31（更差），只给 ring 关掉才是对的。
         hsegs, lsegs = self._detect_segments(binary)
-        quads = self._hough_quads(binary, hsegs)
-        quads += self._lsd_quads(binary, lsegs)
-        quads += self._corner_quads(binary, hsegs + lsegs)
-        quads += self._cc_quads(binary)
-        quads += self._ring_quads(gray)
+        quads = [(q, True) for q in self._hough_quads(binary, hsegs)]
+        quads += [(q, True) for q in self._lsd_quads(binary, lsegs)]
+        quads += [(q, True) for q in self._corner_quads(binary, hsegs + lsegs)]
+        quads += [(q, True) for q in self._cc_quads(binary)]
+        quads += [(q, False) for q in self._ring_quads(gray)]
 
         # S3 验证 + 评分
         # 性能：候选可能数百个（视频帧纹理），先轻量几何预筛（纯数值，
@@ -336,13 +358,14 @@ class ShapeDetector:
         # the geometry gate is too tight, and an empty scores list with candidates
         # means the verification thresholds rejected everything.
         quad_total, quad_geom = len(quads), 0
-        for q in quads:
+        for q, want_refine in quads:
             if not self._geom_ok(q):
                 continue
             quad_geom += 1
-            r = self._refine_quad(binary, q)
-            # refine 偶尔会把本来合格的框推坏（远处小卡的角点通道），此时退回原框
-            q = r if self._geom_ok(r) else q
+            if want_refine:
+                r = self._refine_quad(binary, q)
+                # refine 偶尔会把本来合格的框推坏（远处小卡的角点通道），此时退回原框
+                q = r if self._geom_ok(r) else q
             v = self._verify_quad(binary, dt, q)
             if v is not None:
                 score, closure = v
@@ -922,7 +945,7 @@ class ShapeDetector:
             q = _quad_4pt(cnt)
             if q is not None:
                 quads.append(q)
-        return quads
+        return _drop_nested(quads)
 
     # ═══════════════════════════════════════════════════════════
     # S3 量化验证
