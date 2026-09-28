@@ -73,6 +73,35 @@ def _card_ink(gray):
                             cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
 
 
+def _triggers_at(z_cm):
+    """图卡（10cm，平放地面）在真实距离 z_cm 处的 (框宽px, 框中心y)，工作图坐标。
+
+    pinhole 模型：zc = h·sinθ + z·cosθ（相机到卡的斜距），
+    y = cy + fy·(h·cosθ − z·sinθ)/zc。相机装高/俯角/vfov 固定之后，
+    地面某个距离就唯一对应画面某一行 —— 反向读它，就是"停在多远"。
+    """
+    h = _CAM["mount_height_cm"]
+    th = math.radians(_CAM["pitch_deg"])
+    vfov = math.radians(_CAM["vfov_deg"])
+    fy = WORK_H / (2.0 * math.tan(vfov / 2.0))
+    hfov = 2.0 * math.atan(math.tan(vfov / 2.0) * WORK_W / WORK_H)
+    fx = WORK_W / (2.0 * math.tan(hfov / 2.0))
+    z = max(1.0, to_model_z(z_cm))
+    zc = h * math.sin(th) + z * math.cos(th)
+    y_c = WORK_H / 2.0 + fy * (h * math.cos(th) - z * math.sin(th)) / zc
+    return fx * 10.0 / zc, y_c
+
+
+def trigger_frac_at_dist(z_cm):
+    """地面距离 → 框质心该压到画面的哪个高度（0=顶 1=底）。
+
+    这是"停车距离"的唯一权威换算：调用方给一个厘米数，得到该比的画面比例，
+    而不是各自写一个 magic frac —— 两套常数已经对不上过一次（0.4 实际是 43cm，
+    而按 40cm 算出来的是 0.432）。
+    """
+    return _triggers_at(z_cm)[1] / WORK_H
+
+
 class ShapeDetector:
     def __init__(
         self,
@@ -271,16 +300,7 @@ class ShapeDetector:
         fx·10/zc，故像素宽可反推距离。距离越小 → 框越大、y 越靠下。
         返回的门槛即"图卡刚好进到 z_cm 时"的值，可作 >= 判据。
         """
-        h = self.cfg["cam_height_cm"]
-        th = math.radians(self.cfg["cam_pitch_deg"])
-        vfov = math.radians(self.cfg["cam_vfov_deg"])
-        fy = WORK_H / (2.0 * math.tan(vfov / 2.0))
-        hfov = 2.0 * math.atan(math.tan(vfov / 2.0) * WORK_W / WORK_H)
-        fx = WORK_W / (2.0 * math.tan(hfov / 2.0))
-        z = max(1.0, to_model_z(z_cm))
-        zc = h * math.sin(th) + z * math.cos(th)
-        y_c = WORK_H / 2.0 + fy * (h * math.cos(th) - z * math.sin(th)) / zc
-        return fx * 10.0 / zc, y_c
+        return _triggers_at(z_cm)
 
     def _card_area_at_dist(self, z_cm):
         """图卡（10cm×10cm 平放地面）在水平距离 z_cm 处的工作图像素面积。

@@ -102,14 +102,18 @@ def parse_args():
                              "settle, counted from the moment the box came close enough. "
                              "Bounds the wait when no shape is ever identified. "
                              "0 disables stopping")
-    parser.add_argument("--card-trigger-frac", type=float,
-                        default=float(os.getenv("CARD_TRIGGER_FRAC", "0.4")),
-                        help="Box centroid height in the frame (0=top, 1=bottom) at which "
-                             "the robot stops and identifies the shape, measured on the "
-                             "960x540 detection image. 0.4 is about 40 cm of ground "
-                             "distance; 0.5 is 32 cm and leaves the card near the bottom "
-                             "edge, where the quad search loses an edge and returns "
-                             "nothing. Seeing a card earlier only slows it down")
+    parser.add_argument("--card-trigger-frac", type=float, default=None,
+                        help="Explicit override: box centroid height in the frame "
+                             "(0=top, 1=bottom) at which the robot stops. Prefer "
+                             "--card-trigger-dist-cm; this is the same thing in the "
+                             "frame's own units, for tests that drive a fake cy")
+    parser.add_argument("--card-trigger-dist-cm", type=float,
+                        default=float(os.getenv("CARD_TRIGGER_DIST_CM", "30.0")),
+                        help="Ground distance, in cm, at which the robot stops and "
+                             "identifies the shape. Converted to a frame height by the "
+                             "camera geometry (mount height, pitch, vfov), so this is "
+                             "the one number that says how far away the robot stops; "
+                             "seeing a card earlier only slows it down")
     parser.add_argument("--card-slow-vx", type=float,
                         default=float(os.getenv("CARD_SLOW_VX", "0.2")),
                         help="Forward speed while a card is in view but not yet close "
@@ -175,8 +179,11 @@ def parse_args():
         parser.error("card-stop-ms must be finite and nonnegative")
     if not math.isfinite(args.card_slow_vx) or not 0 <= args.card_slow_vx <= 1:
         parser.error("card-slow-vx must be in [0, 1]")
-    if not math.isfinite(args.card_trigger_frac) or not 0 < args.card_trigger_frac <= 1:
+    if args.card_trigger_frac is not None and not (
+            math.isfinite(args.card_trigger_frac) and 0 < args.card_trigger_frac <= 1):
         parser.error("card-trigger-frac must be in (0, 1]")
+    if not math.isfinite(args.card_trigger_dist_cm) or args.card_trigger_dist_cm <= 0:
+        parser.error("card-trigger-dist-cm must be positive")
     if args.card_clear_calls < 1:
         parser.error("card-clear-calls must be at least 1")
     if args.card_stable_frames < 1:
@@ -217,6 +224,10 @@ def main():
     import cv2
     from line_detector_v1_warp import LineDetector
     from utils import open_camera, show_debug_windows
+
+    from shape_detector import trigger_frac_at_dist
+    card_trigger_frac = (args.card_trigger_frac if args.card_trigger_frac is not None
+                         else trigger_frac_at_dist(args.card_trigger_dist_cm))
 
     shape = shape_names = None
     if not args.no_shape_detect:
@@ -345,13 +356,13 @@ def main():
                 # card that is close, and the trigger line is what says it is. Acting
                 # as soon as a shape appears classified a card 50 cm away - top=186,
                 # cy=0.40 - on a small warp. The box only reaches that far down the
-                # frame after --card-trigger-frac, so nothing may act before it.
+                # frame after card_trigger_frac, so nothing may act before it.
                 # (hu was cited here as the reading that was right. It is not: on the
                 # 2026-09-26 laps every frame of every card read hu=circle at 0.005
                 # to 0.07, including the pentagram and the cross. It is degenerate,
                 # not corroborating.)
                 reach = card_dbg.get("presence_cy_frac")
-                reached = reach is not None and reach >= args.card_trigger_frac
+                reached = reach is not None and reach >= card_trigger_frac
                 if action is not None and reached and not card_action_triggered and card_event_id == 0:
                     card_action = action
                     card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
@@ -381,10 +392,10 @@ def main():
                 # robot just drove past is still in frame at cy 0.84, well below the
                 # line, and stopped the robot a second time mid-curve. A card that is
                 # already low in the frame has not been approached, so it cannot fire.
-                if cy is not None and cy < args.card_trigger_frac:
+                if cy is not None and cy < card_trigger_frac:
                     card_armed = True
                 if (card_flag and not card_triggered and card_armed and cy is not None
-                        and cy >= args.card_trigger_frac):
+                        and cy >= card_trigger_frac):
                     card_triggered = True
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
