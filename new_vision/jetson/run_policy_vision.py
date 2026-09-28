@@ -108,12 +108,14 @@ def parse_args():
                              "--card-trigger-dist-cm; this is the same thing in the "
                              "frame's own units, for tests that drive a fake cy")
     parser.add_argument("--card-trigger-dist-cm", type=float,
-                        default=float(os.getenv("CARD_TRIGGER_DIST_CM", "30.0")),
+                        default=float(os.getenv("CARD_TRIGGER_DIST_CM", "43.0")),
                         help="Ground distance, in cm, at which the robot stops and "
-                             "identifies the shape. Converted to a frame height by the "
-                             "camera geometry (mount height, pitch, vfov), so this is "
-                             "the one number that says how far away the robot stops; "
-                             "seeing a card earlier only slows it down")
+                             "identifies the shape. 43.0 is the old "
+                             "--card-trigger-frac 0.4 written in cm, so it is the "
+                             "behaviour that has been on the robot; lower it to stop "
+                             "closer. Converted to a frame height by the camera "
+                             "geometry (mount height, pitch, vfov); seeing a card "
+                             "earlier only slows it down")
     parser.add_argument("--card-slow-vx", type=float,
                         default=float(os.getenv("CARD_SLOW_VX", "0.2")),
                         help="Forward speed while a card is in view but not yet close "
