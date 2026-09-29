@@ -81,6 +81,17 @@ def parse_args():
                              "not been measured against a normal lap yet")
     parser.add_argument("--no-shape-detect", action="store_true",
                         help="Skip geometric card detection entirely; qr stays -1")
+    parser.add_argument("--dump-on-loss", default="",
+                        help="Directory to write the frames around a bottom-lock "
+                             "drop-out or a confidence collapse into. Empty is off. "
+                             "Writes both the raw frame and the detector's own "
+                             "overlay for the last few frames before the trip and "
+                             "the first one after, split by time")
+    parser.add_argument("--dump-on-loss-ring", type=int, default=6,
+                        help="How many recent frames to hold for --dump-on-loss")
+    parser.add_argument("--dump-on-loss-cooldown", type=float, default=3.0,
+                        help="Seconds before --dump-on-loss may write again, so one "
+                             "bad stretch leaves one dump rather than hundreds")
     parser.add_argument("--shape-dump", default="",
                         help="Directory to write a frame and its detection dict into, "
                              "on every shape call where a card is in view. Empty is off. "
@@ -194,6 +205,10 @@ def parse_args():
         parser.error("card-every-stopped must be at least 1")
     if args.shape_every < 1:
         parser.error("shape-every must be at least 1")
+    if args.dump_on_loss_ring < 1:
+        parser.error("dump-on-loss-ring must be at least 1")
+    if not math.isfinite(args.dump_on_loss_cooldown) or args.dump_on_loss_cooldown < 0:
+        parser.error("dump-on-loss-cooldown must be finite and nonnegative")
     return args
 
 
@@ -288,6 +303,16 @@ def main():
         dumped = 0
         if args.shape_dump:
             os.makedirs(args.shape_dump, exist_ok=True)
+        # The frames around a lock drop-out, kept short so the last good frame before
+        # the drop is still in the ring when it trips -- that is the one that shows
+        # what the detector was looking at while it still agreed with itself.
+        loss_ring = []
+        loss_dumped = 0
+        loss_next_ok = 0.0
+        prev_pair = 0.0
+        prev_conf = 0.0
+        if args.dump_on_loss:
+            os.makedirs(args.dump_on_loss, exist_ok=True)
         while not stopped:
             now = time.monotonic()
             if args.max_seconds > 0 and now - start >= args.max_seconds:
@@ -334,6 +359,37 @@ def main():
             frames += 1
             log_frames += 1
             recognized_this_frame = False
+            if args.dump_on_loss:
+                pair_now = float(debug.get("bottom_pair_ratio", 0.0))
+                loss_ring.append((frame.copy(), visualization.copy(),
+                                  dict(debug), float(confidence)))
+                del loss_ring[:-args.dump_on_loss_ring]
+                # A lock that was pairing every row and now pairs none, or a
+                # confidence that falls off a cliff. Either is the moment the near
+                # band stopped agreeing with itself.
+                tripped = ((prev_pair > 0.5 and pair_now <= 0.0)
+                           or (prev_conf > 0.5 and confidence < 0.2))
+                if tripped and processed >= loss_next_ok:
+                    loss_dumped += 1
+                    loss_next_ok = processed + args.dump_on_loss_cooldown
+                    print(f"[vision] lock lost (pair {prev_pair:.2f}->{pair_now:.2f}, "
+                          f"conf {prev_conf:.2f}->{confidence:.2f}) -> "
+                          f"{args.dump_on_loss} #{loss_dumped}", flush=True)
+                    for index, (raw, vis, info, conf) in enumerate(loss_ring):
+                        stem = os.path.join(
+                            args.dump_on_loss,
+                            f"{loss_dumped:03d}_{index:02d}_pair"
+                            f"{float(info.get('bottom_pair_ratio', 0.0)):.2f}"
+                            f"_conf{conf:.2f}")
+                        cv2.imwrite(stem + "_frame.jpg", raw)
+                        cv2.imwrite(stem + "_vis.jpg", vis)
+                        with open(stem + ".json", "w", encoding="utf-8") as handle:
+                            json.dump({key: value for key, value in info.items()
+                                       if isinstance(value, (int, float, str, bool))
+                                       or value is None},
+                                      handle, indent=1, default=str)
+                    loss_ring.clear()
+                prev_pair, prev_conf = pair_now, float(confidence)
             # Stopped in front of a card, the camera is steady, so the classification
             # can have every frame. --shape-every only throttles the driving case.
             if shape is not None and (frames % (
