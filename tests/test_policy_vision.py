@@ -1152,6 +1152,77 @@ class LineDetectorStateTests(unittest.TestCase):
             self.assertEqual(saved["rules"], "diamond")
             self.assertEqual(saved["hu"], "circle:0.01")
 
+    def test_dump_on_loss_writes_the_frames_that_straddle_the_lock_dropout(self):
+        """On 2026-09-29 a lap left a clean dividing line in the log - bottom_pair_ratio
+        1.00 to 0.00, confidence 0.86 to 0.39 - and nothing else to look at. The
+        useful frame is the last one BEFORE the drop, so the ring has to hold those
+        and flush them when the lock goes, not start recording after it."""
+        with tempfile.TemporaryDirectory() as folder:
+            frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+            vis = np.ones((720, 1280, 3), dtype=np.uint8)
+            camera = Mock()
+            camera.isOpened.return_value = True
+            camera.get.side_effect = [1280, 720]
+            # Locked for four frames, then gone: the trip is on the fourth->fifth.
+            pairs = [1.0, 1.0, 1.0, 1.0, 0.0, 0.0]
+
+            def process(_frame):
+                index = min(calls[0], len(pairs) - 1)
+                calls[0] += 1
+                return (0, 0, 0.9, vis, {**detection(),
+                                         "bottom_pair_ratio": pairs[index]})
+
+            calls = [0]
+            detector = Mock()
+            detector.process.side_effect = process
+            clock = [0.0]
+
+            def tick():
+                clock[0] += 0.03
+                return clock[0]
+
+            with (
+                patch("sys.argv", ["run_policy_vision.py", "--headless",
+                                   "--no-shape-detect",
+                                   "--dump-on-loss", folder]),
+                patch.object(run_policy_vision.signal, "signal") as signals,
+                patch.object(run_policy_vision, "ConnectorClient"),
+                patch("utils.open_camera", return_value=camera),
+                patch("line_detector_v1_warp.LineDetector", return_value=detector),
+                patch.object(run_policy_vision.time, "monotonic", side_effect=tick),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                reads = 0
+
+                def read():
+                    nonlocal reads
+                    reads += 1
+                    if reads <= 6:
+                        return True, frame
+                    signals.call_args.args[1](None, None)
+                    return False, None
+
+                camera.read.side_effect = read
+                self.assertEqual(run_policy_vision.main(), 0)
+
+            written = sorted(Path(folder).iterdir())
+            frames = [p for p in written if p.name.endswith("_frame.jpg")]
+            views = [p for p in written if p.name.endswith("_vis.jpg")]
+            self.assertEqual(len(frames), len(views))
+            self.assertGreaterEqual(len(frames), 2)          # before and after
+            # The last locked frame is in the dump; the box also caught the drop.
+            self.assertTrue(any("pair1.00" in p.name for p in frames))
+            self.assertTrue(any("pair0.00" in p.name for p in frames))
+            self.assertTrue(all(p.suffix == ".json" for p in written
+                                if p.suffix == ".json"))
+            with open(next(p for p in written if p.suffix == ".json"),
+                      encoding="utf-8") as handle:
+                saved = json.load(handle)
+            self.assertIn("bottom_pair_ratio", saved)
+            # Arrays are left out so the dict stays readable.
+            self.assertTrue(all(isinstance(v, (int, float, str, bool))
+                                or v is None for v in saved.values()))
+
     def test_the_handover_resets_the_detector_before_the_walking_frame(self):
         """A fresh process tracks the same curve, so the frame after a card stop
         should start from a fresh state too - and it has to be the FIRST walking
