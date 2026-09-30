@@ -186,12 +186,18 @@ class SteeringTests(unittest.TestCase):
         for _ in range(2):  # window not yet full
             self.assertEqual(controller.command(detection(30.0), 0.8, 0.05)[1], 0.0)
 
-    def test_line_loss_holds_briefly_then_goes_zero(self):
+    def test_line_loss_fades_the_held_command_then_goes_zero(self):
+        """Faded, not replayed flat: the last good command before a loss is often a
+        saturated turn computed on a frame already down to one boundary, and holding
+        that at full authority for the whole window is what carries the robot off."""
         controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
         held = controller.command(detection(), 0.8, 0.02)
         self.assertEqual(held[0], 0.4)
-        for _ in range(3):  # still inside the default 0.2 s window
-            self.assertEqual(controller.command(detection(lost=1), 0.8, 0.05), held)
+        # Inside the default 0.2 s window: 0.05 s steps give 0.75, 0.50, 0.25, 0.
+        for expected in (0.75, 0.50, 0.25, 0.0):
+            got = controller.command(detection(lost=1), 0.8, 0.05)
+            self.assertAlmostEqual(got[0], held[0] * expected)
+            self.assertAlmostEqual(got[1], held[1] * expected)
         for _ in range(6):  # window exhausted
             final = controller.command(detection(lost=1), 0.8, 0.05)
         self.assertEqual(final, (0.0, 0.0))
@@ -212,11 +218,12 @@ class SteeringTests(unittest.TestCase):
             self.assertNotEqual(
                 controller.command(detection(lateral=lateral), 0.8, 0.02), (0.0, 0.0))
         self.assertIsNone(controller.rejected_lateral)
-        # Past the lane half-width it is loss: hold the last command, then stop.
+        # Past the lane half-width it is loss: fade the last command out, then stop.
         held = controller.command(detection(), 0.8, 0.02)
         self.assertEqual(held[0], 0.4)
-        self.assertEqual(
-            controller.command(detection(lateral=-35.9), 0.8, 0.05), held)
+        first = controller.command(detection(lateral=-35.9), 0.8, 0.05)
+        self.assertAlmostEqual(first[0], held[0] * 0.75)
+        self.assertAlmostEqual(first[1], held[1] * 0.75)
         self.assertAlmostEqual(controller.rejected_lateral, -35.9)
         for _ in range(6):
             final = controller.command(detection(lateral=-35.9), 0.8, 0.05)
@@ -247,11 +254,14 @@ class SteeringTests(unittest.TestCase):
             controller.reset(clear_hold=True)
         self.assertEqual(controller.hold, (0.0, 0.0))
         self.assertEqual(controller.command(detection(lost=1), 0.9, 0.05), (0.0, 0.0))
-        # And without it, the old behaviour is still there for the lost-line case.
+        # And without it, the lost-line case still gets the held command back -
+        # faded by the 0.05 s spent inside the 0.2 s window, not flat.
         kept = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=10)
         kept.command(detection(20.0), 0.9, 0.05)
         kept.reset()
-        self.assertEqual(kept.command(detection(lost=1), 0.9, 0.05), (0.4, 0.5))
+        got = kept.command(detection(lost=1), 0.9, 0.05)
+        self.assertAlmostEqual(got[0], 0.3)
+        self.assertAlmostEqual(got[1], 0.375)
 
     def test_invalid_settings_are_rejected(self):
         for kwargs in (dict(max_wz=1.5), dict(vx=float("nan")), dict(yaw_sign=0),
