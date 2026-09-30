@@ -398,12 +398,24 @@ def main():
                                       handle, indent=1, default=str)
                     loss_ring.clear()
                 prev_pair, prev_conf = pair_now, float(confidence)
-            # Stopped in front of a card, the camera is steady, so the classification
-            # can have every frame. --shape-every only throttles the driving case.
-            if shape is not None and (frames % (
-                    args.card_every_stopped
-                    if (processed < stop_until or processed < card_until)
-                    else args.shape_every) == 0):
+            # A card in view gets the stopped rate, not just the stop. The stop fires
+            # on the first cy at or above the trigger line, so --shape-every 6 samples
+            # that line about every 0.3 s - most of a 12 cm step at 0.4 m/s - and the
+            # robot sailed past 43 cm to ~22 cm, close enough that the card's bottom
+            # left the frame and no quad could close. The fine reading has to exist
+            # before the decision, not after it.
+            #
+            # min(), not a plain switch: --shape-every 1 is a request for every frame,
+            # and a card in view is no reason to slow that down. The stop branch keeps
+            # card_every_stopped outright - standing still, cy barely moves and the
+            # loop can have the cycles back.
+            if processed < stop_until or processed < card_until:
+                shape_period = args.card_every_stopped
+            elif card_flag:
+                shape_period = min(args.shape_every, args.card_every_stopped)
+            else:
+                shape_period = args.shape_every
+            if shape is not None and (frames % shape_period == 0):
                 action, card_dbg = shape.update(
                     frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
                 if args.shape_dump and (card_dbg.get("card_found")

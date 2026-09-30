@@ -1412,6 +1412,64 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         # And once the window closes it is back to --shape-every 1, every frame.
         self.assertLess(shape.update.call_count, reads[0] * 0.75)
 
+    def test_a_card_in_view_speeds_the_detection_up_before_the_stop(self):
+        """The stop fires on the first cy at or above the trigger line, so
+        --shape-every 6 samples that line about every 0.3 s - most of a 12 cm step at
+        0.4 m/s. On the 2026-09-30 run the robot sailed from 43 cm to ~22 cm, and at
+        22 cm the card's bottom edge was below the frame: no quad could close and every
+        frame read g0. The fine reading has to exist before the decision, not after it.
+        """
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.8, None, detection())
+        seen = []
+        shape = Mock()
+        shape.action_map = {"square": 3}
+
+        def update(*_a, **_k):
+            seen.append(reads[0])
+            # Below the trigger line throughout, so the robot never stops and the
+            # approach is the only phase under test.
+            return None, {"presence": True, "card_found": True,
+                          "presence_cy_frac": 0.3}
+
+        shape.update.side_effect = update
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 30:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--shape-every", "6", "--card-every-stopped", "2",
+                               "--card-trigger-frac", "0.5"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        # The first look rides the --shape-every beat. Every look after it is on the
+        # stopped beat, because the card is in view from then on.
+        self.assertEqual(seen[0] % 6, 0)
+        self.assertGreater(len(seen), 3, "the detector barely ran")
+        gaps = [b - a for a, b in zip(seen, seen[1:])]
+        self.assertEqual(set(gaps), {2})
+
 
 class CardGeometryGateTests(unittest.TestCase):
     """_geom_ok must accept the card everywhere the card stop puts the robot.
