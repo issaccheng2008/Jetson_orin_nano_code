@@ -19,8 +19,16 @@ import os
 import signal
 import time
 
+import numpy as np
+
 from camera_config import load as load_camera
 from policy_bridge import ConnectorClient, SteeringController
+
+# 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
+CARD_NAMES_ZH = {
+    "circle": "圆形", "pentagon": "五角星", "square": "正方形",
+    "diamond": "菱形", "cross": "十字形", "triangle": "三角形",
+}
 
 
 def parse_args():
@@ -427,8 +435,19 @@ def main():
                     card_until = processed + args.card_hold_ms / 1000.0
                     card_action_triggered = True
                     recognized_this_frame = True
-                    print(f"[shape] qr={action} ({shape_names.get(action, '?')}) "
-                          f"held {args.card_hold_ms:.0f} ms", flush=True)
+                    # Meant to be impossible to miss in a scrolling log: this is the
+                    # one line that says the robot knew what it was looking at.
+                    quad = card_dbg.get("quad_work")
+                    width = ""
+                    if quad is not None:
+                        qx = np.asarray(quad, dtype=float)[:, 0]
+                        width = f"框宽={float(qx.max() - qx.min()):.0f}px "
+                    print("\n" + "=" * 68, flush=True)
+                    print(f"  ★★★  识别到图卡：{CARD_NAMES_ZH.get(shape_names.get(action), '?')}"
+                          f"（{shape_names.get(action, '?')}）  qr={action}", flush=True)
+                    print(f"        距离画面 {fmt(card_dbg.get('presence_cy_frac'), '.2f')}  "
+                          f"{width}保持 {args.card_hold_ms:.0f} ms", flush=True)
+                    print("=" * 68 + "\n", flush=True)
                 # The cue flickers while the robot walks, so the flag needs several
                 # consecutive misses before it drops. A single absent frame used to
                 # re-arm the stop, and the robot crept forward and stopped again.
@@ -465,24 +484,21 @@ def main():
                 if ((card_dbg.get("card_found") or card_dbg.get("presence") or card_flag)
                         and processed - last_shape_log >= 0.25):
                     last_shape_log = processed
-                    hu_name = card_dbg.get("hu_best")
+                    # One compact line per detection call while a card is around. The
+                    # three numbers that matter are the stages a frame can die at:
+                    # quad=N生成的候选, g=过了几何闸的, v=进了打分表的。g0 就是
+                    # 一个候选都没过闸 —— 2026-09-30 实车每帧都是 g0，卡根本没找到。
+                    rej = sorted((card_dbg.get("geom_rejects") or {}).items(),
+                                 key=lambda kv: -kv[1])[:2]
                     print(
-                        f"[shape] found={int(bool(card_dbg.get('card_found')))} "
-                        f"presence={int(bool(card_dbg.get('presence')))} "
-                        f"shape={card_dbg.get('shape')} "
-                        f"rules={card_dbg.get('shape_rules')} "
-                        f"hu={hu_name + ':' if hu_name else '-'}"
-                        f"{fmt(card_dbg.get('hu_dist'), '.3f')} "
-                        f"score={fmt(card_dbg.get('closure'), '.2f')} "
+                        f"[shape] cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')} "
+                        f"cue={fmt(card_dbg.get('presence_cue'), '.2f')} "
+                        f"found={int(bool(card_dbg.get('card_found')))} "
+                        f"shape={card_dbg.get('shape') or '-'} "
                         f"quad={card_dbg.get('quad_total', '?')}"
                         f"g{card_dbg.get('quad_geom', '?')}"
                         f"v{len(card_dbg.get('scores') or [])} "
-                        f"rej={card_dbg.get('geom_rejects') or {}} "
-                        f"sc={[(s, round(c, 2)) for s, c in (card_dbg.get('scores') or [])[:3]]} "
-                        f"top={fmt(card_dbg.get('box_top_work'), '.0f')} "
-                        f"cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')} "
-                        f"cue={fmt(card_dbg.get('presence_cue'), '.2f')} "
-                        f"cuecy={fmt(card_dbg.get('cue_cy_frac'), '.2f')} "
+                        f"rej={' '.join(f'{k}:{n}' for k, n in rej) or '-'} "
                         f"armed={int(bool(getattr(shape, 'armed', True)))} "
                         f"cand={getattr(shape, 'candidate', None)}"
                         f"x{getattr(shape, 'candidate_count', 0)}", flush=True)
