@@ -31,6 +31,15 @@ SHAPE_NAMES = {
     "circle": "圆形", "pentagon": "五角星", "square": "正方形",
     "diamond": "菱形", "cross": "十字", "triangle": "三角形",
 }
+# 分类过了但没触发时，_confirm 的闸门名 → 人话
+REJECT_ZH = {
+    "trusted": "连续帧数不够",
+    "disarmed": "已触发过·等卡离开",
+    "no_box": "没有框",
+    "too_far": "框还没压到下方 2/3",
+    "cooldown": "冷却中",
+    "fallback": "走的是存在信号兜底",
+}
 # YOLO类别 → 动作号
 YOLO_CLS = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
 YOLO_NAMES = {0: "circle", 1: "pentagon", 2: "square",
@@ -185,14 +194,31 @@ def main():
         else:
             final = None
 
-        # 可视化底图：找框输入图（二值化 960×540，线=白）
+        # 可视化底图：两张二值图并排，框画在两张上。
+        # 左边 _binary_selective（压巡线那条，Hough/LSD/corner/CC 用），
+        # 右边 _card_ink（原始灰度 Otsu，ring 通道用）。卡框在右边那张是完整的，
+        # 在左边那张是碎的 —— 并排看才明白为什么要有第二条。
         b = cv_dbg.get("binary")
-        if b is not None:
-            disp = cv2.cvtColor(b, cv2.COLOR_GRAY2BGR)
-            qw = cv_dbg.get("quad_work")
+        ink = cv_dbg.get("ink")
+        qw = cv_dbg.get("quad_work")
+
+        def panel(img, title):
+            v = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             if qw is not None:
-                cv2.polylines(disp, [qw.astype(np.int32).reshape(-1, 1, 2)],
+                cv2.polylines(v, [qw.astype(np.int32).reshape(-1, 1, 2)],
                               True, (0, 255, 0), 2)
+            cv2.putText(v, title, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 0, 0), 4)
+            cv2.putText(v, title, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 255, 255), 2)
+            return v
+
+        if b is not None or ink is not None:
+            left = panel(b, "_binary_selective (只喂 Hough/LSD/corner/CC)")
+            if ink is None:
+                disp = left
+            else:
+                disp = np.hstack([left, panel(ink, "_card_ink (只喂 ring)")])
         else:
             disp = frame.copy()
         if yo_box is not None:
@@ -209,11 +235,24 @@ def main():
             label = (f"{SHAPE_NAMES.get(shape, shape)} 动作{action} "
                      f"{ACTION_NAMES[action]} | {conf_s}")
         else:
-            # 找到框但未识别 → 显示原因
-            if cv_dbg.get("card_found"):
-                label = "找到框但未识别（规则法判不出）"
+            # 分出来了却没触发 = _confirm 的闸门没过，和分类器判不出是两回事。
+            # 混成一句话看的人会去查分类器，而问题在触发闸门。
+            if cv_shape is not None:
+                why = REJECT_ZH.get(cv_dbg.get("confirm_reject"),
+                                    str(cv_dbg.get("confirm_reject")))
+                label = f"已分类 {SHAPE_NAMES.get(cv_shape, cv_shape)}，未触发（{why}）"
+            elif cv_dbg.get("card_found"):
+                label = "找到框但分类不出"
             else:
                 label = "未找到框"
+        # 一行流水：候选 -> 过几何闸 -> 进打分表，加上前两位拒绝理由。
+        # g0 就是"一个候选都没过" —— 实车 2026-09-30 每帧都是这个。
+        rej = sorted((cv_dbg.get("geom_rejects") or {}).items(),
+                     key=lambda kv: -kv[1])[:2]
+        label += (f"   [{cv_dbg.get('quad_total', '?')}"
+                  f"g{cv_dbg.get('quad_geom', '?')}"
+                  f"v{len(cv_dbg.get('scores') or [])}"
+                  f" {' '.join(f'{k}:{n}' for k, n in rej)}]")
         put_text(disp, label, (10, 8), (0, 0, 255), 26)
 
         def _n(s):
