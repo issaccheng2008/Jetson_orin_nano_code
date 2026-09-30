@@ -527,8 +527,8 @@ def main():
                     if lateral_warned is None:
                         print(f"[vision] near band says "
                               f"{controller.rejected_lateral:+.1f}cm, past the "
-                              f"{args.max_lateral_cm:.1f}cm lane half-width; holding "
-                              f"then stopping instead of steering on it", flush=True)
+                              f"{args.max_lateral_cm:.1f}cm lane half-width; fading "
+                              f"out then stopping instead of steering on it", flush=True)
                     lateral_warned = True
                 else:
                     lateral_warned = False
