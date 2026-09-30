@@ -438,6 +438,10 @@ class ShapeDetector:
                "quad_total": quad_total, "quad_geom": quad_geom,
                "geom_rejects": self._geom_rejects,
                "binary": binary, "gray": gray,
+               # The ring channel's own binary. Worth a window of its own: it is the
+               # one image where the card's frame is intact, and the one the newest
+               # detection path reads instead of the track-line-suppressing _binary.
+               "ink": ink,
                "presence_box": None, "presence_box_work": None,
                "presence_cue": 0.0, "presence_cy_frac": None}
 
@@ -1524,6 +1528,7 @@ class ShapeDetector:
             # 兜底路径的"框"是最大连通域的外接矩形，不是图卡外框，
             # 拿它算距离/位置没有意义（空场地上的大色块也能凑出大 bbox）。
             # 只在图像里显示，不给触发权。
+            dbg["confirm_reject"] = "fallback"
             return None, dbg
         # ── 阶段① 识别累积：全图范围，只看形状，不看位置 ──
         if shape == self.candidate:
@@ -1552,9 +1557,13 @@ class ShapeDetector:
                 self.track = self.track[-32:]
 
         # ── 阶段② 触发判定：只看位置，形状由 flag 保证 ──
+        # 三道闸各自记名。分类已经过了而没触发是常态，不记名的话调用方只能看到
+        # "找到框但未识别"，会误以为是分类器判不出来。
         if self.trusted is None or self.trusted != shape:
+            dbg["confirm_reject"] = "trusted"
             return None, dbg
         if cx is None or not self.armed:
+            dbg["confirm_reject"] = "disarmed" if not self.armed else "no_box"
             return None, dbg
 
         # 位置闸门只剩一条：框顶边落到画面下 2/3（= 顶边过了上 1/3 线）。
@@ -1562,6 +1571,7 @@ class ShapeDetector:
         dbg["box_top"] = box_top
         dbg["y_mid"] = y_mid
         if box_top < y_mid:
+            dbg["confirm_reject"] = "too_far"
             return None, dbg
 
         # 车道偏移照算，只记录不拦截。找框本身已经把"10cm 地面方形 + max_dist_cm"
@@ -1580,6 +1590,7 @@ class ShapeDetector:
 
         ready = (self.last_send_ms is None
                  or (now - self.last_send_ms) >= self.cooldown_ms)
+        dbg["confirm_reject"] = None if ready else "cooldown"
         if ready:
             action = self.action_map[shape]
             self.last_send_ms = now
