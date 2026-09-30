@@ -1174,6 +1174,7 @@ class LineDetector:
         near_err_px_pre_lock = 0.0
         far_err_px_saved = 0.0
         curve_px = 0.0
+        fused_err_raw = 0.0
         turn_gate = 0.0
 
         # ── Bottom center lock ──
@@ -1507,6 +1508,7 @@ class LineDetector:
             if curve_px < -self.left_curve_outward_px:
                 fused_err += self.left_curve_outward_gain * curve_norm
 
+            fused_err_raw = fused_err
             state["smoothed_err"] = confidence_weighted_ema(
                 state["smoothed_err"], fused_err, alpha_eff, avg_conf
             )
@@ -1603,6 +1605,7 @@ class LineDetector:
             "curve_px_smooth": state["curve_px_ema"],
             "turn_gate": turn_gate,
             "fused_err": state["smoothed_err"],
+            "fused_err_raw": fused_err_raw,
             "fused_err_cm": state["smoothed_err"] * self.err_scale_cm,
             "narrow_gate_detected": narrow_gate_detected,
             "narrow_gate_score": narrow_gate_score,

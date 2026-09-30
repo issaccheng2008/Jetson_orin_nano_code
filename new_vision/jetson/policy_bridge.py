@@ -174,9 +174,16 @@ class SteeringController:
             # The detector's lost_frames has no hysteresis, so one missed frame
             # would otherwise step 0.4 m/s straight to zero.  Hold the last good
             # command briefly; the connector slews whatever we publish.
+            #
+            # Faded, not replayed flat. The last good command before a loss is
+            # often a saturated turn computed on a frame that was already down to
+            # one boundary, and replaying it at full authority for the whole
+            # window is what carries the robot off the track. The window still
+            # ends at zero either way, so this only changes what happens inside it.
             self.lost_s += clamp(dt, 0.01, 0.2)
             if self.lost_s <= self.lost_hold_s:
-                return self.hold
+                fade = 1.0 - self.lost_s / self.lost_hold_s
+                return (self.hold[0] * fade, self.hold[1] * fade)
             self.hold = (0.0, 0.0)
             return self.hold
         dt = clamp(dt, 0.01, 0.2)
