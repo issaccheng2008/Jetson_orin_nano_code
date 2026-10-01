@@ -308,6 +308,16 @@ class ShapeDetector:
         except Exception:
             self.hu_templates = {}
 
+    def set_camera_pitch_deg(self, pitch_deg):
+        """换掉光轴俯角（安装角 + 机身实时前倾）。
+
+        `_quad_to_ground` 把地面坐标整个正比于 h、按 θ 旋转，cfg 里那个静态
+        安装角一旦和机身真实姿态不符，反投影出来的"正方形"就是错的 ——
+        2026-10-01 实测一趟里机身俯仰摆 30~40°，比判据的容差大得多。
+        由 attitude_input 低通后喂进来，见那边的说明。
+        """
+        self.cfg["cam_pitch_deg"] = float(pitch_deg)
+
     def _triggers_at_dist(self, z_cm):
         """触发距离 → (最小框宽px, 最小框中心y)。
 

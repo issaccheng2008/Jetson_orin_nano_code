@@ -67,6 +67,16 @@ def parse_args():
                         default=float(os.getenv("CAM_VFOV_DEG", camera["vfov_deg"])))
     parser.add_argument("--connector-host", default="127.0.0.1")
     parser.add_argument("--connector-port", type=int, default=5006)
+    parser.add_argument("--attitude-bind", default="127.0.0.1")
+    parser.add_argument("--attitude-port", type=int, default=5007,
+                        help="Listen here for the body attitude broadcast by "
+                             "humanoid_jetson_deploy/main.py (0 disables it). Without "
+                             "it the camera pitch stays the static config value while "
+                             "the body swings 30-40 deg under it")
+    parser.add_argument("--attitude-tau-s", type=float, default=1.2,
+                        help="Low-pass on the incoming pitch; the gait swing is a "
+                             "zero-mean 1.7 Hz oscillation and only the slow lean is "
+                             "wanted. 0.4 s leaves 23%% of it (+/-8 deg), 1.2 s 7.8%%")
     parser.add_argument("--vx", type=float, default=0.4,
                         help="Forward speed with valid detection, m/s")
     parser.add_argument("--max-wz", type=float, default=0.5,
@@ -287,6 +297,20 @@ def main():
                               cooldown_ms=3200, debug=False)
         shape_names = {number: name for name, number in shape.action_map.items()}
 
+    # 机身姿态只喂给图卡，不喂巡线。走路时俯仰以 1.7Hz 摆 30~40°，低通过的
+    # 滞后值描述不了当前这一帧，喂进 IPM 反而更糟；巡线那边靠车道宽锚定解决，
+    # 那个只用"赛道多宽"这个物理事实，不依赖姿态。图卡是停稳之后才认的，
+    # 那时姿态本来就稳，低通几个时间常数就跟上了 —— 滞后不是问题。
+    attitude = None
+    if args.attitude_port > 0:
+        try:
+            from attitude_input import AttitudeInput
+            attitude = AttitudeInput(args.attitude_port, args.camera_pitch_deg,
+                                     bind=args.attitude_bind, tau_s=args.attitude_tau_s)
+        except OSError as exc:
+            print(f"[attitude] 端口 {args.attitude_port} 收不了：{exc}；"
+                  "相机俯角退回静态安装角")
+
     stopped = False
 
     def stop(_signum, _frame):
@@ -315,6 +339,10 @@ def main():
               f"sl_gain={args.single_line_gain}; "
               f"bias={args.bias_straight_cm}->{args.bias_cm}"
               f"(dead {args.bias_dead_px}, full {args.bias_gate_px})", flush=True)
+        if attitude is not None:
+            print(f"Body attitude: udp://{args.attitude_bind}:{args.attitude_port}"
+                  f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
+                  f" 会被机身俯仰实时修正", flush=True)
         start = previous = time.monotonic()
         last_log = -math.inf
         last_shape_log = -math.inf
@@ -394,6 +422,10 @@ def main():
                       f"(hold={controller.hold[0]:+.2f},{controller.hold[1]:+.2f} "
                       f"lost_s={controller.lost_s:.2f})", flush=True)
             card_window_open = window_open
+            if attitude is not None:
+                attitude.poll()
+                if shape is not None:
+                    shape.set_camera_pitch_deg(attitude.value)
             _, _, confidence, visualization, debug = detector.process(frame)
             frames += 1
             log_frames += 1
@@ -635,7 +667,12 @@ def main():
                     # with lock=0 means the near band was rejected as asymmetric.
                     f"lock={int(bool(debug.get('bottom_lock_valid', False)))}"
                     f"pair={debug.get('bottom_pair_ratio', 0.0):.2f} "
-                    f"lost={debug.get('lost_frames', '?')}", flush=True)
+                    f"lost={debug.get('lost_frames', '?')} "
+                    # 车道宽锚和实时俯角：前者是横向比例尺的绝对缩放，后者只在
+                    # 有姿态广播时才会从静态安装角上动起来。
+                    f"lscale={debug.get('lateral_scale', 1.0):.3f} "
+                    f"pitch={(attitude.value if attitude is not None else args.camera_pitch_deg):.1f}",
+                    flush=True)
                 last_log = processed
                 last_log_at = processed
                 log_frames = 0
@@ -648,6 +685,8 @@ def main():
                     break
     finally:
         client.close()
+        if attitude is not None:
+            attitude.close()
         if cap is not None:
             cap.release()
         if not args.headless:
