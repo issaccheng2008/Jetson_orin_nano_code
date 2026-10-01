@@ -41,12 +41,10 @@ def load(dirpath):
     return out
 
 
-def run_one(fp, disagree_max=None):
+def run_one(fp):
     # startup 分支走的是另一条检测路径，离线复现要关掉
     det = LineDetector()
     det.startup_settle_frames = 0
-    if disagree_max is not None:
-        det.band_disagree_max_px = disagree_max
     img = cv2.imread(fp)
     if img is None:
         return None
@@ -61,8 +59,6 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--bad-deg", type=float, default=20.0,
                     help="|ang| 超过这个度数算坏帧")
-    ap.add_argument("--disagree-max", type=float, default=None,
-                    help="覆盖 band_disagree_max_px；给 1e9 等于关掉守卫")
     args = ap.parse_args()
 
     items = load(args.dir)
@@ -74,7 +70,7 @@ def main():
 
     rec, got = [], []
     for name, fp, saved in items:
-        dbg = run_one(fp, args.disagree_max)
+        dbg = run_one(fp)
         if dbg is None:
             continue
         rec.append(saved)
