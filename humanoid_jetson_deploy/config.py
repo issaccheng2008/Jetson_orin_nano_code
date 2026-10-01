@@ -14,12 +14,15 @@ ACTION_SCALE = 0.25
 ACCEL_OBS_SCALE = 0.1
 
 # Humanoid_Robot_RSL_RL main at 4eb3d5b4d72a792c610ad46f0a8c65b931ed3b22.
-DEFAULT_STEP_DISTANCE = 0.08  # metres, signed longitudinal touchdown target
-DEFAULT_FORWARD_VELOCITY = 0.4  # m/s, standard walking command
+#
+# The gait is calibrated at one step/speed pair. A slower command gets a
+# proportionally shorter step at the same step frequency, so speed and step length
+# move together and the full step lands at MAX_COMMAND_VX rather than at any
+# nonzero vx. Override the pair with main.py's --max-vx / --max-step-cm.
+MAX_COMMAND_VX = 0.3  # m/s, the speed the vision commands with a valid detection
+MAX_STEP_DISTANCE = 0.08  # metres, signed longitudinal target at MAX_COMMAND_VX
+STEP_DISTANCE_PER_MPS = MAX_STEP_DISTANCE / MAX_COMMAND_VX
 CROSSING_COMMAND = 0.0  # normal walking only
-# The touchdown target tracks the commanded speed instead of being a fixed switch:
-# 0.08 m at DEFAULT_FORWARD_VELOCITY, 0.04 m at half of it, 0 m at a standstill.
-STEP_DISTANCE_PER_MPS = DEFAULT_STEP_DISTANCE / DEFAULT_FORWARD_VELOCITY
 
 JOINT_NAMES = (
     "r_leg_pitch_joint",

@@ -70,7 +70,7 @@ The policy period is `0.005 s * decimation 4 = 0.020 s`, or 50 Hz.
 | 3:6 | 3 | IMU angular velocity in policy frame, rad/s |
 | 6:9 | 3 | Projected gravity: world-down unit vector in body/IMU frame |
 | 9:11 | 2 | Command `[vx, wz]` |
-| 11:12 | 1 | Step distance: scales with `vx` (0.08 m at 0.4 m/s, 0.04 m at 0.2 m/s, 0 at rest) |
+| 11:12 | 1 | Step distance: `vx` × `--max-step-cm` / `--max-vx` (0.08 m at the default 0.3 m/s, 0 at rest) |
 | 12:13 | 1 | Crossing command: 0 (normal walking) |
 | 13:25 | 12 | Joint position minus Isaac default position, radians |
 | 25:37 | 12 | Joint velocity, rad/s |

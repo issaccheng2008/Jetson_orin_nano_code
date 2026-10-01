@@ -79,12 +79,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--walk-seconds", type=float, default=5.0,
                         help="Fixed mode only: command zero after this duration; 0 disables timer")
     parser.add_argument(
-        "--vx", type=float, default=config.DEFAULT_FORWARD_VELOCITY,
+        "--vx", type=float, default=config.MAX_COMMAND_VX,
         help="Fixed mode only: forward command in m/s (positive, at most 1.0)",
     )
     parser.add_argument(
         "--wz", type=float, default=0.0,
         help="Fixed mode only: yaw-rate command in rad/s, within [-0.5, 0.5]",
+    )
+    parser.add_argument(
+        "--max-vx", type=float, default=config.MAX_COMMAND_VX,
+        help="The speed --max-step-cm is calibrated at, m/s. In vision mode this is "
+             "whatever --vx the vision runs at, and it only sets the step-distance "
+             "scaling, not the speed itself",
+    )
+    parser.add_argument(
+        "--max-step-cm", type=float, default=config.MAX_STEP_DISTANCE * 100.0,
+        help="Step distance at --max-vx, cm. Every slower command gets a "
+             "proportionally shorter step at the same step frequency, so the two "
+             "move together instead of the step jumping to full length at any "
+             "nonzero vx",
     )
     parser.add_argument("--kp-scale", type=float, default=1.0)
     parser.add_argument("--kd-scale", type=float, default=1.0)
@@ -157,6 +170,11 @@ def main() -> int:
         raise SystemExit("plot-every must be at least 1")
     if args.plot_history_seconds <= 0.0:
         raise SystemExit("plot-history-seconds must be positive")
+    if not np.isfinite(args.max_vx) or args.max_vx <= 0.0:
+        raise SystemExit("max-vx must be finite and positive")
+    if not np.isfinite(args.max_step_cm) or args.max_step_cm <= 0.0:
+        raise SystemExit("max-step-cm must be finite and positive")
+    step_distance_per_mps = (args.max_step_cm / 100.0) / args.max_vx
     if not args.fixed_policy and args.policy == "walking":
         if args.command_source == "vision":
             if not 1 <= args.udp_command_port <= 65535:
@@ -204,7 +222,7 @@ def main() -> int:
             "vision disconnected; no velocity, step-distance, or crossing observations"
         )
     else:
-        policy = HumanoidPolicy(args.model)
+        policy = HumanoidPolicy(args.model, step_distance_per_mps)
         if args.command_source == "vision":
             if args.one_foot_model:
                 card_policy = OneFootPolicy(args.one_foot_model)

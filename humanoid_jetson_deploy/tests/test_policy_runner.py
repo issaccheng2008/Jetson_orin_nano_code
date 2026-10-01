@@ -11,7 +11,7 @@ from policy_runner import HumanoidPolicy
 
 
 class PolicyInterfaceTests(unittest.TestCase):
-    def make_policy(self, width=49, batch=1):
+    def make_policy(self, width=49, batch=1, step_distance_per_mps=None):
         with patch("policy_runner.ort.InferenceSession") as factory:
             session = factory.return_value
             session.get_inputs.return_value = [
@@ -19,7 +19,7 @@ class PolicyInterfaceTests(unittest.TestCase):
             ]
             session.get_outputs.return_value = [SimpleNamespace(name="actions")]
             session.run.return_value = [np.arange(12, dtype=np.float32).reshape(1, 12)]
-            return HumanoidPolicy("test.onnx"), session
+            return HumanoidPolicy("test.onnx", step_distance_per_mps), session
 
     def test_exact_training_layout_and_action_history(self):
         policy, session = self.make_policy()
@@ -32,7 +32,8 @@ class PolicyInterfaceTests(unittest.TestCase):
             joint_velocity_policy=np.arange(12) + 20,
         )
         expected = np.concatenate([
-            [0.1, 0.2, 0.981, 4, 5, 6, 0, 0, -1, 0.4, 0, 0.08, 0],
+            [0.1, 0.2, 0.981, 4, 5, 6, 0, 0, -1, 0.4, 0,
+             0.4 * config.STEP_DISTANCE_PER_MPS, 0],
             np.arange(12) / 100, np.arange(12) + 20, np.zeros(12),
         ]).astype(np.float32)
         target, action, obs, _ = policy.step(**values)
@@ -41,7 +42,8 @@ class PolicyInterfaceTests(unittest.TestCase):
         np.testing.assert_array_equal(session.run.call_args.args[1]["obs"], obs[None, :])
         next_obs = policy.build_observation(**values)
         np.testing.assert_array_equal(next_obs[37:49], action)
-        np.testing.assert_allclose(next_obs[9:13], [0.4, 0, 0.08, 0])
+        np.testing.assert_allclose(
+            next_obs[9:13], [0.4, 0, 0.4 * config.STEP_DISTANCE_PER_MPS, 0], rtol=1e-6)
         policy.reset()
         np.testing.assert_array_equal(policy.build_observation(**values)[37:], np.zeros(12))
 
@@ -60,7 +62,26 @@ class PolicyInterfaceTests(unittest.TestCase):
             joint_position_policy=config.Q_DEFAULT,
             joint_velocity_policy=np.zeros(12),
         )
-        for vx, expected in ((0.4, 0.08), (0.2, 0.04), (0.02, 0.004), (0.0, 0.0)):
+        max_vx, max_step = config.MAX_COMMAND_VX, config.MAX_STEP_DISTANCE
+        for vx, expected in ((max_vx, max_step), (max_vx / 2, max_step / 2),
+                             (max_vx / 10, max_step / 10), (0.0, 0.0)):
+            with self.subTest(vx=vx):
+                obs = policy.build_observation(
+                    velocity_command=np.array([vx, 0, 0]), **values)
+                self.assertAlmostEqual(float(obs[11]), expected, places=6)
+
+    def test_the_step_calibration_pair_moves_the_full_step(self):
+        """--max-vx / --max-step-cm say where the full step lands, so dropping the
+        running speed does not silently shorten the gait."""
+        policy, _ = self.make_policy(step_distance_per_mps=0.08 / 0.4)
+        values = dict(
+            accel_m_s2=np.array([0, 0, 9.81]),
+            gyro_rad_s=np.zeros(3),
+            projected_gravity=np.array([0, 0, -1]),
+            joint_position_policy=config.Q_DEFAULT,
+            joint_velocity_policy=np.zeros(12),
+        )
+        for vx, expected in ((0.4, 0.08), (0.2, 0.04)):
             with self.subTest(vx=vx):
                 obs = policy.build_observation(
                     velocity_command=np.array([vx, 0, 0]), **values)

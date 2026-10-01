@@ -1658,6 +1658,7 @@ class UdpIntegrationTests(unittest.TestCase):
             # Use the actual observation builder without loading an ONNX model.
             policy = object.__new__(HumanoidPolicy)
             policy.last_action = np.zeros(12, dtype=np.float32)
+            policy.step_distance_per_mps = config.STEP_DISTANCE_PER_MPS
             def observation():
                 return policy.build_observation(
                     accel_m_s2=np.array([0, 0, 9.81]), gyro_rad_s=np.zeros(3),

@@ -83,7 +83,11 @@ class HumanoidPolicy:
     obs_dim = config.OBS_DIM
     model_description = "current walking/stepping policy; legacy walking-test models are incompatible"
 
-    def __init__(self, model_path: str) -> None:
+    def __init__(self, model_path: str, step_distance_per_mps: float | None = None) -> None:
+        self.step_distance_per_mps = (
+            config.STEP_DISTANCE_PER_MPS if step_distance_per_mps is None
+            else float(step_distance_per_mps)
+        )
         self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         if len(self.session.get_inputs()) != 1 or len(self.session.get_outputs()) != 1:
             raise RuntimeError("Expected an ONNX policy with one input and one output")
@@ -142,7 +146,7 @@ class HumanoidPolicy:
                 policy_velocity_command,
                 np.array(
                     [
-                        float(velocity_command[0]) * config.STEP_DISTANCE_PER_MPS,
+                        float(velocity_command[0]) * self.step_distance_per_mps,
                         config.CROSSING_COMMAND,
                     ],
                     dtype=np.float32,

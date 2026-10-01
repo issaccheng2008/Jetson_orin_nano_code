@@ -132,8 +132,9 @@ No bundled ONNX model has been replaced or certified by this change.
 
 Check your existing motor/IMU calibration in `humanoid_jetson_deploy/config.py`.
 The step distance scales with the commanded forward speed, reaching
-`DEFAULT_STEP_DISTANCE` (0.08 m) at `DEFAULT_FORWARD_VELOCITY` (0.4 m/s) and
-zero at a standstill. Crossing command remains 0.
+`MAX_STEP_DISTANCE` (0.08 m) at `MAX_COMMAND_VX` (0.3 m/s) and zero at a
+standstill; `main.py --max-vx / --max-step-cm` move that calibration pair.
+Crossing command remains 0.
 
 ## 2. Verify the camera and steering without enabling motors
 
