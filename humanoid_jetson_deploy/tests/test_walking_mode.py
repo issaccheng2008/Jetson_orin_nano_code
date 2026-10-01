@@ -142,6 +142,46 @@ class WalkingModeTests(unittest.TestCase):
                 policy.step.call_args.kwargs["velocity_command"], [0.3, 0.0, 0.0])
             self.assertIn("hold_upright", output.getvalue())
 
+    def test_the_upright_hold_does_not_flap_once_engaged(self):
+        """The legs move while they straighten, so re-testing `stopped` every frame
+        would drop the hold the moment it started working, hand the legs back to the
+        policy, let them settle, and engage again — the two poses alternating."""
+        def state(sequence, joint_velocity):
+            return SimpleNamespace(
+                status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID,
+                accel_m_s2=np.array([0, 0, 9.81], dtype=np.float32),
+                gyro_rad_s=np.zeros(3, dtype=np.float32),
+                orientation_wxyz=np.array([1, 0, 0, 0], dtype=np.float32),
+                joint_position=config.Q_DEFAULT.copy(),
+                joint_velocity=joint_velocity, sequence=sequence,
+            )
+
+        held = CommandSnapshot(np.zeros(3, dtype=np.float32), hold_upright=True)
+        settled = state(1, np.zeros(12, dtype=np.float32))
+        # Straightening: the joints are moving, so `stopped` is false on this frame.
+        moving = state(2, np.full(12, 1.0, dtype=np.float32))
+        released = CommandSnapshot(np.array([0.3, 0.0, 0.0], dtype=np.float32))
+        with (
+            patch.object(main, "parse_args", return_value=self.args("--command-source", "vision")),
+            patch.object(main.signal, "signal"),
+            patch.object(main, "HumanoidPolicy") as policy_cls,
+            patch.object(main, "SerialLink") as link_cls,
+            patch.object(main, "UdpCommandSource") as source_cls,
+            patch.object(main, "PositionCsvLogger"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            source_cls.return_value.get_snapshot.side_effect = [held, held, released]
+            policy = policy_cls.return_value
+            policy.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.0)
+            link = link_cls.return_value
+            link.wait_for_state.return_value = settled
+            link.get_latest_state.side_effect = [settled, moving, settled,
+                                                 RuntimeError("stale state")]
+            self.assertEqual(main.main(), 1)
+            # Engaged on the settled frame and kept through the moving one; only the
+            # release frame reached the policy.
+            self.assertEqual(policy.step.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

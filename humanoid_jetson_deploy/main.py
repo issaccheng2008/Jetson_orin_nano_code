@@ -367,6 +367,10 @@ def main() -> int:
                             if args.command_source == "vision" else None)
                 velocity_command = snapshot.velocity if snapshot is not None else command_source.get()
                 decision = None
+                # Both the card action and the upright hold need it, and it is the same
+                # question either way: has the robot actually settled?
+                stopped = (np.max(np.abs(velocity_command)) <= 0.02
+                           and np.max(np.abs(qd_policy)) <= 0.2)
                 if shape_controller is not None:
                     if snapshot.event_id:
                         if shape_controller.accept(snapshot.event_id, snapshot.event_action, now):
@@ -377,8 +381,6 @@ def main() -> int:
                         print(f"[shape] dry run: STM32 did not execute card={shape_controller.action_id}")
                         status = ACTION_DONE
                     was_busy = shape_controller.phase != "idle"
-                    stopped = (np.max(np.abs(velocity_command)) <= 0.02
-                               and np.max(np.abs(qd_policy)) <= 0.2)
                     decision = shape_controller.advance(now, stopped, status)
                     if was_busy and not decision.busy:
                         print(f"[shape] event={shape_controller.event_id} card={shape_controller.action_id} complete")
@@ -395,13 +397,28 @@ def main() -> int:
                     elif card_policy_active:
                         policy.reset()
                         card_policy_active = False
-                # Vision is standing the robot still to read a card and wants the legs
-                # held straight. The policy's own stopped pose is pitched back about 20
-                # degrees, and the card geometry is calibrated at the mount angle, so
-                # that pose is what pushes the box outside the square gate. A running
-                # leg action wins over the hold.
-                upright_hold = (snapshot is not None and snapshot.hold_upright
-                                and not card_policy_active)
+                # Vision is reading a card and wants the legs held straight. The policy's
+                # own stopped pose is pitched back about 20 degrees, and the card
+                # geometry is calibrated at the mount angle, so that pose is what pushes
+                # the box outside the square gate.
+                #
+                # `stopped`, not just the flag: the pose must change once the robot has
+                # settled, not while the gait is still ending. Switching mid-stride is
+                # the untested case, and it is also the one where the policy's residual
+                # motion and the new static target would be fighting. Waiting costs the
+                # first fraction of a second of a three-to-five second window.
+                #
+                # A running leg action wins: it is a different pose, commanded by the
+                # same joints, and only one of the two may drive them.
+                #
+                # `stopped` gates the way IN only, not the way through. The legs move
+                # while they straighten, so re-testing it every frame would drop the
+                # hold the moment it started working, hand the legs back to the policy,
+                # let them settle, and engage again - the two poses alternating. Once
+                # engaged, only the vision dropping the flag or a leg action ends it.
+                requested = (snapshot is not None and snapshot.hold_upright
+                             and not card_policy_active)
+                upright_hold = requested and (upright_active or stopped)
                 if upright_active and not upright_hold:
                     policy.reset()
                 upright_active = upright_hold
