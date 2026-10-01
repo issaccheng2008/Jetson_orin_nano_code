@@ -10,6 +10,7 @@ import time
 import numpy as np
 
 import config
+from attitude_broadcast import AttitudeBroadcaster
 from command_source import FixedCommandSource, UdpCommandSource
 from fixed_joint_policy import FixedJointPolicy
 from imu_filter import (
@@ -67,6 +68,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--udp-command-bind", default="127.0.0.1")
     parser.add_argument("--udp-command-port", type=int, default=5005)
+    parser.add_argument("--attitude-bind", default="127.0.0.1",
+                        help="Where run_policy_vision listens for the body attitude")
+    parser.add_argument("--attitude-port", type=int, default=5007,
+                        help="Broadcast the policy-frame world-down vector here at 10 Hz "
+                             "(0 disables it); vision needs it because its camera pitch "
+                             "is otherwise a static config value while the body moves")
     parser.add_argument("--command-timeout", type=float, default=0.25,
                         help="Zero velocity after this many seconds without connector data")
     parser.add_argument("--walk-seconds", type=float, default=5.0,
@@ -217,6 +224,14 @@ def main() -> int:
                 f"fixed walking vx={args.vx:+.3f} m/s, vy=0, wz={args.wz:+.3f}; "
                 f"walk_seconds={args.walk_seconds:g} (0=continuous); vision disconnected"
             )
+    # 只有视觉在指挥时才广播：fixed 模式是"视觉断开"的意思，不该凭空开一个
+    # UDP 口，那边也没人在听。
+    attitude = (
+        AttitudeBroadcaster(args.attitude_bind, args.attitude_port)
+        if args.attitude_port > 0
+        and args.policy == "walking" and args.command_source == "vision"
+        else None
+    )
     position_logger = PositionCsvLogger(args.position_log_dir, config.JOINT_NAMES)
     position_plot = None
     if not args.no_plot:
@@ -235,6 +250,9 @@ def main() -> int:
             print(f"Shape one-foot ONNX input={card_policy.input_name!r}, "
                   f"output={card_policy.output_name!r}")
     print(f"Policy command source: {command_source_description}")
+    print(f"Body attitude broadcast: "
+          + (f"udp://{args.attitude_bind}:{args.attitude_port} at 10 Hz"
+             if attitude is not None else "off"))
     print(f"Opening {args.port} (line coding {args.baud}; native USB CDC ignores physical baud)")
     print("MOTORS ENABLED" if args.enable_motors else "DRY RUN: command enable flag is OFF")
     print(f"Motor-position and IMU log: {position_logger.path}")
@@ -427,6 +445,10 @@ def main() -> int:
                     orientation_rpy,
                 )
 
+            # 10 Hz 就够：视觉那边用长时间常数低通，滤掉的正是步态摆动。
+            if attitude is not None and step % 5 == 0:
+                attitude.publish(projected_gravity, elapsed_s)
+
             if step % max(1, args.log_every) == 0:
                 print(
                     f"step={step:6d} state_seq={state.sequence:5d} "
@@ -450,6 +472,8 @@ def main() -> int:
         return 1
     finally:
         send_disable(link, last_q_motor)
+        if attitude is not None:
+            attitude.close()
         position_logger.close()
         if position_plot is not None and not timed_run_completed:
             position_plot.close()
