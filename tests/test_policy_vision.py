@@ -687,6 +687,74 @@ class VisionEntryPointTests(unittest.TestCase):
         _, _, confidence, _, debug = detector.process(np.full((720, 1280, 3), 255, np.uint8))
         self.assertEqual(SteeringController().command(debug, confidence, 0.03), (0, 0))
 
+    def test_the_box_width_decides_the_stop_when_there_is_a_box(self):
+        """cy is an angle, so the body pitching moves it without the card moving at
+        all. A 2026-10-01 lap pitched from +16 to -24 degrees; one card read cy=0.877
+        where the configured geometry says 13 cm, while its 121 px box says 27 cm.
+        The box width survives that: fx*10/zc, and zc moves only +-6% across 20..60
+        degrees of pitch, against cy swinging threefold. So when a box exists, the
+        width decides and cy is only logged.
+
+        Both wrong-way cases are driven here: cy past the line with a far box must
+        NOT stop, and cy short of the line with a close box MUST.
+        """
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.8, None, detection())
+        shape = Mock()
+        shape.action_map = {"square": 3}
+
+        def quad_of_width(w):
+            cx, cy = 480.0, 400.0
+            return np.array([[cx - w / 2, cy - 30], [cx + w / 2, cy - 30],
+                             [cx + w / 2, cy + 30], [cx - w / 2, cy + 30]], np.float32)
+
+        def update(*_a, **_k):
+            # cy is 0.90 the whole way -- past the 0.559 line from the very first call.
+            # Only the box width moves, from far (40 px) to close (140 px); the 30 cm
+            # threshold is 117.7 px.
+            w = 40.0 if reads[0] < 7 else 140.0
+            return None, {"presence": True, "card_found": True,
+                          "presence_cy_frac": 0.90, "quad_work": quad_of_width(w)}
+
+        shape.update.side_effect = update
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 12:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        out = io.StringIO()
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-trigger-dist-cm", "30"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(out),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        log = out.getvalue()
+        # cy never moves and is past its own line from read 2 on, so a cy-driven stop
+        # would have fired early. It must fire only once the box is actually close.
+        self.assertEqual(log.count("stand still"), 1)
+        fire = [ln for ln in log.splitlines() if "stand still" in ln][0]
+        self.assertIn("px", fire)
+        self.assertIn("cy=0.90", fire)
+
     def test_a_strong_presence_cue_stops_it_even_with_no_box(self):
         """Phase one, on the board: quad=512g0v0 for the whole approach while the cue
         read 4.2, 5.5, 7.6 - plainly a card, and it was driven straight past."""

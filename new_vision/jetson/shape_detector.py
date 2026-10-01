@@ -98,8 +98,23 @@ def trigger_frac_at_dist(z_cm):
     这是"停车距离"的唯一权威换算：调用方给一个厘米数，得到该比的画面比例，
     而不是各自写一个 magic frac —— 两套常数已经对不上过一次（0.4 实际是 43cm，
     而按 40cm 算出来的是 0.432）。
+
+    ⚠️ 这个量对**机身俯仰**极敏感：cy 是角度，相机一低头，同一张卡在画面里就
+    滑下去一大截。2026-10-01 实测机身在一趟里从 +16° 倾到 −24°，cy 读数因此
+    差了 15cm 的距离。**框宽没有这个问题** —— 见 trigger_width_at_dist。
     """
     return _triggers_at(z_cm)[1] / WORK_H
+
+
+def trigger_width_at_dist(z_cm):
+    """地面距离 → 图卡该有多宽（px，工作图坐标）。停车判据用它比用 cy 稳。
+
+    框宽 = fx·10/zc，fx 只来自 vfov，和俯角无关；zc = h·sinθ + z·cosθ 虽然含
+    θ，但在 20°~60° 这个区间里变化只有 ±6%（实测 39.3~44.2cm，对 30cm 的卡）。
+    而 cy 在同一区间里能从 1.03 翻到 0.32 —— 差三倍还多。所以机身怎么倾，
+    框宽基本不动，cy 会废掉。
+    """
+    return _triggers_at(z_cm)[0]
 
 
 class ShapeDetector:
