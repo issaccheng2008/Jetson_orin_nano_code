@@ -2,7 +2,7 @@
 
 Key differences from V0:
   - Warps BGR to 320x400 birdseye at start of process(), then all processing on birdseye
-  - No camera LUT — uniform cm_per_px on birdseye
+  - Per-row ground LUT — cm_per_px and z both vary with the row (see _build_ground_lut)
   - Band definitions adapted for 400px birdseye (down 266-398, mid 132-264, up 0-130)
   - No PID/steer/lost controller code — pure vision pipeline
   - No JSON config loading — all params are hardcoded defaults
@@ -82,8 +82,11 @@ def confidence_weighted_ema(previous, fused, alpha, confidence):
 # ═══════════════════════════════════════════════════════════════════════
 
 class LineDetector:
+    # 低带中心行（y=350~399 的中点）。near_err 量在这一带，厘米换算也按这一行。
+    NEAR_BAND_ROW = 375.0
+
     def __init__(self, cam_w=1280, cam_h=720, cam_height_cm=32.5, cam_pitch_deg=45.0, cam_vfov_deg=55.876,
-                 z_calib=None):
+                 z_calib=None, lane_width_cm=None):
         # ── Camera params ──
         self.cam_w = int(cam_w)
         self.cam_h = int(cam_h)
@@ -107,14 +110,10 @@ class LineDetector:
 
         # Build IPM matrix (same as V2/V3)
         self.M = self._build_birdseye_matrix(lookahead=(10.0, 80.0))
+        self.M_inv = np.linalg.inv(self.M)
         self.cm_per_px = self._compute_cm_per_px()
         self.z_per_px = (80.0 - 20.0) / float(self.bird_h - 1)  # vertical cm per px
         self._asp = self.cm_per_px / self.z_per_px  # pixel aspect ratio (~1.84)
-
-        # fused_err is the dimensionless near_err_px / (0.5*bird_w). Every consumer
-        # (PID gains, STEP_LEN_CM, steer_full_scale_cm) is calibrated in cm, so the
-        # conversion is published alongside it as fused_err_cm.
-        self.err_scale_cm = 0.5 * self.bird_w * self.cm_per_px
 
         # Pinhole intrinsics (16:9, square pixels) — exact red-bar distance
         vfov_rad = np.radians(self.cam_vfov_deg)
@@ -123,6 +122,18 @@ class LineDetector:
         self.fy_px = self.cam_h / (2.0 * np.tan(vfov_rad / 2.0))
         self.cx_px = self.cam_w / 2.0
         self.cy_px = self.cam_h / 2.0
+
+        # ── 车道宽锚（横向比例尺的绝对值）──
+        self.lane_width_true_cm = (
+            float(lane_width_cm) if lane_width_cm else self._lane_width_from_config())
+        self.lateral_scale = 1.0
+        self.lateral_scale_min = 0.85    # ±20% 之外的事不是模型误差，是量错了
+        self.lateral_scale_max = 1.20
+        self.lateral_scale_alpha = 0.02  # ~10Hz 下 τ≈5s
+
+        # 逐行地面 LUT 依赖上面那组内参，必须排在它们之后。
+        self._build_ground_lut()
+        self._rebuild_err_scale()
 
         # ── Threshold params ──
         self.th_offset = -12  # 反光把线打成亮斑时放宽，让不够黑的也进得来
@@ -346,14 +357,101 @@ class LineDetector:
         """相机模型读数 → 地面真值 cm（系数在 cameras.json 的 distance_calib）。"""
         return self.z_a * z_model + self.z_b
 
+    def _ground_from_bird_px(self, x, y):
+        """birdseye 像素 → 地面 (x_cm, z_cm)，走完整逆投影。
+
+        (x,y) 先由 M⁻¹ 回到原图，再和地面平面求交。相机坐标下地面就是
+        Yc·cosθ + Zc·sinθ = h —— 把 Yc = h·cosθ − wz·sinθ、Zc = h·sinθ + wz·cosθ
+        代进去两边都等于 h，所以沿视线 d 走 t = h/(dy·cosθ + sinθ) 就落地。
+        红条那条路（_detect_red_bar）用的就是这个，这里只是让鸟瞰坐标共用同一套。
+        """
+        p = self.M_inv @ np.array([x, y, 1.0], dtype=np.float64)
+        dx = (p[0] / p[2] - self.cx_px) / self.fx_px
+        dy = (p[1] / p[2] - self.cy_px) / self.fy_px
+        cp, sp = math.cos(self.cam_pitch), math.sin(self.cam_pitch)
+        t = self.cam_height / (dy * cp + sp)
+        return t * dx, self._to_true_z(t * (cp - dy * sp))
+
+    @staticmethod
+    def _lane_width_from_config():
+        """赛道真实宽度（cm）。规则是 350mm，落在 cameras.json 方便重测。"""
+        try:
+            from camera_config import load as load_camera
+            width = float(load_camera().get("lane_width_cm", 0.0) or 0.0)
+        except Exception:
+            width = 0.0
+        return width if width > 0.0 else 35.0
+
+    def _build_ground_lut(self):
+        """逐行的地面距离和横向比例尺。
+
+        原来两样都是一个常数：z = 20 + Δy·0.1504（假设透视是线性的），
+        x = Δx·0.330（只在图最远端对齐）。实际量出来：
+          · z 在 z=55cm 处报 66.3，偏 +11.3cm；直线假设撑不住透视。
+          · 横向在近端 0.219 cm/px、远端 0.331，差 1.5 倍。err_scale_cm 用 0.330
+            等于把低带的误差放大 51%，PID 的实际增益也就跟着大 51%。
+        两样都能从同一个 M 反算出来 —— 不需要再标定，标定错了也只是整体缩放。
+        """
+        ys = np.arange(self.bird_h, dtype=np.float64)
+
+        def ground_at(xs):
+            points = self.M_inv @ np.stack([xs, ys, np.ones_like(ys)])
+            dx = (points[0] / points[2] - self.cx_px) / self.fx_px
+            dy = (points[1] / points[2] - self.cy_px) / self.fy_px
+            cp, sp = math.cos(self.cam_pitch), math.sin(self.cam_pitch)
+            t = self.cam_height / (dy * cp + sp)
+            return t * dx, t * (cp - dy * sp)
+
+        left, _ = ground_at(np.full(self.bird_h, self.center_x - 20.0))
+        right, _ = ground_at(np.full(self.bird_h, self.center_x + 20.0))
+        _, z_model = ground_at(np.full(self.bird_h, float(self.center_x)))
+        self._lut_cm_per_px = (right - left) / 40.0
+        self._lut_z_cm = self._to_true_z(z_model)
+
+    def cm_per_px_at(self, y):
+        """该行的横向厘米/像素，含车道宽锚的缩放。"""
+        base = float(np.interp(
+            float(y), np.arange(self.bird_h), self._lut_cm_per_px))
+        return base * self.lateral_scale
+
+    def z_cm_at(self, y):
+        """该行的前方地面距离 cm。"""
+        return float(np.interp(
+            float(y), np.arange(self.bird_h), self._lut_z_cm))
+
+    def _rebuild_err_scale(self):
+        """fused_err 是无量纲的 near_err_px/(0.5*bird_w)，而消费者（PID 增益、
+        STEP_LEN_CM、steer_full_scale_cm）全按厘米标定，所以换算要一起发布。"""
+        self.err_scale_cm = 0.5 * self.bird_w * self.cm_per_px_at(self.NEAR_BAND_ROW)
+
+    def _update_lateral_scale(self, near):
+        """拿低带量到的车道宽，把横向比例尺锚到赛道的真实宽度上。
+
+        逐行 LUT 修的是"把透视当线性"，剩下的是相机姿势本身 —— 物理重拟给
+        h=30.45/θ=41.55°（配置写的是 32.5/45），横向因此差 ±7%。这部分没有干净的
+        几何答案，只能靠赛道上一条已知宽度的东西。标定照片里量到 146.5px、按 LUT
+        折 32.8cm，对规则 350mm 差 6%，正好在这个量级。
+
+        夹在 ±20% 是有意的：窄门只有 240mm，真让它跟进去，比例尺会被抬 46%。
+        """
+        width_px = float(near.get("lane_width_px", 0.0) or 0.0)
+        if width_px <= 0 or float(near.get("pair_ratio", 0.0)) < 0.45:
+            return
+        measured_cm = width_px * self.cm_per_px_at(self.NEAR_BAND_ROW)
+        if measured_cm <= 1.0:
+            return
+        target = clamp(self.lateral_scale * self.lane_width_true_cm / measured_cm,
+                       self.lateral_scale_min, self.lateral_scale_max)
+        self.lateral_scale += self.lateral_scale_alpha * (target - self.lateral_scale)
+        self._rebuild_err_scale()
+
     def _px_to_ground_cm(self, x, y):
         """Convert birdseye pixel (x, y) to ground cm.
         x_cm: horizontal offset from center (positive = right)
         z_cm: forward distance from robot
         """
-        x_cm = (x - self.center_x) * self.cm_per_px
-        z_cm = 20.0 + (self.bird_h - 1 - y) * self.z_per_px
-        return x_cm, self._to_true_z(z_cm)
+        y = clamp(float(y), 0.0, float(self.bird_h - 1))
+        return ((x - self.center_x) * self.cm_per_px_at(y), self.z_cm_at(y))
 
     # ═══════════════════════════════════════════════════════════
     # Otsu adaptive threshold
@@ -1259,6 +1357,8 @@ class LineDetector:
                 )
             state["last_band_mask"] = band_mask
 
+            self._update_lateral_scale(near)
+
             near_err_cm = near["center_cm"]
             far_err_cm = far["center_cm"]
             near_err_px = near["center_px"] - img_cx
@@ -1290,7 +1390,7 @@ class LineDetector:
                 near_err_px = (
                     1.0 - lock_gain
                 ) * near_err_px + lock_gain * bottom_sym_err_px
-                near_err_cm = near_err_px * self.cm_per_px
+                near_err_cm = near_err_px * self.cm_per_px_at(self.NEAR_BAND_ROW)
 
             far_dist_cm = far["dist_cm"]
             state["last_lane_center_x"] = clamp(
@@ -1470,7 +1570,7 @@ class LineDetector:
                     red_bar_z_cm = 0.5 * (red_bar_z_cm + red_expected)
 
             # robot z (low band center y=375): ~ 20 + (399-375)*0.150 = 23.6cm
-            robot_z = 20.0 + (self.bird_h - 1 - 375) * self.z_per_px
+            robot_z = self.z_cm_at(self.NEAR_BAND_ROW)
             inside_narrow = ng_enter_z > 0 and robot_z > ng_enter_z and robot_z < ng_exit_z
 
             avg_conf = sum(
@@ -1607,6 +1707,7 @@ class LineDetector:
             "fused_err": state["smoothed_err"],
             "fused_err_raw": fused_err_raw,
             "fused_err_cm": state["smoothed_err"] * self.err_scale_cm,
+            "lateral_scale": self.lateral_scale,
             "narrow_gate_detected": narrow_gate_detected,
             "narrow_gate_score": narrow_gate_score,
             "narrow_gate_dir": narrow_gate_dir,

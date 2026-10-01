@@ -22,6 +22,7 @@ _DEFAULTS = {
     "mount_height_cm": 32.5,
     "pitch_deg": 45.0,
     "distance_calib": {"a": 1.0, "b": 0.0},
+    "lane_width_cm": 35.0,
 }
 
 

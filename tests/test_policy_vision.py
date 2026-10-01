@@ -1688,5 +1688,112 @@ class UdpIntegrationTests(unittest.TestCase):
             process.communicate(timeout=2)
 
 
+class GroundScaleTests(unittest.TestCase):
+    """鸟瞰不是等距的：横向比例尺和纵向距离都随行变化，全图一个常数会把低带放大 51%。"""
+
+    def test_the_camera_config_actually_loads(self):
+        # camera_config.load 把异常全吞了、回退到 _DEFAULTS，所以 cameras.json 里
+        # 一个多余的逗号会让整套几何静默换成默认值 —— 这个测试就是为了在 CI 里
+        # 把它变成红的，而不是到了赛场上才发现。
+        import camera_config
+        profile = camera_config.load()
+        self.assertEqual(profile["profile"], "usb_main")
+        self.assertAlmostEqual(profile["distance_calib"]["a"], 1.13233, places=4)
+
+    def setUp(self):
+        from line_detector_v1_warp import LineDetector
+        self.detector = LineDetector()
+
+    def test_the_ground_lut_is_monotonic_and_spans_the_warped_range(self):
+        detector = self.detector
+        rows = np.arange(0, detector.bird_h, 25.0)
+        depths = np.array([detector.z_cm_at(y) for y in rows])
+        widths = np.array([detector.cm_per_px_at(y) for y in rows])
+        self.assertTrue(np.all(np.diff(depths) < 0.0), "越往上越远")
+        self.assertTrue(np.all(np.diff(widths) < 0.0), "越往上每像素代表越多厘米")
+        self.assertAlmostEqual(detector.z_cm_at(detector.bird_h - 1), 20.2, delta=0.5)
+        self.assertGreater(detector.z_cm_at(0), 80.0)
+
+    def test_the_near_band_is_not_wider_per_pixel_than_the_far_end(self):
+        detector = self.detector
+        near = detector.cm_per_px_at(detector.NEAR_BAND_ROW)
+        far = detector.cm_per_px_at(0.0)
+        self.assertAlmostEqual(near, 0.2238, delta=0.002)
+        self.assertAlmostEqual(far, 0.3310, delta=0.003)
+        # 旧代码在整幅图上用 0.330 —— 那是远端的值，低带会大 51%。
+        self.assertLess(near / far, 0.70)
+
+    def test_the_error_scale_follows_the_near_band_not_the_whole_image(self):
+        detector = self.detector
+        self.assertAlmostEqual(
+            detector.err_scale_cm,
+            0.5 * detector.bird_w * detector.cm_per_px_at(detector.NEAR_BAND_ROW),
+            places=6,
+        )
+        self.assertLess(detector.err_scale_cm, 40.0)
+
+    def test_the_depth_is_not_linear_in_the_row(self):
+        # 旧的 z = 20 + Δy·0.1504 假设透视是线性的，中段会偏 11cm。
+        detector = self.detector
+        mid = detector.z_cm_at(200.0) - detector.z_cm_at(201.0)
+        far = detector.z_cm_at(50.0) - detector.z_cm_at(51.0)
+        self.assertGreater(far, 1.3 * mid, "远端每行代表的距离明显超过中段")
+
+    def test_the_ground_projection_round_trips_through_the_warp(self):
+        import cv2
+        detector = self.detector
+        for model_z in (25.0, 40.0, 60.0):
+            h, theta = detector.cam_height, detector.cam_pitch
+            fy, cy = detector.fy_px, detector.cy_px
+            v = fy * (h * math.cos(theta) - model_z * math.sin(theta)) / (
+                h * math.sin(theta) + model_z * math.cos(theta)) + cy
+            bird_y = cv2.perspectiveTransform(
+                np.float32([[[detector.cx_px, v]]]), detector.M)[0, 0][1]
+            self.assertAlmostEqual(
+                detector.z_cm_at(bird_y), detector._to_true_z(model_z), delta=0.2)
+
+
+class LaneWidthAnchorTests(unittest.TestCase):
+    """横向比例尺的绝对值靠赛道自身宽度锚定 —— 相机姿势的残差不靠几何能修干净。"""
+
+    def setUp(self):
+        from line_detector_v1_warp import LineDetector
+        self.detector = LineDetector()
+
+    def _feed(self, width_px, pair_ratio=0.9, frames=200):
+        near = {"lane_width_px": width_px, "pair_ratio": pair_ratio}
+        for _ in range(frames):
+            self.detector._update_lateral_scale(near)
+
+    def test_a_too_wide_reading_shrinks_the_scale_until_the_lane_reads_true(self):
+        detector = self.detector
+        width_px = 146.5   # 标定照片里量到的
+        self._feed(width_px)
+        self.assertAlmostEqual(
+            width_px * detector.cm_per_px_at(detector.NEAR_BAND_ROW),
+            detector.lane_width_true_cm,
+            delta=0.1,
+        )
+
+    def test_a_single_boundary_frame_carries_no_width_evidence(self):
+        detector = self.detector
+        self._feed(60.0, pair_ratio=0.2)
+        self.assertEqual(detector.lateral_scale, 1.0)
+
+    def test_the_narrow_gate_cannot_drag_the_scale_along(self):
+        detector = self.detector
+        # 窄门 240mm，只有标准赛道的一半多一点；真跟进去会把比例尺抬 46%。
+        self._feed(90.0)
+        self.assertLessEqual(detector.lateral_scale, detector.lateral_scale_max)
+        self.assertLessEqual(detector.lateral_scale_max, 1.25)
+
+    def test_the_scale_never_leaves_the_plausible_band(self):
+        detector = self.detector
+        self._feed(400.0)
+        self.assertGreaterEqual(detector.lateral_scale, detector.lateral_scale_min)
+        self._feed(20.0)
+        self.assertLessEqual(detector.lateral_scale, detector.lateral_scale_max)
+
+
 if __name__ == "__main__":
     unittest.main()
