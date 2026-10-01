@@ -16,6 +16,7 @@ import argparse
 import json
 import math
 import os
+import re
 import signal
 import time
 
@@ -29,6 +30,27 @@ CARD_NAMES_ZH = {
     "circle": "圆形", "pentagon": "五角星", "square": "正方形",
     "diamond": "菱形", "cross": "十字形", "triangle": "三角形",
 }
+
+# 两个 dump 各自写出来的文件名。清理时只认这两种，不认就不动 —— 目录被指到
+# 别处时（比如 home）整清会连别人的东西一起删。序号每次跑都从 1 重来，所以
+# 上一次跑的文件不清掉就会和新的一次混在同一层，同名还会互相覆盖。
+SHAPE_DUMP_RE = re.compile(r"^\d{4}_.+_cy[^_]*_g[01]\.(jpg|json)$")
+LOSS_DUMP_RE = re.compile(r"^\d{3}_\d{2}_pair.+_conf.+"
+                          r"(_frame\.jpg|_vis\.jpg|\.json)$")
+
+
+def _clear_dump_dir(path, pattern):
+    """删掉上一次跑留下的 dump 文件，返回删了几个。"""
+    removed = 0
+    for name in os.listdir(path):
+        if not pattern.match(name):
+            continue
+        try:
+            os.remove(os.path.join(path, name))
+            removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def parse_args():
@@ -311,6 +333,9 @@ def main():
         dumped = 0
         if args.shape_dump:
             os.makedirs(args.shape_dump, exist_ok=True)
+            print(f"[shape] {args.shape_dump}: cleared "
+                  f"{_clear_dump_dir(args.shape_dump, SHAPE_DUMP_RE)} files "
+                  f"from the last run", flush=True)
         # The frames around a lock drop-out, kept short so the last good frame before
         # the drop is still in the ring when it trips -- that is the one that shows
         # what the detector was looking at while it still agreed with itself.
@@ -321,6 +346,9 @@ def main():
         prev_conf = 0.0
         if args.dump_on_loss:
             os.makedirs(args.dump_on_loss, exist_ok=True)
+            print(f"[vision] {args.dump_on_loss}: cleared "
+                  f"{_clear_dump_dir(args.dump_on_loss, LOSS_DUMP_RE)} files "
+                  f"from the last run", flush=True)
         while not stopped:
             now = time.monotonic()
             if args.max_seconds > 0 and now - start >= args.max_seconds:

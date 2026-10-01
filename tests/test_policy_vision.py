@@ -1475,6 +1475,44 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         self.assertEqual(set(gaps), {2})
 
 
+class DumpDirClearingTests(unittest.TestCase):
+    """A run into a --shape-dump that a previous run already used mixed the two
+    together and made them indistinguishable: the sequence number restarts at 1
+    every run, so 0033 from one lap and 0033 from the next sit in the same listing,
+    and same-named pairs silently overwrite. On the 2026-10-01 dumps this read as a
+    cross card "classified as a pentagon" -- they were two different cards, 100
+    seconds and one run apart, sharing an index."""
+
+    def test_only_this_tools_own_dump_files_are_removed(self):
+        keep = ["run_line_card.log", "notes.txt", "random.jpg",
+                "12345_x_cy1.0_g1.jpg", "0001_None_cy0.5_g0.png"]
+        drop = ["0001_None_cy0.5083333333333333_g0.jpg",
+                "0001_None_cyNone_g0.json",
+                "0021_pentagon_cy0.8775439227068865_g1.jpg"]
+        with tempfile.TemporaryDirectory() as d:
+            for name in keep + drop:
+                open(os.path.join(d, name), "w").close()
+            removed = run_policy_vision._clear_dump_dir(
+                d, run_policy_vision.SHAPE_DUMP_RE)
+            self.assertEqual(removed, len(drop))
+            self.assertEqual(sorted(os.listdir(d)), sorted(keep))
+
+    def test_the_loss_dump_gets_its_own_pattern(self):
+        """Both flags write into their own directory, so each clears only its own
+        naming. A shape file must survive a loss-dump clear and the reverse."""
+        loss = ["001_04_pair1.00_conf0.60_frame.jpg",
+                "001_04_pair1.00_conf0.60_vis.jpg",
+                "001_04_pair1.00_conf0.60.json"]
+        shape = ["0001_None_cy0.5_g0.jpg"]
+        with tempfile.TemporaryDirectory() as d:
+            for name in loss + shape:
+                open(os.path.join(d, name), "w").close()
+            self.assertEqual(
+                run_policy_vision._clear_dump_dir(d, run_policy_vision.LOSS_DUMP_RE),
+                len(loss))
+            self.assertEqual(os.listdir(d), shape)
+
+
 class CardGeometryGateTests(unittest.TestCase):
     """_geom_ok must accept the card everywhere the card stop puts the robot.
 
