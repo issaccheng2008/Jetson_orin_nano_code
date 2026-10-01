@@ -51,7 +51,7 @@ class SteeringTests(unittest.TestCase):
         controller = SteeringController(**NO_TRIM, straight_gains=(1, 0, 0),
                                         steer_full_scale_cm=50, yaw_sign=-1,
                                         preview_gain=4)
-        np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.4, -0.1])
+        np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.3, -0.1])
         self.assertGreater(controller.command(detection(-10), 0.8, 0.02)[1], 0)
         # Saturated negative is a right turn, and right is capped at max_wz_right.
         self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], -0.25)
@@ -192,7 +192,7 @@ class SteeringTests(unittest.TestCase):
         that at full authority for the whole window is what carries the robot off."""
         controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
         held = controller.command(detection(), 0.8, 0.02)
-        self.assertEqual(held[0], 0.4)
+        self.assertEqual(held[0], 0.3)
         # Inside the default 0.2 s window: 0.05 s steps give 0.75, 0.50, 0.25, 0.
         for expected in (0.75, 0.50, 0.25, 0.0):
             got = controller.command(detection(lost=1), 0.8, 0.05)
@@ -220,7 +220,7 @@ class SteeringTests(unittest.TestCase):
         self.assertIsNone(controller.rejected_lateral)
         # Past the lane half-width it is loss: fade the last command out, then stop.
         held = controller.command(detection(), 0.8, 0.02)
-        self.assertEqual(held[0], 0.4)
+        self.assertEqual(held[0], 0.3)
         first = controller.command(detection(lateral=-35.9), 0.8, 0.05)
         self.assertAlmostEqual(first[0], held[0] * 0.75)
         self.assertAlmostEqual(first[1], held[1] * 0.75)
@@ -248,7 +248,7 @@ class SteeringTests(unittest.TestCase):
         pre-stop command - the replay that was already tried and rejected."""
         controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=10)
         moving = controller.command(detection(20.0), 0.9, 0.05)   # a curve command
-        self.assertEqual(moving, (0.4, 0.5))
+        self.assertEqual(moving, (0.3, 0.5))
         # Idle through the stop; clear_hold is what run_policy_vision passes.
         for _ in range(5):
             controller.reset(clear_hold=True)
@@ -260,7 +260,7 @@ class SteeringTests(unittest.TestCase):
         kept.command(detection(20.0), 0.9, 0.05)
         kept.reset()
         got = kept.command(detection(lost=1), 0.9, 0.05)
-        self.assertAlmostEqual(got[0], 0.3)
+        self.assertAlmostEqual(got[0], 0.225)
         self.assertAlmostEqual(got[1], 0.375)
 
     def test_invalid_settings_are_rejected(self):
@@ -409,7 +409,7 @@ class VisionEntryPointTests(unittest.TestCase):
             self.assertEqual(run_policy_vision.main(), 0)
             calls = client_cls.return_value.publish.call_args_list
             self.assertEqual(len(calls), 4)
-            self.assertEqual(calls[2].args[0], 0.4)
+            self.assertEqual(calls[2].args[0], 0.3)
             self.assertNotEqual(calls[2].args[1], 0.0)  # steering published after median warmup
             self.assertEqual(calls[3].args, (0.0, 0.0, -1))
             client_cls.return_value.close.assert_called_once()
@@ -686,7 +686,7 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         published = client_cls.return_value.publish.call_args_list
-        self.assertAlmostEqual(published[0].args[0], 0.4)      # read 1: no card, full speed
+        self.assertAlmostEqual(published[0].args[0], 0.3)      # read 1: no card, full speed
         self.assertAlmostEqual(published[1].args[0], 0.2)      # read 2: card seen, slows
         self.assertAlmostEqual(published[4].args[0], 0.2)      # read 5: still slow after the blip
         self.assertAlmostEqual(published[6].args[0], 0.2)      # read 7: centroid still high
@@ -1640,7 +1640,7 @@ class UdpIntegrationTests(unittest.TestCase):
         client = ConnectorClient(port=vision_port)
         controller = SteeringController(**NO_TRIM, straight_gains=(1, 0, 0),
                                         steer_full_scale_cm=50, yaw_sign=-1)
-        expected = [0.4, 0.0, -0.1]
+        expected = [0.3, 0.0, -0.1]
 
         def wait_for(target, publish=False):
             deadline = time.monotonic() + 2
@@ -1663,7 +1663,9 @@ class UdpIntegrationTests(unittest.TestCase):
                     accel_m_s2=np.array([0, 0, 9.81]), gyro_rad_s=np.zeros(3),
                     projected_gravity=np.array([0, 0, -1]), velocity_command=source.get(),
                     joint_position_policy=config.Q_DEFAULT, joint_velocity_policy=np.zeros(12))
-            np.testing.assert_allclose(observation()[9:13], [0.4, -0.1, config.DEFAULT_STEP_DISTANCE, 0])
+            np.testing.assert_allclose(
+                observation()[9:13],
+                [0.3, -0.1, 0.3 * config.STEP_DISTANCE_PER_MPS, 0], rtol=1e-5)
             # A confirmed event crosses both UDP hops even when qr has returned to -1.
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline:

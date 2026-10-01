@@ -77,7 +77,7 @@ def parse_args():
                         help="Low-pass on the incoming pitch; the gait swing is a "
                              "zero-mean 1.7 Hz oscillation and only the slow lean is "
                              "wanted. 0.4 s leaves 23%% of it (+/-8 deg), 1.2 s 7.8%%")
-    parser.add_argument("--vx", type=float, default=0.4,
+    parser.add_argument("--vx", type=float, default=0.3,
                         help="Forward speed with valid detection, m/s")
     parser.add_argument("--max-wz", type=float, default=0.5,
                         help="Yaw-rate limit, rad/s (0..0.5)")
