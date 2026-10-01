@@ -209,6 +209,14 @@ def parse_args():
                              "the steering the policy sees (a held packet lasts 6-8 "
                              "of its 50 Hz ticks instead of 3). 2 roughly doubles the "
                              "loop rate and still gives ~6 attempts a second")
+    parser.add_argument("--center-dead-cm", type=float,
+                        default=float(os.getenv("CENTER_DEAD_CM", "4.0")),
+                        help="Inside this lateral error the yaw authority fades linearly "
+                             "toward zero at the centre, so a reading of a centimetre or "
+                             "two on a 35 cm lane does not command a steady turn. Applied "
+                             "to the output after the caps, so it limits how hard the loop "
+                             "steers on a small error without moving where it settles. "
+                             "0 disables it")
     parser.add_argument("--max-wz-right", type=float,
                         default=float(os.getenv("MAX_WZ_RIGHT", "0.25")),
                         help="Yaw-rate limit for right turns, as opposed to --max-wz "
@@ -238,6 +246,8 @@ def parse_args():
         parser.error("card-stop-ms must be finite and nonnegative")
     if not math.isfinite(args.card_slow_vx) or not 0 <= args.card_slow_vx <= 1:
         parser.error("card-slow-vx must be in [0, 1]")
+    if not math.isfinite(args.center_dead_cm) or args.center_dead_cm < 0:
+        parser.error("center-dead-cm must be finite and nonnegative")
     if not math.isfinite(args.card_resume_ms) or args.card_resume_ms < 0:
         parser.error("card-resume-ms must be finite and nonnegative")
     if args.card_trigger_frac is not None and not (
@@ -284,6 +294,7 @@ def main():
         max_lateral_cm=args.max_lateral_cm,
         max_wz_right=args.max_wz_right,
         single_line_gain=args.single_line_gain,
+        center_dead_cm=args.center_dead_cm,
     )
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2

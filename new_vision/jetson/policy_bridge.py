@@ -33,11 +33,12 @@ class SteeringController:
                  curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0,
                  lost_hold_s=0.2, deriv_pole=0.78, bias_cm=3.0, bias_gate_px=12.0,
                  bias_dead_px=6.0, bias_straight_cm=1.0, max_lateral_cm=0.0,
-                 max_wz_right=0.25, single_line_gain=1.0):
+                 max_wz_right=0.25, single_line_gain=1.0, center_dead_cm=4.0):
         values = (vx, max_wz, steer_full_scale_cm, yaw_sign, step_len_cm,
                   preview_gain, integral_limit, lost_hold_s, deriv_pole, bias_cm,
                   bias_gate_px, bias_dead_px, bias_straight_cm, max_lateral_cm,
-                  max_wz_right, single_line_gain, *straight_gains, *curve_gains)
+                  max_wz_right, single_line_gain, center_dead_cm,
+                  *straight_gains, *curve_gains)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("controller settings must be finite")
         if not 0 <= vx <= 1 or not 0 <= max_wz <= 0.5:
@@ -56,6 +57,8 @@ class SteeringController:
             raise ValueError("right yaw limit must be in (0, max_wz]")
         if single_line_gain <= 0:
             raise ValueError("single-line gain must be positive")
+        if center_dead_cm < 0:
+            raise ValueError("centre dead band must be nonnegative; 0 disables it")
         self.deriv_pole = deriv_pole
         self.vx, self.max_wz = vx, max_wz
         self.full_scale, self.yaw_sign = steer_full_scale_cm, yaw_sign
@@ -91,6 +94,12 @@ class SteeringController:
         # Loop-gain multiplier that applies only while a single boundary is visible on
         # a curve. Left at 1.0 it leaves the loop exactly as it was.
         self.single_line_gain = single_line_gain
+        # The lane is 35 cm wide, so a reading of a centimetre or two is inside what
+        # the near band resolves at all - but a small constant wz still integrates
+        # into a drift over a lap. Inside this band the yaw authority is faded toward
+        # zero at the centre rather than switched off, so the loop keeps correcting
+        # and only how hard it corrects changes. 0 disables it.
+        self.center_dead_cm = center_dead_cm
         # Last frame rejected on the lateral bound, for the caller to log. None
         # otherwise, so a caller can print on the transition instead of every frame.
         self.rejected_lateral = None
@@ -236,6 +245,13 @@ class SteeringController:
         # capped value instead of ramping toward 0.5 and being cut later.
         if wz < -self.max_wz_right:
             wz = -self.max_wz_right
+        # Applied to the output, after the caps: the band limits how hard the loop may
+        # steer on a reading this small, it does not change where the loop settles.
+        # Scaling after the PID (rather than dead-banding err on the way in) leaves the
+        # integral integrating the real error, and inside the band that error is small
+        # by definition, so there is nothing to wind up on.
+        if self.center_dead_cm > 0.0:
+            wz *= min(1.0, abs(err) / self.center_dead_cm)
         self.lost_s = 0.0
         self.hold = (self.vx, wz)
         return self.hold

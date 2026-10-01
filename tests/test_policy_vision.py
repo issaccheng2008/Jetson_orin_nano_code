@@ -47,10 +47,12 @@ NO_TRIM = dict(bias_cm=0.0, bias_straight_cm=0.0)
 
 class SteeringTests(unittest.TestCase):
     def test_sign_units_clamping_and_preview(self):
-        # yaw_sign and preview_gain pinned so this tests the maths, not the defaults.
+        # yaw_sign, preview_gain and the centre dead band pinned so this tests the
+        # maths, not the defaults: the band would scale the zero-lateral-error frame
+        # below by zero and hide the preview term it is here to measure.
         controller = SteeringController(**NO_TRIM, straight_gains=(1, 0, 0),
                                         steer_full_scale_cm=50, yaw_sign=-1,
-                                        preview_gain=4)
+                                        preview_gain=4, center_dead_cm=0.0)
         np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.3, -0.1])
         self.assertGreater(controller.command(detection(-10), 0.8, 0.02)[1], 0)
         # Saturated negative is a right turn, and right is capped at max_wz_right.
@@ -74,6 +76,21 @@ class SteeringTests(unittest.TestCase):
         """
         controller = SteeringController(**NO_TRIM)
         self.assertEqual(controller.command(detection(0.0, 22.0), 0.8, 0.02)[1], 0.0)
+
+    def test_the_centre_dead_band_fades_yaw_authority_near_zero_error(self):
+        """A centimetre or two on a 35 cm lane is inside what the near band resolves
+        at all, but a small constant wz still integrates into a drift over a lap."""
+        gains = dict(NO_TRIM, straight_gains=(1, 0, 0), steer_full_scale_cm=10)
+        band = SteeringController(center_dead_cm=4.0, **gains)
+        plain = SteeringController(center_dead_cm=0.0, **gains)
+        for error, factor in ((4.0, 1.0), (2.0, 0.5), (1.0, 0.25), (0.0, 0.0)):
+            with self.subTest(error=error):
+                self.assertAlmostEqual(
+                    band.command(detection(error), 0.8, 0.02)[1],
+                    plain.command(detection(error), 0.8, 0.02)[1] * factor)
+        self.assertAlmostEqual(band.command(detection(9.0), 0.8, 0.02)[1],
+                               plain.command(detection(9.0), 0.8, 0.02)[1])
+        self.assertLess(band.command(detection(-2.0), 0.8, 0.02)[1], 0.0)
 
     def test_bias_fades_in_with_curve_px_and_moves_the_zero_point(self):
         # bias_straight_cm pinned to 0 so this measures the shape of the fade, not the
