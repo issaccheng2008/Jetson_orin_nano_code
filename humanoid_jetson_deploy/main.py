@@ -54,12 +54,12 @@ def parse_args() -> argparse.Namespace:
         "--command-source",
         choices=("fixed", "vision"),
         default="fixed",
-        help="Walking: fixed test command or new_vision/connector UDP commands",
+        help="Walking: fixed test command or new_vision UDP commands",
     )
     parser.add_argument("--udp-command-bind", default="127.0.0.1")
     parser.add_argument("--udp-command-port", type=int, default=5005)
     parser.add_argument("--command-timeout", type=float, default=0.25,
-                        help="Zero velocity after this many seconds without connector data")
+                        help="Zero velocity after this many seconds without valid UDP data")
     parser.add_argument("--walk-seconds", type=float, default=5.0,
                         help="Fixed mode only: command zero after this duration; 0 disables timer")
     parser.add_argument(
@@ -177,7 +177,7 @@ def main() -> int:
                 bind=args.udp_command_bind,
             )
             command_source_description = (
-                f"new_vision/connector on udp://{args.udp_command_bind}:"
+                f"new_vision UDP on udp://{args.udp_command_bind}:"
                 f"{args.udp_command_port}; timeout={args.command_timeout:.3f}s; "
                 "live vx/wz, vy=0; fixed-command timer disabled"
             )
@@ -285,6 +285,17 @@ def main() -> int:
                     f"vy={velocity_command[1]:+.3f} m/s, "
                     f"wz={velocity_command[2]:+.3f} rad/s] "
                 )
+                if args.command_source == "vision":
+                    udp_status = command_source.status()
+                    age_text = (
+                        f"{udp_status['age_s'] * 1000.0:.1f}ms"
+                        if np.isfinite(udp_status["age_s"]) else "never"
+                    )
+                    command_status += (
+                        f"udp_fresh={udp_status['fresh']} udp_age={age_text} "
+                        f"udp_valid={udp_status['valid_packets']} "
+                        f"udp_invalid={udp_status['invalid_packets']} "
+                    )
 
             q_policy_target, action, obs, latency_ms = policy.step(
                 accel_m_s2=accel_policy,
@@ -370,4 +381,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

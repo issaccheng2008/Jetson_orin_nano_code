@@ -36,12 +36,14 @@ class FixedCommandSource:
 
 
 class UdpCommandSource:
-    """Receive connector JSON; extra fields such as ``qr`` are ignored."""
+    """Receive velocity JSON; extra fields such as ``qr`` are ignored."""
 
     def __init__(self, port: int, timeout_s: float = 0.25, bind: str = "127.0.0.1") -> None:
         self.timeout_s = timeout_s
         self.command = np.zeros(3, dtype=np.float32)
         self.last_update = 0.0
+        self.valid_packets = 0
+        self.invalid_packets = 0
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -62,16 +64,33 @@ class UdpCommandSource:
                     raise ValueError("command must be a JSON object")
                 command = clamp_command([message["vx"], message.get("vy", 0.0), message["wz"]])
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError):
+                with self.lock:
+                    self.invalid_packets += 1
                 continue
             with self.lock:
                 self.command = command
                 self.last_update = time.monotonic()
+                self.valid_packets += 1
 
     def get(self) -> np.ndarray:
         with self.lock:
             command = self.command.copy()
             age = time.monotonic() - self.last_update
         return command if age <= self.timeout_s else np.zeros(3, dtype=np.float32)
+
+    def status(self) -> dict[str, float | int | bool]:
+        """Return receiver health without changing the commanded velocity."""
+        with self.lock:
+            last_update = self.last_update
+            valid_packets = self.valid_packets
+            invalid_packets = self.invalid_packets
+        age_s = time.monotonic() - last_update if last_update > 0.0 else float("inf")
+        return {
+            "fresh": age_s <= self.timeout_s,
+            "age_s": age_s,
+            "valid_packets": valid_packets,
+            "invalid_packets": invalid_packets,
+        }
 
     def close(self) -> None:
         self.stop.set()

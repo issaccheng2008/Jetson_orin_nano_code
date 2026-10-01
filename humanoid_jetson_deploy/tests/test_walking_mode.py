@@ -82,6 +82,10 @@ class WalkingModeTests(unittest.TestCase):
         ):
             source = source_cls.return_value
             source.get.side_effect = [np.array([0.4, 0, -0.2]), np.array([0.4, 0, 0.3])]
+            source.status.return_value = {
+                "fresh": True, "age_s": 0.01,
+                "valid_packets": 10, "invalid_packets": 0,
+            }
             policy = policy_cls.return_value
             policy.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.0)
             link = link_cls.return_value

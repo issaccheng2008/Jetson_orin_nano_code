@@ -428,11 +428,10 @@ python main.py --model models/current_walking.onnx --port /dev/ttyACM0 \
   --command-source vision --no-plot
 ```
 
-It receives live forward/yaw commands from `connector.py` on UDP port 5005.
-Missing connector data for 0.25 seconds commands zero velocity. The connector
-also has a 0.25-second vision watchdog. There is no timed walking cutoff in vision
-mode. Step distance is the configured default while moving and zero for an
-all-zero velocity command; crossing remains zero.
+It receives live forward/yaw commands from `run_policy_vision.py` on UDP port
+5005. Missing valid UDP data for 0.25 seconds commands zero velocity. There is
+no timed walking cutoff in vision mode. Step distance is the configured default
+while moving and zero for an all-zero velocity command; crossing remains zero.
 
 Standalone fixed tests remain available:
 
@@ -583,6 +582,5 @@ Confirm the Python and aarch64 environment. Do not install an x86 wheel. As an a
 ## Before real walking
 
 Resolve the mass discrepancy in the provided robot files. The supplied URDF totals approximately 4.19 kg, while the supplied CSV totals approximately 1.16 kg. Confirm which values match the built robot and the USD used for training. Also add sim-to-real randomization for actuator strength, gains, delay, joint zero error, sensor bias, mass/COM, and battery effects before expecting robust unsupported walking.
-
 
 

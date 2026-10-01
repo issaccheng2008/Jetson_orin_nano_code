@@ -33,9 +33,14 @@ class CommandSourceTests(unittest.TestCase):
                 time.sleep(0.005)
                 command = source.get()
             np.testing.assert_allclose(command, [0.3, 0.0, -0.2])
+            status = source.status()
+            self.assertTrue(status["fresh"])
+            self.assertEqual(status["valid_packets"], 1)
+            self.assertEqual(status["invalid_packets"], 0)
 
             time.sleep(0.21)
             np.testing.assert_array_equal(source.get(), np.zeros(3, dtype=np.float32))
+            self.assertFalse(source.status()["fresh"])
         finally:
             publisher.close()
             source.close()
@@ -52,6 +57,9 @@ class CommandSourceTests(unittest.TestCase):
             publisher.sendto(b'{"vx":NaN,"wz":0.2}', ("127.0.0.1", port))
             time.sleep(0.02)
             np.testing.assert_array_equal(source.get(), np.zeros(3, dtype=np.float32))
+            status = source.status()
+            self.assertEqual(status["valid_packets"], 0)
+            self.assertEqual(status["invalid_packets"], 1)
         finally:
             publisher.close()
             source.close()

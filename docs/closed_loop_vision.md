@@ -11,24 +11,28 @@ need to forward the camera or the UDP ports.
 2. `new_vision/jetson/run_policy_vision.py` uses the new CPU `LineDetector`,
    the dual straight/curve PID and one-step preview from `run_robot.py`, and
    converts steering error to a yaw-rate command in rad/s.
-3. `connector.py` holds and forwards the latest command at 50 Hz.
-4. `humanoid_jetson_deploy/main.py --command-source vision` puts the live
+3. `humanoid_jetson_deploy/main.py --command-source vision` receives the UDP
+   JSON and puts the live
    forward/yaw commands into the 49-input walking policy along with STM32
    IMU and encoder feedback. The policy sends joint targets back to STM32.
-5. Robot motion changes the next camera image, closing the track-following loop.
+4. Robot motion changes the next camera image, closing the track-following loop.
 
 The communication is the earlier working UDP JSON path (see historical commit
 `17e4667f29962215e01bfdb2dd205d24a4157979`):
 
 | Link | Address | Payload |
 |---|---|---|
-| Vision → connector | `127.0.0.1:5006` | UTF-8 JSON: `{"vx":0.4,"vy":0.0,"wz":-0.1,"qr":-1}` |
-| Connector → policy | `127.0.0.1:5005` | Same fields; republished at 50 Hz |
+| Vision → policy | `127.0.0.1:5005` | UTF-8 JSON: `{"vx":0.4,"vy":0.0,"wz":-0.1,"qr":-1}` |
 | Policy ↔ STM32 | e.g. `/dev/ttyACM0` | Existing binary state/joint-command protocol |
 
 `vx` is m/s; `wz` is rad/s; `vy` is always zero. `qr=-1` preserves the old
-schema; it does not represent a geometric-shape detection. Both UDP stages
-retain the existing `vx=0..1` and `wz=-0.5..0.5` clamps.
+schema; it does not represent a geometric-shape detection. The receiver retains
+the existing `vx=0..1` and `wz=-0.5..0.5` clamps. It holds the latest command
+between camera frames and returns zero when no valid packet arrives for 0.25 s.
+
+`connector.py` is optional. It supports the older three-process layout where
+vision sends to 5006 and the connector republishes to 5005, but it is not needed
+for normal closed-loop operation.
 
 This entry point is for line-following walking. It does not execute shape-card
 actions, stop for cards, or trigger bar crossing. Use a track section without
@@ -43,10 +47,10 @@ For an existing clone:
 ```bash
 cd ~/Jetson_orin_nano_code
 git fetch origin
-git switch --track origin/integrate-new-vision-policy
+git switch --track origin/fix-direct-vision-policy-udp
 ```
 
-If the local branch already exists, use `git switch integrate-new-vision-policy`.
+If the local branch already exists, use `git switch fix-direct-vision-policy-udp`.
 Keep local calibration/model changes when switching; resolve any Git warning
 instead of discarding those files. If needed, clone the repository first:
 
@@ -92,24 +96,28 @@ using that file or `--camera-height-cm`, `--camera-pitch-deg`, and
 The CPU detector currently has its own algorithm defaults; editing
 `new_vision/line_follow_params.json` does not automatically tune this detector.
 
-Start the connector in terminal A:
-
-```bash
-python -u connector.py --vision-port 5006 --policy-port 5005
-```
-
-Start vision in terminal B:
+Start vision in terminal A. Its default destination is the policy receiver on
+port 5005:
 
 ```bash
 python -u new_vision/jetson/run_policy_vision.py \
   --camera 0 --vx 0.4 --max-wz 0.2 --headless
 ```
 
+Do not leave `connector.py` running in this direct mode: an idle old connector
+publishes stale zero commands to the same policy port. Check with
+`pgrep -af connector.py`; stop the exact process with Ctrl+C in its terminal.
+
 With a local desktop, omit `--headless` to see the camera and debug windows.
 Use Q in a window, or Ctrl+C in the terminal, to stop vision. Do not run another
 camera program at the same time.
 
-Move the camera/track relative to each other and inspect both terminal logs:
+For compatibility with the older relay layout, explicitly start
+`python -u connector.py --vision-port 5006 --policy-port 5005` and add
+`--command-port 5006` to the vision command. Do not use port 5006 without the
+connector: UDP does not report that no receiver exists.
+
+Move the camera/track relative to each other and inspect its log:
 
 | Track position/detection | Expected command |
 |---|---|
@@ -117,7 +125,7 @@ Move the camera/track relative to each other and inspect both terminal logs:
 | Track to the camera's right | Negative `wz` (right turn in the policy frame) |
 | Track to the camera's left | Positive `wz` (left turn in the policy frame) |
 | Lost/invalid line detection | `vx=0`, `wz=0` |
-| Vision stopped/frozen | Connector prints `fresh=False` and zeros after 0.25 s |
+| Vision stopped/frozen | Policy prints `udp_fresh=False` and uses zero after 0.25 s |
 
 Default `--yaw-sign -1` converts positive image-right steering into negative
 policy yaw. Confirm this against the real camera orientation and your policy's
@@ -126,8 +134,8 @@ yaw convention. If the sign is reversed, stop the run and restart vision with
 
 ## 3. Verify that live commands reach the walking policy (motors disabled)
 
-Leave A and B running. Connect STM32 and identify its device, for example with
-`ls /dev/serial/by-id/`. In terminal C, from the repository root:
+Leave terminal A running. Connect STM32 and identify its device, for example
+with `ls /dev/serial/by-id/`. In terminal B, from the repository root:
 
 ```bash
 python -u humanoid_jetson_deploy/main.py \
@@ -141,19 +149,19 @@ python -u humanoid_jetson_deploy/main.py \
 No `--enable-motors` means outgoing command enable flags remain off. STM32
 must still stream valid IMU/encoder data; this is not a serial-free dry run.
 Expect `DRY RUN`, a command-source line naming the UDP receiver, and
-`policy_target_velocity` following vision/connector changes, including after
-five seconds. These are the actual values passed to the policy; `--vx` and
-`--wz` on the policy command line do not override vision mode.
+`policy_target_velocity` following vision changes, including after five seconds.
+Healthy logs include `udp_fresh=True`, an increasing `udp_valid` count, and a
+small `udp_age`. `udp_fresh=False udp_age=never udp_valid=0` means no valid
+packet has reached port 5005. These are the actual values passed to the policy;
+`--vx` and `--wz` on the policy command line do not override vision mode.
 
 Check `crc_errors=0`, finite observations/actions, and inference/loop timing.
 Move the camera right/left and confirm the sign changes in terminal C.
-While motors are disabled, test both watchdogs:
+While motors are disabled, test the receiver watchdog:
 
-1. Stop terminal B: connector and policy target velocities become zero.
-2. Restart B: live commands resume automatically when detection is valid.
-3. Stop terminal A while B continues: the policy's independent UDP timeout
-   produces zero velocity within about 0.25 s plus scheduling delay.
-4. Restart A: live commands resume automatically.
+1. Stop terminal A: the policy produces zero velocity within about 0.25 s plus
+   scheduling delay and prints `udp_fresh=False`.
+2. Restart A: live commands resume automatically when detection is valid.
 
 These are **zero-velocity policy commands**, not motor-disable commands and not
 a guarantee of a physically stationary stance. Ctrl+C in the policy process
@@ -164,7 +172,7 @@ Keep the robot supported when checking motor-disable behavior.
 
 After the disabled-motor checks, secure the robot with your normal support/fall
 protection, start with a short clear track, and keep the physical stop available.
-Keep A and B running with `--max-wz 0.2`. Restart C as:
+Keep terminal A running with `--max-wz 0.2`. Restart terminal B as:
 
 ```bash
 python -u humanoid_jetson_deploy/main.py \
@@ -175,14 +183,14 @@ python -u humanoid_jetson_deploy/main.py \
 ```
 
 It starts walking as soon as valid STM32 state and live vision commands are
-available. If vision/connector is absent at startup, the policy receives zeros.
+available. If vision is absent at startup, the policy receives zeros.
 Check that the robot physically turns toward the track and that the observed
 track error decreases over successive images. Changing log values alone proves
 communication, not successful physical tracking.
 
 After the short test, omit `--max-seconds 10` for continuous operation. Vision
-mode has no five-second walking cutoff. Stop using Ctrl+C in terminal C, then
-stop vision and the connector. CSV motor/IMU logs are written under
+mode has no five-second walking cutoff. Stop using Ctrl+C in terminal B, then
+stop vision. CSV motor/IMU logs are written under
 `logs/motor_positions/` relative to the directory where you launched the policy.
 Command values appear in terminal logs; they are not additional CSV columns.
 
@@ -208,19 +216,20 @@ velocity. With the defaults, 10 cm of final PID steering gives -0.1 rad/s.
   `JETSON_PID_I_CLAMP`, `STEP_LEN_CM`, and `PREVIEW_GAIN` environment overrides work.
 
 The 0.5 rad/s cap is retained from the old communication implementation. Raising
-it would require coordinated edits to the mapper, connector, and policy receiver
+it would require coordinated edits to the mapper and policy receiver
 and validation against the trained policy's turning range.
 
 ## Troubleshooting and fixed-mode fallback
 
-- **Vision shows turns, policy does not:** confirm `--command-source vision`,
-  matching ports 5006/5005, and only one receiver per port. Fixed is still the
-  default for backwards-compatible standalone policy tests.
+- **Vision shows turns, policy does not:** confirm the vision startup line says
+  `UDP -> policy 127.0.0.1:5005`, the policy says `udp_fresh=True`, and only one
+  receiver owns port 5005. A log saying `[vision -> connector]` identifies the
+  older build, which sends to 5006 and requires `connector.py`.
 - **`fresh=False` while vision runs:** check frame processing time and dropped
   camera reads. The watchdog covers missing publications, not the age of a
   frame buffered inside the camera driver. Tune capture latency if needed.
-  Increase `connector.py --vision-timeout` only after measuring the frame period;
-  a larger timeout also means a longer stale-command hold.
+  Increase policy `--command-timeout` only after measuring the frame period; a
+  larger timeout also means a longer stale-command hold.
 - **Alternating move/stop:** inspect lost-frame/confidence logs, camera geometry,
   illumination and view of the track. The bridge stops immediately on reported
   line loss instead of blindly searching with the humanoid.
@@ -252,11 +261,11 @@ cd humanoid_jetson_deploy
 python -m unittest discover -s tests -v
 ```
 
-The integration test uses real local UDP sockets and a connector subprocess to
-check new-controller output, historical JSON encoding, policy observation slots,
-and both watchdogs. Runtime tests check that vision commands survive beyond five
-seconds. Camera, ONNX checkpoint performance, and physical walking require the
-Jetson procedure above.
+The integration tests use real local UDP sockets to check both the default direct
+path and optional connector relay, historical JSON encoding, policy observation
+slots, watchdogs, and UDP health counters. Runtime tests check that vision
+commands survive beyond five seconds. Camera, ONNX checkpoint performance, and
+physical walking require the Jetson procedure above.
 
 At the base revision `3ca3d9968370a5ab187f41dd938d31ed90ea02d2`, two existing
 one-foot tests expect the leg to lower again, but `OneFootCommand.get()` keeps

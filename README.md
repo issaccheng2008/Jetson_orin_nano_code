@@ -43,7 +43,7 @@ Add `--no-plot` for headless operation; CSV position and IMU logging stays enabl
 
 `--vx` selects a constant positive speed (at most 1 m/s), defaulting to 0.4.
 `--command-source fixed` uses `--vx` and `--wz` (yaw range ±0.5 rad/s).
-`--command-source vision` receives both values from the connector instead.
+`--command-source vision` receives both values from the vision UDP publisher.
 `--walk-seconds` applies only to fixed mode; its default is 5 seconds.
 
 ## Run one-foot standing
@@ -85,12 +85,13 @@ output for the requested run; omitting it keeps the existing dry-run behavior.
 
 Use `new_vision/jetson/run_policy_vision.py` for the walking-policy integration.
 It uses the new line detector, PID steering and one-step preview, then sends
-`{vx, vy: 0, wz, qr: -1}` to `connector.py` on port 5006. The connector forwards
-commands to the policy on port 5005. Only the policy opens the STM32 serial port.
+`{vx, vy: 0, wz, qr: -1}` directly to the policy on port 5005. Only the policy
+opens the STM32 serial port. `connector.py` remains an optional compatibility
+relay for deployments that intentionally use the old 5006 → 5005 two-hop path.
 The V2 CPU/GPU `run_robot.py` scripts are separate serial-controller entry points.
 
 See [the detailed guide](docs/closed_loop_vision.md) for camera setup, exact
-three-terminal commands, dry runs, physical tests, yaw-sign tuning and watchdogs.
+two-terminal commands, dry runs, physical tests, yaw-sign tuning and watchdogs.
 `old_vision/` is retained as reference. Shape actions and bar crossing are outside
 this line-following integration.
 
@@ -101,5 +102,4 @@ python -m unittest discover -s tests -v
 cd humanoid_jetson_deploy
 python -m unittest discover -s tests -v
 ```
-
 
