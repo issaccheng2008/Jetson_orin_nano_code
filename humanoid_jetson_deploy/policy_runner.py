@@ -142,8 +142,7 @@ class HumanoidPolicy:
                 policy_velocity_command,
                 np.array(
                     [
-                        0.0 if np.all(velocity_command == 0.0)
-                        else config.DEFAULT_STEP_DISTANCE,
+                        float(velocity_command[0]) * config.STEP_DISTANCE_PER_MPS,
                         config.CROSSING_COMMAND,
                     ],
                     dtype=np.float32,

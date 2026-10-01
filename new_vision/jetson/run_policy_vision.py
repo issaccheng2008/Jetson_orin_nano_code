@@ -171,6 +171,12 @@ def parse_args():
                         default=float(os.getenv("CARD_SLOW_VX", "0.2")),
                         help="Forward speed while a card is in view but not yet close "
                              "enough to act on")
+    parser.add_argument("--card-resume-ms", type=float,
+                        default=float(os.getenv("CARD_RESUME_MS", "500")),
+                        help="On the stopped-to-walking edge, hold --card-slow-vx this "
+                             "long before releasing to full speed, so the start mirrors "
+                             "the stop's 0.4 -> 0.2 -> 0 shape. 0 releases on the first "
+                             "walking frame, leaving only the connector's slew")
     parser.add_argument("--card-cold-start", action="store_true",
                         help="On the stopped-to-walking edge, wipe the controller's loop "
                              "state and the detector's memory instead of keeping them. "
@@ -232,6 +238,8 @@ def parse_args():
         parser.error("card-stop-ms must be finite and nonnegative")
     if not math.isfinite(args.card_slow_vx) or not 0 <= args.card_slow_vx <= 1:
         parser.error("card-slow-vx must be in [0, 1]")
+    if not math.isfinite(args.card_resume_ms) or args.card_resume_ms < 0:
+        parser.error("card-resume-ms must be finite and nonnegative")
     if args.card_trigger_frac is not None and not (
             math.isfinite(args.card_trigger_frac) and 0 < args.card_trigger_frac <= 1):
         parser.error("card-trigger-frac must be in (0, 1]")
@@ -353,6 +361,7 @@ def main():
         card_event_id = 0
         card_until = 0.0
         stop_until = 0.0
+        resume_until = 0.0
         card_flag = False        # a card is in view on this approach
         card_absent = 0          # consecutive detection calls without one
         card_triggered = False   # this card has already been acted on
@@ -417,10 +426,16 @@ def main():
                 if args.card_cold_start:
                     controller.reset(clear_hold=True)
                     detector.reset_state()
+                # The start mirrors the stop, which is 0.4 -> 0.2 -> 0: hold the slow
+                # speed one more stage before releasing, so the robot builds speed in
+                # two steps instead of the connector's single 0.4 s slew.
+                resume_until = processed + args.card_resume_ms / 1000.0
                 print(f"[vision] card window closed; "
                       f"{'cold start' if args.card_cold_start else 'resuming frozen'} "
                       f"(hold={controller.hold[0]:+.2f},{controller.hold[1]:+.2f} "
-                      f"lost_s={controller.lost_s:.2f})", flush=True)
+                      f"lost_s={controller.lost_s:.2f}) "
+                      f"vx<={args.card_slow_vx:+.2f} for {args.card_resume_ms:.0f}ms",
+                      flush=True)
             card_window_open = window_open
             if attitude is not None:
                 attitude.poll()
@@ -632,7 +647,7 @@ def main():
                 # full speed straight past it - the one place the near band is fully
                 # covered by the card. Creep instead, so the classifier still has frames
                 # to work with before the card is behind the robot.
-                if card_flag:
+                if card_flag or processed < resume_until:
                     vx = min(vx, args.card_slow_vx)
             previous = processed
             visible_qr = card_action if recognized_this_frame else -1

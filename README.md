@@ -15,7 +15,7 @@ Walking defaults:
 - 49 observations, including step distance and crossing command.
 - Fixed mode: **0.4 m/s** forward by default; lateral velocity and yaw rate: **0**.
 - Vision mode: live forward/yaw commands over the original UDP JSON protocol.
-- Step distance: **0.08 m** while moving, **0** for an all-zero velocity command; crossing: **0**.
+- Step distance: **0.08 m at the default 0.4 m/s, 0.04 m at half of it, 0 at a standstill** — it scales with the commanded speed rather than switching on; crossing: **0**.
 - 50 Hz inference, 12 joint-position actions, action scale 0.25.
 - Fixed mode commands zero after 5 seconds (`--walk-seconds 0` makes it continuous).
 - Vision mode runs continuously with upstream-command watchdogs; no bar-crossing commands.

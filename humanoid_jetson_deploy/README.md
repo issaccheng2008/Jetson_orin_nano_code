@@ -70,7 +70,7 @@ The policy period is `0.005 s * decimation 4 = 0.020 s`, or 50 Hz.
 | 3:6 | 3 | IMU angular velocity in policy frame, rad/s |
 | 6:9 | 3 | Projected gravity: world-down unit vector in body/IMU frame |
 | 9:11 | 2 | Command `[vx, wz]` |
-| 11:12 | 1 | Default step distance: 0.08 m; 0 for all-zero velocity |
+| 11:12 | 1 | Step distance: scales with `vx` (0.08 m at 0.4 m/s, 0.04 m at 0.2 m/s, 0 at rest) |
 | 12:13 | 1 | Crossing command: 0 (normal walking) |
 | 13:25 | 12 | Joint position minus Isaac default position, radians |
 | 25:37 | 12 | Joint velocity, rad/s |
@@ -455,8 +455,8 @@ python main.py --model models/current_walking.onnx --port /dev/ttyACM0 \
 It receives live forward/yaw commands from `connector.py` on UDP port 5005.
 Missing connector data for 0.25 seconds commands zero velocity. The connector
 also has a 0.25-second vision watchdog. There is no timed walking cutoff in vision
-mode. Step distance is the configured default while moving and zero for an
-all-zero velocity command; crossing remains zero.
+mode. Step distance scales with the commanded forward speed, so a slow command
+gets a short step; crossing remains zero.
 
 Standalone fixed tests remain available:
 

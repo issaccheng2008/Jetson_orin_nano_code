@@ -625,9 +625,19 @@ class VisionEntryPointTests(unittest.TestCase):
         # same frame rather than exactly on it. What has to hold is that nothing from
         # the card-corrupted frames survived: command() was never called while stopped.
         fresh = SteeringController().command(detection(), 0.8, 0.1)
-        self.assertAlmostEqual(published[resumed].args[0], fresh[0])
         self.assertAlmostEqual(published[resumed].args[1], fresh[1], delta=1e-3)
-        self.assertGreater(published[resumed].args[0], 0.3)
+        # The start mirrors the stop's 0.4 -> 0.2 -> 0 in reverse: --card-resume-ms of
+        # --card-slow-vx before the controller's own speed is released. 500 ms at 10 Hz
+        # is five frames; the sixth is where the boundary lands, so allow either.
+        ramp = []
+        for call in published[resumed:]:
+            if call.args[0] <= 0.0:      # the camera-read failure that ends the run
+                break
+            ramp.append(call.args[0])
+        self.assertEqual(ramp[:5], [0.2] * 5)
+        held = next(i for i, value in enumerate(ramp) if value != 0.2)
+        self.assertIn(held, (5, 6))
+        self.assertTrue(all(value == fresh[0] for value in ramp[held:]))
 
     def test_a_distant_card_only_slows_down_and_a_flicker_does_not_re_trigger(self):
         """The cue drops out while walking. One absent call used to re-arm the stop,

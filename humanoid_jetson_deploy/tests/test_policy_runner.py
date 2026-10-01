@@ -45,6 +45,27 @@ class PolicyInterfaceTests(unittest.TestCase):
         policy.reset()
         np.testing.assert_array_equal(policy.build_observation(**values)[37:], np.zeros(12))
 
+    def test_step_distance_tracks_the_commanded_speed(self):
+        """The touchdown target scales with speed instead of being a fixed switch.
+
+        It used to be 0.08 for any nonzero vx, so the first connector tick after a
+        card stop asked for 0.08 m steps at 0.02 m/s - a pairing the policy had no
+        reason to have seen in training.
+        """
+        policy, _ = self.make_policy()
+        values = dict(
+            accel_m_s2=np.array([0, 0, 9.81]),
+            gyro_rad_s=np.zeros(3),
+            projected_gravity=np.array([0, 0, -1]),
+            joint_position_policy=config.Q_DEFAULT,
+            joint_velocity_policy=np.zeros(12),
+        )
+        for vx, expected in ((0.4, 0.08), (0.2, 0.04), (0.02, 0.004), (0.0, 0.0)):
+            with self.subTest(vx=vx):
+                obs = policy.build_observation(
+                    velocity_command=np.array([vx, 0, 0]), **values)
+                self.assertAlmostEqual(float(obs[11]), expected, places=6)
+
     def test_rejects_legacy_models_before_inference(self):
         for width in (47, 48):
             with self.subTest(width=width), self.assertRaisesRegex(RuntimeError, "legacy"):

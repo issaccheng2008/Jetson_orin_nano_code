@@ -131,9 +131,9 @@ models and the 46-input one-foot model are incompatible with this interface.
 No bundled ONNX model has been replaced or certified by this change.
 
 Check your existing motor/IMU calibration in `humanoid_jetson_deploy/config.py`.
-The normal walking step distance remains `DEFAULT_STEP_DISTANCE` (currently
-0.08 m). The existing observation builder uses step distance 0 when all velocity
-commands are zero. Crossing command remains 0.
+The step distance scales with the commanded forward speed, reaching
+`DEFAULT_STEP_DISTANCE` (0.08 m) at `DEFAULT_FORWARD_VELOCITY` (0.4 m/s) and
+zero at a standstill. Crossing command remains 0.
 
 ## 2. Verify the camera and steering without enabling motors
 

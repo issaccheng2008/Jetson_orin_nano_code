@@ -17,6 +17,9 @@ ACCEL_OBS_SCALE = 0.1
 DEFAULT_STEP_DISTANCE = 0.08  # metres, signed longitudinal touchdown target
 DEFAULT_FORWARD_VELOCITY = 0.4  # m/s, standard walking command
 CROSSING_COMMAND = 0.0  # normal walking only
+# The touchdown target tracks the commanded speed instead of being a fixed switch:
+# 0.08 m at DEFAULT_FORWARD_VELOCITY, 0.04 m at half of it, 0 m at a standstill.
+STEP_DISTANCE_PER_MPS = DEFAULT_STEP_DISTANCE / DEFAULT_FORWARD_VELOCITY
 
 JOINT_NAMES = (
     "r_leg_pitch_joint",
