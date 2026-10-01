@@ -272,9 +272,12 @@ def main():
     from line_detector_v1_warp import LineDetector
     from utils import open_camera, show_debug_windows
 
-    from shape_detector import trigger_frac_at_dist
+    from shape_detector import trigger_frac_at_dist, trigger_width_at_dist
+    # 两个阈值同源：同一个 --card-trigger-dist-cm，一个换成 cy、一个换成框宽。
+    # 有框时用后者（对机身俯仰不敏感），没框时只能退回前者。
     card_trigger_frac = (args.card_trigger_frac if args.card_trigger_frac is not None
                          else trigger_frac_at_dist(args.card_trigger_dist_cm))
+    card_trigger_width = trigger_width_at_dist(args.card_trigger_dist_cm)
 
     shape = shape_names = None
     if not args.no_shape_detect:
@@ -446,6 +449,18 @@ def main():
             if shape is not None and (frames % shape_period == 0):
                 action, card_dbg = shape.update(
                     frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
+                # "多近了"这一个量，动作闸和停车闸共用。有真框就量框宽（对机身俯仰
+                # 不敏感），没框才退回 cy。理由见下面停车那段。
+                _quad = card_dbg.get("quad_work")
+                card_width_px = None
+                if _quad is not None:
+                    _qx = np.asarray(_quad, dtype=float)[:, 0]
+                    card_width_px = float(_qx.max() - _qx.min())
+                if card_width_px is not None:
+                    card_reach, card_reach_line = card_width_px, card_trigger_width
+                else:
+                    card_reach = card_dbg.get("presence_cy_frac")
+                    card_reach_line = card_trigger_frac
                 if args.shape_dump and (card_dbg.get("card_found")
                                         or card_dbg.get("presence")):
                     dumped += 1
@@ -467,8 +482,8 @@ def main():
                 # 2026-09-26 laps every frame of every card read hu=circle at 0.005
                 # to 0.07, including the pentagram and the cross. It is degenerate,
                 # not corroborating.)
-                reach = card_dbg.get("presence_cy_frac")
-                reached = reach is not None and reach >= card_trigger_frac
+                reached = (card_reach is not None
+                           and card_reach >= card_reach_line)
                 if action is not None and reached and not card_action_triggered and card_event_id == 0:
                     card_action = action
                     card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
@@ -500,24 +515,32 @@ def main():
                         card_flag = False
                         card_triggered = False
                         card_action_triggered = False
-                # Seeing a card only slows the robot down. Stopping waits until the box
-                # centroid has come down to the trigger line, i.e. the card is close.
-                cy = card_dbg.get("presence_cy_frac")
-                # A trigger has to be earned again by seeing the card well above the
+                # Seeing a card only slows the robot down. Stopping waits until the card
+                # is close, on the same card_reach card_reach_line the action gate uses.
+                #
+                # A trigger has to be earned again by seeing the card well short of the
                 # line. presence is armed-gated, so the action firing makes it read
                 # false and card_absent clears card_triggered on its own; the card the
-                # robot just drove past is still in frame at cy 0.84, well below the
-                # line, and stopped the robot a second time mid-curve. A card that is
-                # already low in the frame has not been approached, so it cannot fire.
-                if cy is not None and cy < card_trigger_frac:
+                # robot just drove past is still in frame past the line, and stopped the
+                # robot a second time mid-curve. A card already past the line has not
+                # been approached, so it cannot fire.
+                if card_reach is not None and card_reach < card_reach_line:
                     card_armed = True
-                if (card_flag and not card_triggered and card_armed and cy is not None
-                        and cy >= card_trigger_frac):
+                if (card_flag and not card_triggered and card_armed
+                        and card_reach is not None
+                        and card_reach >= card_reach_line):
                     card_triggered = True
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
-                    print(f"[shape] box centroid at {cy:.2f} -> stand still "
-                          f"{args.card_stop_ms:.0f} ms", flush=True)
+                    if card_width_px is not None:
+                        print(f"[shape] card {card_reach:.0f}px of "
+                              f"{card_reach_line:.0f}px "
+                              f"(cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')}) "
+                              f"-> stand still {args.card_stop_ms:.0f} ms", flush=True)
+                    else:
+                        print(f"[shape] cue cy {card_reach:.2f} of "
+                              f"{card_reach_line:.2f}, no box "
+                              f"-> stand still {args.card_stop_ms:.0f} ms", flush=True)
                 # Why a card that is plainly in view did not become an action: the
                 # quad gates (found/closure), the classifier (shape/rules), or the
                 # consecutive-frame latch. Only while a card is around, at 4 Hz.
