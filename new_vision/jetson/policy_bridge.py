@@ -33,7 +33,11 @@ class SteeringController:
                  curve_gains=(0.83, 0.006, 0.16), integral_limit=60.0,
                  lost_hold_s=0.2, deriv_pole=0.78, bias_cm=3.0, bias_gate_px=12.0,
                  bias_dead_px=6.0, bias_straight_cm=1.0, max_lateral_cm=0.0,
-                 max_wz_right=0.25, single_line_gain=1.0, center_dead_cm=4.0):
+                 max_wz_right=None, single_line_gain=1.0, center_dead_cm=4.0):
+        # Unset means symmetric: right turns get the same limit as left. A caller that
+        # wants them capped lower has to say so.
+        if max_wz_right is None:
+            max_wz_right = max_wz
         values = (vx, max_wz, steer_full_scale_cm, yaw_sign, step_len_cm,
                   preview_gain, integral_limit, lost_hold_s, deriv_pole, bias_cm,
                   bias_gate_px, bias_dead_px, bias_straight_cm, max_lateral_cm,
@@ -242,7 +246,9 @@ class SteeringController:
         self.last_steer = clamp(steer, -50.0, 50.0)
         wz = self.yaw_sign * clamp(self.last_steer / self.full_scale, -1.0, 1.0) * self.max_wz
         # Clamped here, not downstream, so the connector's slew limiter aims at the
-        # capped value instead of ramping toward 0.5 and being cut later.
+        # capped value instead of ramping toward 0.5 and being cut later. Equal to
+        # max_wz unless a caller asked for an asymmetric limit, in which case only the
+        # negative side moves.
         if wz < -self.max_wz_right:
             wz = -self.max_wz_right
         # Applied to the output, after the caps: the band limits how hard the loop may

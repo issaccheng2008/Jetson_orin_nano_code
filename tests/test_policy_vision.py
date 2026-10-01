@@ -55,9 +55,15 @@ class SteeringTests(unittest.TestCase):
                                         preview_gain=4, center_dead_cm=0.0)
         np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.3, -0.1])
         self.assertGreater(controller.command(detection(-10), 0.8, 0.02)[1], 0)
-        # Saturated negative is a right turn, and right is capped at max_wz_right.
-        self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], -0.25)
+        # Saturated negative is a right turn. The two sides are symmetric unless a
+        # caller asks for a separate right limit.
+        self.assertEqual(controller.command(detection(1000), 0.8, 0.02)[1], -0.5)
         self.assertEqual(controller.command(detection(-1000), 0.8, 0.02)[1], 0.5)
+        capped = SteeringController(**NO_TRIM, straight_gains=(1, 0, 0),
+                                    steer_full_scale_cm=50, yaw_sign=-1,
+                                    max_wz_right=0.25)
+        self.assertEqual(capped.command(detection(1000), 0.8, 0.02)[1], -0.25)
+        self.assertEqual(capped.command(detection(-1000), 0.8, 0.02)[1], 0.5)
         self.assertLess(controller.command(detection(0, 30), 0.8, 0.02)[1], 0)
         reverse = SteeringController(**NO_TRIM, yaw_sign=1)
         self.assertGreater(reverse.command(detection(), 0.8, 0.02)[1], 0)

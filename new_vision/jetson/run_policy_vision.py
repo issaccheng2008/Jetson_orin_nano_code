@@ -217,11 +217,12 @@ def parse_args():
                              "to the output after the caps, so it limits how hard the loop "
                              "steers on a small error without moving where it settles. "
                              "0 disables it")
-    parser.add_argument("--max-wz-right", type=float,
-                        default=float(os.getenv("MAX_WZ_RIGHT", "0.25")),
+    parser.add_argument("--max-wz-right", type=float, default=None,
                         help="Yaw-rate limit for right turns, as opposed to --max-wz "
                              "for left. Negative wz is a right turn in the published "
-                             "log. A right curve needing more than this runs wide")
+                             "log. Unset runs symmetric with --max-wz; setting it lower "
+                             "caps right turns only, and a right curve needing more "
+                             "than that runs wide")
     parser.add_argument("--single-line-gain", type=float,
                         default=float(os.getenv("SINGLE_LINE_GAIN", "1")),
                         help="Loop-gain multiplier applied only while one track "
@@ -248,6 +249,10 @@ def parse_args():
         parser.error("card-slow-vx must be in [0, 1]")
     if not math.isfinite(args.center_dead_cm) or args.center_dead_cm < 0:
         parser.error("center-dead-cm must be finite and nonnegative")
+    if args.max_wz_right is not None and not (
+            math.isfinite(args.max_wz_right)
+            and 0 < args.max_wz_right <= args.max_wz):
+        parser.error("max-wz-right must be in (0, max-wz] when set")
     if not math.isfinite(args.card_resume_ms) or args.card_resume_ms < 0:
         parser.error("card-resume-ms must be finite and nonnegative")
     if args.card_trigger_frac is not None and not (
@@ -292,7 +297,8 @@ def main():
         bias_cm=args.bias_cm, bias_gate_px=args.bias_gate_px,
         bias_dead_px=args.bias_dead_px, bias_straight_cm=args.bias_straight_cm,
         max_lateral_cm=args.max_lateral_cm,
-        max_wz_right=args.max_wz_right,
+        max_wz_right=(args.max_wz if args.max_wz_right is None
+                      else args.max_wz_right),
         single_line_gain=args.single_line_gain,
         center_dead_cm=args.center_dead_cm,
     )
@@ -353,9 +359,12 @@ def main():
             detector.red_detect_enable = False
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
               f"{args.connector_host}:{args.connector_port}; vx={args.vx} m/s; "
-              f"max_wz={args.max_wz} rad/s; yaw_sign={args.yaw_sign}; "
+              f"max_wz={args.max_wz} rad/s "
+              f"(right {args.max_wz if args.max_wz_right is None else args.max_wz_right}); "
+              f"yaw_sign={args.yaw_sign}; "
               f"red={'off' if args.no_red_detect else 'on'}; "
               f"sl_gain={args.single_line_gain}; "
+              f"center_dead={args.center_dead_cm}cm; "
               f"bias={args.bias_straight_cm}->{args.bias_cm}"
               f"(dead {args.bias_dead_px}, full {args.bias_gate_px})", flush=True)
         if attitude is not None:
