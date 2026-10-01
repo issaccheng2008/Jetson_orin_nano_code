@@ -24,6 +24,7 @@ class PositionCsvLoggerTests(unittest.TestCase):
                 actual_motor_rad=np.array([0.2, -0.2]),
                 imu_accel_m_s2=np.array([1.0, 2.0, 9.0]),
                 imu_orientation_rpy_rad=np.array([0.1, 0.2, 0.3]),
+                imu_gyro_rad_s=np.array([0.01, 0.02, 0.03]),
             )
             logger.close()
 
@@ -37,6 +38,7 @@ class PositionCsvLoggerTests(unittest.TestCase):
         self.assertAlmostEqual(float(rows[0]["actual_left_knee_rad"]), -0.2)
         self.assertAlmostEqual(float(rows[0]["imu_accel_z_m_s2"]), 9.0)
         self.assertAlmostEqual(float(rows[0]["imu_pitch_rad"]), 0.2)
+        self.assertAlmostEqual(float(rows[0]["imu_gyro_z_rad_s"]), 0.03)
 
     def test_loads_logged_target_and_actual_positions(self):
         names = ("right_knee", "left_knee")
@@ -51,6 +53,7 @@ class PositionCsvLoggerTests(unittest.TestCase):
                 np.array([0.2, -0.2]),
                 np.array([1.0, 2.0, 9.0]),
                 np.array([0.1, 0.2, 0.3]),
+                np.array([0.01, 0.02, 0.03]),
             )
             logger.write(
                 0.04,
@@ -60,18 +63,24 @@ class PositionCsvLoggerTests(unittest.TestCase):
                 np.array([0.25, -0.25]),
                 np.array([1.5, 2.5, 8.5]),
                 np.array([0.15, 0.25, 0.35]),
+                np.array([0.04, 0.05, 0.06]),
             )
             logger.close()
 
             elapsed_s, targets, actuals, acceleration, orientation = load_position_log(
                 path, names
             )
+            # 陀螺仪那一列不进 load_position_log 的返回，也不进它的完整性检查 ——
+            # 老日志没有这几列，加进检查会让它们全部读不出来。想要的人直接读 CSV。
+            with path.open(encoding="utf-8", newline="") as handle:
+                raw = list(csv.DictReader(handle))
 
         np.testing.assert_allclose(elapsed_s, [0.02, 0.04])
         np.testing.assert_allclose(targets, [[0.3, -0.3], [0.4, -0.4]])
         np.testing.assert_allclose(actuals, [[0.2, -0.2], [0.25, -0.25]])
         np.testing.assert_allclose(acceleration, [[1.0, 2.0, 9.0], [1.5, 2.5, 8.5]])
         np.testing.assert_allclose(orientation, [[0.1, 0.2, 0.3], [0.15, 0.25, 0.35]])
+        self.assertEqual([float(r["imu_gyro_z_rad_s"]) for r in raw], [0.03, 0.06])
 
     def test_loads_older_motor_only_log(self):
         names = ("right_knee", "left_knee")
