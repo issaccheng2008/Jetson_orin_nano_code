@@ -34,6 +34,33 @@ class CommandSourceTests(unittest.TestCase):
             publisher.close()
             source.close()
 
+    def test_hold_upright_arrives_and_defaults_off(self) -> None:
+        """A packet without the field must read as "don't", so a vision older than the
+        field keeps behaving exactly as it did."""
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        source = UdpCommandSource(port, timeout_s=0.5)
+        publisher = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        def wait_for(expected):
+            deadline = time.monotonic() + 0.5
+            while (source.get_snapshot().hold_upright is not expected
+                   and time.monotonic() < deadline):
+                time.sleep(0.005)
+            return source.get_snapshot().hold_upright
+
+        try:
+            publisher.sendto(json.dumps({"vx": 0, "wz": 0}).encode(), ("127.0.0.1", port))
+            self.assertFalse(wait_for(False))
+            publisher.sendto(json.dumps({"vx": 0, "wz": 0, "hold_upright": True}).encode(),
+                             ("127.0.0.1", port))
+            self.assertTrue(wait_for(True))
+        finally:
+            publisher.close()
+            source.close()
+
     def test_clamp_rejects_non_finite_command(self) -> None:
         with self.assertRaises(ValueError):
             clamp_command([float("nan"), 0.0, 0.0])

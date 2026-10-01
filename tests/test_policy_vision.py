@@ -642,6 +642,13 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertEqual(published[resumed - 1].args[:2], (0.0, 0.0))
         self.assertEqual(published[resumed - 1].kwargs["event_action"], 3)
         self.assertEqual(published[resumed].args[2], -1)      # released with the resume
+        # The whole stop asks the robot to hold its legs straight: that is the pose the
+        # card geometry is calibrated for, and the policy's own stopped pose is pitched
+        # back about 20 degrees. Nothing before or after the window asks for it.
+        self.assertFalse(published[0].kwargs["hold_upright"])
+        self.assertTrue(published[1].kwargs["hold_upright"])
+        self.assertTrue(published[resumed - 1].kwargs["hold_upright"])
+        self.assertFalse(published[resumed].kwargs["hold_upright"])
         # It drives again the moment the window closes - there is no blind clearance
         # stage. The controller was idle all through the stop and its loop state is kept
         # (the stop is a pause), so this lands near a fresh controller's value for the

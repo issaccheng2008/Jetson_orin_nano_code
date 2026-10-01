@@ -15,11 +15,21 @@ class ProcessVisionOutputTests(unittest.TestCase):
 
     def test_forces_lateral_velocity_to_zero(self) -> None:
         result = process_vision_output({"vx": 0.25, "vy": 0.9, "wz": -0.2, "qr": 3})
-        self.assertEqual(result, {"vx": 0.25, "vy": 0.0, "wz": -0.2, "qr": 3})
+        self.assertEqual(result, {"vx": 0.25, "vy": 0.0, "wz": -0.2, "qr": 3,
+                                  "hold_upright": False})
 
     def test_clamps_policy_command_ranges(self) -> None:
         result = process_vision_output({"vx": 2.0, "wz": -2.0, "qr": 99})
-        self.assertEqual(result, {"vx": 1.0, "vy": 0.0, "wz": -0.5, "qr": -1})
+        self.assertEqual(result, {"vx": 1.0, "vy": 0.0, "wz": -0.5, "qr": -1,
+                                  "hold_upright": False})
+
+    def test_hold_upright_passes_through_and_defaults_off(self) -> None:
+        """Vision asks for it while it stands still to read a card; an older vision
+        that never sends the field must keep behaving exactly as before."""
+        asked = process_vision_output({"vx": 0.0, "wz": 0.0, "hold_upright": True})
+        self.assertTrue(asked["hold_upright"])
+        self.assertTrue(CommandSmoother(1.0, 2.0).update(asked, 0.02)["hold_upright"])
+        self.assertFalse(process_vision_output({"vx": 0.0, "wz": 0.0})["hold_upright"])
 
     def test_requires_velocity_fields(self) -> None:
         with self.assertRaises(KeyError):
@@ -97,7 +107,8 @@ class CommandSmootherTests(unittest.TestCase):
         self.assertLess(first["vx"], 0.4)
         for _ in range(30):
             last = smoother.update(stale, 0.02)
-        self.assertEqual(last, {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1})
+        self.assertEqual(last, {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1,
+                                "hold_upright": False})
 
     def test_qr_passes_through_untouched(self) -> None:
         smoother = CommandSmoother(max_vx_accel=1.0, max_wz_accel=2.0)

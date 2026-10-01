@@ -270,7 +270,7 @@ class ConnectorClient:
         self.address = (host, port)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    def publish(self, vx, wz, qr=-1, *, event_id=0, event_action=-1):
+    def publish(self, vx, wz, qr=-1, *, event_id=0, event_action=-1, hold_upright=False):
         if not math.isfinite(vx) or not math.isfinite(wz):
             raise ValueError("velocity must be finite")
         message = {"vx": float(vx), "vy": 0.0, "wz": float(wz), "qr": int(qr)}
@@ -279,6 +279,10 @@ class ConnectorClient:
                 raise ValueError("invalid shape event")
             message["event_id"] = int(event_id)
             message["event_action"] = int(event_action)
+        # Only sent when true, like event_id: an absent field means "don't", so a
+        # connector older than this one keeps behaving exactly as before.
+        if hold_upright:
+            message["hold_upright"] = True
         self.socket.sendto(json.dumps(message, separators=(",", ":"),
                                       allow_nan=False).encode("utf-8"), self.address)
 

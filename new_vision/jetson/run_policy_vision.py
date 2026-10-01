@@ -673,7 +673,13 @@ def main():
             visible_qr = card_action if recognized_this_frame else -1
             event = ({"event_id": card_event_id, "event_action": card_action}
                      if card_event_id else {})
-            client.publish(vx, wz, visible_qr, **event)
+            # Re-read here rather than reusing the top of the loop: the window can be
+            # opened by this very frame's trigger, and the standstill it asks for
+            # starts now, not on the next one.
+            client.publish(vx, wz, visible_qr,
+                           hold_upright=(processed < stop_until
+                                         or processed < card_until),
+                           **event)
             if processed - last_log >= 0.5:
                 # Left of the bar is what the robot is doing; right of it is why.
                 # Read only the left if it is behaving.

@@ -10,6 +10,7 @@ import numpy as np
 
 import config
 import main
+from command_source import CommandSnapshot
 from protocol import STATE_ENCODERS_VALID, STATE_IMU_VALID
 
 
@@ -84,7 +85,10 @@ class WalkingModeTests(unittest.TestCase):
             contextlib.redirect_stdout(io.StringIO()),
         ):
             source = source_cls.return_value
-            source.get.side_effect = [np.array([0.4, 0, -0.2]), np.array([0.4, 0, 0.3])]
+            source.get_snapshot.side_effect = [
+                CommandSnapshot(np.array([0.4, 0.0, -0.2], dtype=np.float32)),
+                CommandSnapshot(np.array([0.4, 0.0, 0.3], dtype=np.float32)),
+            ]
             policy = policy_cls.return_value
             policy.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.0)
             link = link_cls.return_value
@@ -96,6 +100,47 @@ class WalkingModeTests(unittest.TestCase):
             for call, expected in zip(policy.step.call_args_list, ([0.4, 0, -0.2], [0.4, 0, 0.3])):
                 np.testing.assert_allclose(call.kwargs["velocity_command"], expected)
             source.close.assert_called_once()
+
+    def test_vision_reading_a_card_holds_the_legs_straight(self):
+        """The policy's own stopped pose is pitched back about 20 degrees and the card
+        geometry is calibrated at the mount angle, so while the vision stands still to
+        read a card it asks for straight legs — and the policy is not stepped at all
+        for those frames."""
+        state = SimpleNamespace(
+            status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID,
+            accel_m_s2=np.array([0, 0, 9.81], dtype=np.float32),
+            gyro_rad_s=np.zeros(3, dtype=np.float32),
+            orientation_wxyz=np.array([1, 0, 0, 0], dtype=np.float32),
+            joint_position=config.Q_DEFAULT.copy(),
+            joint_velocity=np.zeros(12, dtype=np.float32), sequence=1,
+        )
+        held = CommandSnapshot(np.zeros(3, dtype=np.float32), hold_upright=True)
+        walking = CommandSnapshot(np.array([0.3, 0.0, 0.0], dtype=np.float32))
+        output = io.StringIO()
+        with (
+            patch.object(main, "parse_args", return_value=self.args("--command-source", "vision")),
+            patch.object(main.signal, "signal"),
+            patch.object(main, "HumanoidPolicy") as policy_cls,
+            patch.object(main, "SerialLink") as link_cls,
+            patch.object(main, "UdpCommandSource") as source_cls,
+            patch.object(main, "PositionCsvLogger"),
+            contextlib.redirect_stdout(output),
+        ):
+            source = source_cls.return_value
+            source.get_snapshot.side_effect = [held, held, walking, held]
+            policy = policy_cls.return_value
+            policy.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.0)
+            link = link_cls.return_value
+            link.wait_for_state.return_value = state
+            link.get_latest_state.side_effect = [state, state, state, state,
+                                                 RuntimeError("stale state")]
+            self.assertEqual(main.main(), 1)
+            # Two held frames, then one walking frame, then held again when the state
+            # read fails: only the walking one reached the policy.
+            self.assertEqual(policy.step.call_count, 1)
+            np.testing.assert_allclose(
+                policy.step.call_args.kwargs["velocity_command"], [0.3, 0.0, 0.0])
+            self.assertIn("hold_upright", output.getvalue())
 
 
 if __name__ == "__main__":

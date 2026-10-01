@@ -308,6 +308,7 @@ def main() -> int:
         start_time = next_tick
         step = 0
         card_policy_active = False
+        upright_active = False
         last_action_tx = -float("inf")
 
         while not stop_requested:
@@ -344,6 +345,7 @@ def main() -> int:
                 sensor_to_world=config.IMU_QUATERNION_IS_SENSOR_TO_WORLD,
             )
             step_policy = policy
+            upright_hold = False
             if args.fixed_policy:
                 q_policy_target = policy.next_target()
                 if q_policy_target is None:
@@ -358,7 +360,11 @@ def main() -> int:
                 command_values = {"lift_command": lift_command}
                 command_status = f"lift_command={int(lift_command)} support={args.support_foot} "
             else:
-                snapshot = command_source.get_snapshot() if shape_controller else None
+                # Snapshot whenever the source has one, not only when a card policy is
+                # loaded: the upright hold reads it too and must work without
+                # --one-foot-model.
+                snapshot = (command_source.get_snapshot()
+                            if args.command_source == "vision" else None)
                 velocity_command = snapshot.velocity if snapshot is not None else command_source.get()
                 decision = None
                 if shape_controller is not None:
@@ -389,6 +395,16 @@ def main() -> int:
                     elif card_policy_active:
                         policy.reset()
                         card_policy_active = False
+                # Vision is standing the robot still to read a card and wants the legs
+                # held straight. The policy's own stopped pose is pitched back about 20
+                # degrees, and the card geometry is calibrated at the mount angle, so
+                # that pose is what pushes the box outside the square gate. A running
+                # leg action wins over the hold.
+                upright_hold = (snapshot is not None and snapshot.hold_upright
+                                and not card_policy_active)
+                if upright_active and not upright_hold:
+                    policy.reset()
+                upright_active = upright_hold
                 # A fixed-test timer must never override live vision commands.
                 if (args.command_source == "fixed" and args.walk_seconds > 0
                         and now - start_time >= args.walk_seconds):
@@ -399,6 +415,9 @@ def main() -> int:
                     command_status = (f"shape={decision.action_id} one-foot "
                                       f"support={decision.support_foot} "
                                       f"lift={int(decision.lift_command)} ")
+                elif upright_hold:
+                    command_values = {}
+                    command_status = "hold_upright "
                 else:
                     command_values = {"velocity_command": velocity_command}
                     command_status = (
@@ -408,14 +427,24 @@ def main() -> int:
                     )
 
             if not args.fixed_policy:
-                q_policy_target, action, obs, latency_ms = step_policy.step(
-                    accel_m_s2=accel_policy,
-                    gyro_rad_s=gyro_policy,
-                    projected_gravity=projected_gravity,
-                    **command_values,
-                    joint_position_policy=q_policy,
-                    joint_velocity_policy=qd_policy,
-                )
+                if upright_hold:
+                    # Same all-zero frame examples/stand_upright_hold.json plays: knees
+                    # straight, no policy in the loop. The slew limiter and the
+                    # deviation window below still rate-limit the way in and out, so
+                    # this is not a step.
+                    q_policy_target = np.zeros(config.NUM_JOINTS, dtype=np.float32)
+                    action = np.zeros(config.ACTION_DIM, dtype=np.float32)
+                    obs = np.zeros(1, dtype=np.float32)
+                    latency_ms = 0.0
+                else:
+                    q_policy_target, action, obs, latency_ms = step_policy.step(
+                        accel_m_s2=accel_policy,
+                        gyro_rad_s=gyro_policy,
+                        projected_gravity=projected_gravity,
+                        **command_values,
+                        joint_position_policy=q_policy,
+                        joint_velocity_policy=qd_policy,
+                    )
             q_policy_target = config.clamp_policy_target(q_policy_target)
             q_policy_target = slew_limit(q_policy_target, last_q_policy_target, dt)
             q_policy_target = config.clamp_policy_target_to_current(q_policy_target, q_policy)
