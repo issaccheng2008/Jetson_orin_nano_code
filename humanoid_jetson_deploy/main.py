@@ -416,6 +416,7 @@ def main() -> int:
                 state.joint_position,
                 accel_policy,
                 orientation_rpy,
+                gyro_policy,
             )
             if position_plot is not None and step % args.plot_every == 0:
                 position_plot.update(

@@ -18,6 +18,12 @@ IMU_ACCEL_FIELDS = tuple(f"imu_accel_{axis}_m_s2" for axis in "xyz")
 IMU_ORIENTATION_FIELDS = tuple(f"imu_{axis}_rad" for axis in IMU_ORIENTATION_LABELS)
 IMU_ACCEL_TOGGLE = "IMU acceleration"
 IMU_ORIENTATION_TOGGLE = "IMU orientation"
+# 原始角速度。`imu_yaw_rad` 是四元数解出来的 Euler 角，而走路时 roll/pitch 会摆到
+# 30~40° —— 那个姿态下 Euler yaw 会失真，看起来像车身在左右乱甩。把 z 积分出来是
+# 一条独立于 Euler 分解的 yaw，两条对不上就知道是谁在骗人。accel/orientation 那两组
+# 要参加 load_position_log 的完整性检查，这一组故意不参加：老日志没有这几列，
+# 加进去会让它们全部读不出来。
+IMU_GYRO_FIELDS = tuple(f"imu_gyro_{axis}_rad_s" for axis in "xyz")
 
 
 class PositionCsvLogger:
@@ -37,6 +43,7 @@ class PositionCsvLogger:
             + [f"actual_{name}_rad" for name in self.joint_names]
             + list(IMU_ACCEL_FIELDS)
             + list(IMU_ORIENTATION_FIELDS)
+            + list(IMU_GYRO_FIELDS)
         )
 
     def write(
@@ -48,11 +55,13 @@ class PositionCsvLogger:
         actual_motor_rad: np.ndarray,
         imu_accel_m_s2: np.ndarray,
         imu_orientation_rpy_rad: np.ndarray,
+        imu_gyro_rad_s: np.ndarray,
     ) -> None:
         target = np.asarray(target_motor_rad, dtype=np.float32).reshape(len(self.joint_names))
         actual = np.asarray(actual_motor_rad, dtype=np.float32).reshape(len(self.joint_names))
         acceleration = np.asarray(imu_accel_m_s2, dtype=np.float32).reshape(3)
         orientation = np.asarray(imu_orientation_rpy_rad, dtype=np.float32).reshape(3)
+        gyro = np.asarray(imu_gyro_rad_s, dtype=np.float32).reshape(3)
         self._writer.writerow(
             [
                 datetime.now().astimezone().isoformat(timespec="milliseconds"),
@@ -63,6 +72,7 @@ class PositionCsvLogger:
                 *[f"{value:.8f}" for value in actual],
                 *[f"{value:.8f}" for value in acceleration],
                 *[f"{value:.8f}" for value in orientation],
+                *[f"{value:.8f}" for value in gyro],
             ]
         )
 
