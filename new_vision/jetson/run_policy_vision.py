@@ -270,9 +270,12 @@ def parse_args():
                              "than that runs wide")
     parser.add_argument("--single-line-gain", type=float,
                         default=float(os.getenv("SINGLE_LINE_GAIN", "1")),
-                        help="Loop-gain multiplier applied only while one track "
-                             "boundary is visible on a curve. 1.0 (default) leaves "
-                             "the gains exactly as they are")
+                        help="Loop-gain multiplier applied on a curve whenever the "
+                             "near band's reading cannot be trusted: only one "
+                             "boundary visible, OR the bottom lock invalid (off "
+                             "centre past the symmetry tolerance / edges never "
+                             "paired). 1.0 (default) leaves the gains exactly as "
+                             "they are")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")

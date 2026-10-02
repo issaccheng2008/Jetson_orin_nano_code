@@ -313,6 +313,12 @@ class SteeringTests(unittest.TestCase):
         single["single_line"] = True
         single_straight = detection(curve=False)
         single_straight["single_line"] = True
+        # 2026-10-02 实车跑出去的那一类：不是单线，两条边都看到了，只是偏出去
+        # 超过对称容差所以锁无效。这个增益以前在这类帧上一次都没生效过。
+        unlocked = detection(curve=True)
+        unlocked["bottom_lock_valid"] = False
+        unlocked_straight = detection(curve=False)
+        unlocked_straight["bottom_lock_valid"] = False
 
         self.assertAlmostEqual(doubled.command(both, 0.8, 0.02)[1],
                                plain.command(both, 0.8, 0.02)[1])
@@ -320,6 +326,10 @@ class SteeringTests(unittest.TestCase):
                                2.0 * plain.command(single, 0.8, 0.02)[1])
         self.assertAlmostEqual(doubled.command(single_straight, 0.8, 0.02)[1],
                                plain.command(single_straight, 0.8, 0.02)[1])
+        self.assertAlmostEqual(doubled.command(unlocked, 0.8, 0.02)[1],
+                               2.0 * plain.command(unlocked, 0.8, 0.02)[1])
+        self.assertAlmostEqual(doubled.command(unlocked_straight, 0.8, 0.02)[1],
+                               plain.command(unlocked_straight, 0.8, 0.02)[1])
         self.assertAlmostEqual(SteeringController(**gains).command(single, 0.8, 0.02)[1],
                                plain.command(both, 0.8, 0.02)[1])
 

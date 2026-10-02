@@ -225,7 +225,20 @@ class SteeringController:
         # (bias 5 cm against a fused err near zero), so amplifying the raw reading
         # alone would be a no-op exactly where the correction is needed. Scaling here
         # takes P, I and D along together, which is what a loop gain should do.
-        if curve and debug.get("single_line"):
+        # 2026-10-02：原来只认 single_line，条件太窄。实车在弯道末跑出去那几帧
+        # **两条边都看到了**（single_line=False），只是偏出去超过对称容差所以
+        # bottom_lock_valid=False —— 这个增益一次都没生效过。
+        # 两个量在不同带上量（single_line 来自左右 ROI，bottom_lock_valid 来自
+        # 底部那条 10 行的带），谁都不蕴含谁，所以是两个条件取或。
+        # 默认 1.0 时这一改不改行为。
+        # 2026-10-02：原来只认 single_line，条件太窄。实车在弯道末跑出去那几帧
+        # **两条边都看到了**（single_line=False），只是偏出去超过对称容差所以
+        # bottom_lock_valid=False —— 这个增益一次都没生效过。
+        # 两个量在不同带上量（single_line 来自左右 ROI，bottom_lock_valid 来自
+        # 底部那条 10 行的带），谁都不蕴含谁，所以是两个条件取或。
+        # 默认 1.0 时这一改不改行为。
+        if curve and (debug.get("single_line")
+                      or not debug.get("bottom_lock_valid", True)):
             err *= self.single_line_gain
         self.last_err_eff = err
         # Clear only on the curve -> straight transition. The previous condition
