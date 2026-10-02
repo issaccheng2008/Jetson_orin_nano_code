@@ -288,9 +288,12 @@ velocity. With the defaults, 10 cm of final PID steering gives -0.1 rad/s.
   0 by curve_px 0.
 - `--no-shape-detect`: card detection is on by default; this turns it off and
   leaves `qr` at -1.
-- `--shape-every`: default 6. How many frames apart to run `ShapeDetector`. It is
+- `--shape-every`: default 2. How many frames apart to run `ShapeDetector`. It is
   an order of magnitude more expensive than the line detector (see above), so
-  this is the main knob for protecting the vision loop rate.
+  this is the main knob for protecting the vision loop rate. At the old default
+  of 6 the loop sampled at ~3 Hz, and since the stop trigger is a line on `cy`,
+  that is ~10 cm of travel per sample: the robot stopped 17.5 cm from the card
+  when it was set for 30 cm.
 - `--card-hold-ms`: default 3000. How long `qr` keeps reporting a detected card.
   3000 matches the rules' action window and stays under `ShapeDetector`'s
   `cooldown_ms` of 3200, so one card cannot re-fire. The value is held across a

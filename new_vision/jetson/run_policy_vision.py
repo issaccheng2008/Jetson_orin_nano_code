@@ -238,11 +238,14 @@ def parse_args():
                              "the card is acted on. run_robot.py used 3; 2 trades a little "
                              "precision for firing on cards whose classification flickers")
     parser.add_argument("--shape-every", type=int,
-                        default=max(1, int(os.getenv("SHAPE_EVERY", "6"))),
+                        default=max(1, int(os.getenv("SHAPE_EVERY", "2"))),
                         help="Run card detection every N frames. Measured at 1280x720: "
                              "31 ms with no card in view, 95-122 ms with one, against "
-                             "29 ms for the line detector alone. 6 keeps the loop near "
-                             "29 Hz clear and 23 Hz while a card is visible")
+                             "29 ms for the line detector alone. The stop trigger is a "
+                             "line on cy, so the period is an overshoot: at 3 Hz the "
+                             "robot drives ~10 cm between samples and 2026-10-02 landed "
+                             "at 17.5 cm instead of the 30 cm it was set for - close "
+                             "enough that the card's bottom left the frame")
     parser.add_argument("--card-every-stopped", type=int,
                         default=max(1, int(os.getenv("CARD_EVERY_STOPPED", "2"))),
                         help="Card detection period while stopped, instead of running "
@@ -560,11 +563,11 @@ def main():
                     loss_ring.clear()
                 prev_pair, prev_conf = pair_now, float(confidence)
             # A card in view gets the stopped rate, not just the stop. The stop fires
-            # on the first cy at or above the trigger line, so --shape-every 6 samples
-            # that line about every 0.3 s - most of a 12 cm step at 0.4 m/s - and the
-            # robot sailed past 43 cm to ~22 cm, close enough that the card's bottom
-            # left the frame and no quad could close. The fine reading has to exist
-            # before the decision, not after it.
+            # on the first cy at or above the trigger line, so the period is the whole
+            # overshoot: at 6 frames the line was sampled every ~0.3 s - most of a 12 cm
+            # step at 0.4 m/s - and the robot sailed past 43 cm to ~22 cm, close enough
+            # that the card's bottom left the frame and no quad could close. The fine
+            # reading has to exist before the decision, not after it.
             #
             # min(), not a plain switch: --shape-every 1 is a request for every frame,
             # and a card in view is no reason to slow that down. The stop branch keeps
