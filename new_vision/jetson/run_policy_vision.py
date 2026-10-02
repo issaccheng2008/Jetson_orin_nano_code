@@ -757,7 +757,13 @@ def main():
                     # 车道宽锚和实时俯角：前者是横向比例尺的绝对缩放，后者只在
                     # 有姿态广播时才会从静态安装角上动起来。
                     f"lscale={debug.get('lateral_scale', 1.0):.3f} "
-                    f"pitch={effective_pitch:.1f}",
+                    f"pitch={effective_pitch:.1f}"
+                    # 重摆期间这两个不一样，而 (body …) 就是固件冻的那个值 ——
+                    # 它会一直不变，所以这一行也是"锁存到底什么时候发生"唯一
+                    # 看得见的地方（调 CARD_TILT_SETTLE_MAX_MS 靠它）。
+                    + (f"(body {attitude.value:.1f})"
+                       if attitude is not None and effective_pitch != attitude.value
+                       else ""),
                     flush=True)
                 last_log = processed
                 last_log_at = processed
