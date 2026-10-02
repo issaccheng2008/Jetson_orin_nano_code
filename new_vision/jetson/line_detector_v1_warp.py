@@ -1169,7 +1169,7 @@ class LineDetector:
         # 高斯自适应阈值（主力，对 black-hat 结果操作：线已变亮）
         adaptive_binary = cv2.adaptiveThreshold(
             gray_detect, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 31, -8  # blockSize=31, C=-8 (stricter)
+            cv2.THRESH_BINARY, 31, -12  # blockSize=31, C=-12 (stricter)
         )
         # Black-hat 后线变亮 → THRESH_BINARY 把线判为 255
         adaptive_mask = (adaptive_binary == 255)
