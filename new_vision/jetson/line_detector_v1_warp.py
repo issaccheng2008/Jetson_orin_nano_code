@@ -1628,6 +1628,11 @@ class LineDetector:
             # of that one boundary is then the only curve evidence there is.
             if single_line or LineDetector._single_band_mask(band_mask):
                 _cm = _cm or abs(angle_err) >= self.curve_angle_deg
+            # ⚠️ 这里和上面"锁有效"（~:1088）以及质量分（~:1083）用的是**同一个**
+            # bottom_lock_sym_tol_px。2026-10-02 把它从 24 收到放宽到 40 时以为只动了
+            # "锁有效"这一处，实际上三处一起动了 —— 尤其这里：偏到 24~40px 的帧
+            # 不再被强制进 curve_mode。那次实车三次全跑出去，大概率是这一处造成的。
+            # 要再试，先把这两个语义拆成两个常量。
             if ((not bottom_lock_valid) and bottom_pair_ratio > 0.0
                     and abs(bottom_sym_err_px) > self.bottom_lock_sym_tol_px):
                 _cm = True
