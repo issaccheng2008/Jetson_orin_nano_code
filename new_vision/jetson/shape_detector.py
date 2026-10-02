@@ -478,7 +478,17 @@ class ShapeDetector:
 
         if best is not None:
             self._cue_hist.append(1)   # 找框成功 = 强存在证据，时间窗记命中
-            warp = self._warp_card(binary, best)
+            # 分类的 warp 用 binary|ink 的并集。binary 是为"压掉 2cm 巡线"调的，
+            # 同一套阈值会把卡上 0.5cm 的细笔画锯断 —— 星形轮廓的环断了一处，
+            # findContours 就从断口钻进环内绕一圈，面积塌掉而凸包不变，solidity
+            # 从 0.65 掉到 0.35，正好落进十字那一档（<0.36）。2026-10-02 实车：
+            # 同一张静止的五角星在 0.278~0.685 之间逐帧跳，被投成了十字。
+            # 并上 ink（ring 通道本来就在用的原始灰度 Otsu 墨迹图，上面已经算过）
+            # 把断口补回来，同时不动 binary 已经认对的那部分。
+            # 实测：6card 31 张实拍 27/31 零跨类错，和只用 binary 一模一样
+            # （只用 ink 会掉到 24/31 并多出 3 个跨类错）；出问题那趟的 21 帧
+            # dump 里五角星 15/16 判对（binary 只有 11/16），十字 5/5。
+            warp = self._warp_card(cv2.bitwise_or(binary, ink), best)
             dbg["warp"] = warp
             shape = self._classify(warp, dbg)
             # quad映射回原图分辨率（找框在960×540上做，含 ROI 偏移）
@@ -491,9 +501,16 @@ class ShapeDetector:
             # 存在信号：只看"有没有一个够近的框"，不看它是什么形状。
             # 停下来的决定用它；是什么形状等停稳了再分类。
             dbg["box_top_work"] = float(best[:, 1].min())
+            # 没有 armed 闸门：presence 说的是"画面里有一张卡"，这是图像事实，
+            # 和本检测器内部那套"这张卡我还要不要开火"的状态无关。以前这里挂
+            # armed —— 检测器内部动作闸一开火 armed 就假，于是 classify 还在
+            # 逐帧把卡认出来、presence 却报"没有卡"。调用方按 presence 数漏检，
+            # 满 4 次就把 card_flag / card_triggered / 票全复位：车明明停在卡前面，
+            # 却既丢了票（2026-10-02 第二次停车什么都没出），又让同一张卡
+            # 5 秒后再触发一次。"每张卡只触发一次"现在靠 card_triggered，
+            # 它只在卡真的离开画面之后才复位。
             dbg["presence"] = bool(
-                self.armed
-                and dbg["box_top_work"] >= WORK_H * self.cfg["presence_top_frac"])
+                dbg["box_top_work"] >= WORK_H * self.cfg["presence_top_frac"])
             # 框质心在画面纵向的位置（0=顶, 1=底）。调用方拿它当"够近了"的闸门：
             # 存在信号只说明前面有卡，质心压到下方才说明真的走到跟前了。
             ys = best[:, 1]
@@ -522,7 +539,7 @@ class ShapeDetector:
             # cue, not the box: the shake on the move breaks the card's border into
             # two or three strokes and no quad ever closes, so a box-only gate never
             # fires. Gate two, after the stop, is the quad and the classifier.
-            dbg["presence"] = bool(self.armed and self._cue_confirmed())
+            dbg["presence"] = bool(self._cue_confirmed())
             # hit, not just presence: presence is a window over the last calls, and
             # _cue_box is whatever the last hit left there. Reading the box out of a
             # miss frame reported a position up to three calls old - which is how a

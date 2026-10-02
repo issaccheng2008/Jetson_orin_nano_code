@@ -844,6 +844,54 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertEqual(qr[3], 3)
         self.assertIn("square", out.getvalue())
 
+    def test_one_detection_casts_one_vote(self):
+        """票数必须等于检测次数。检测隔帧跑（--card-every-stopped 2），
+        而投票那段在检测块外面 —— card_dbg 不清空就会拿上一帧的结果再投一次，
+        票数正好翻倍，把"要 20 票"变成其实只看了 10 帧。"""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.return_value = (
+            None, {"presence": True, "presence_cy_frac": 0.95, "shape": "square"})
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 9:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        out = io.StringIO()
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-every-stopped", "2",
+                               "--card-tilt-ms", "0", "--card-stop-ms", "500",
+                               "--card-vote-frames", "99"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(out),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+
+        # 触发在第 1 帧（t=0.1），窗口 500ms 到 t=0.6 关。窗口内检测只跑
+        # 第 1/2/4 帧 —— 三票。不清 card_dbg 的话第 3/5 帧会拿第 2/4 帧的结果
+        # 再投一次，报的是五票。
+        self.assertIn("票 3 张", out.getvalue())
+
     def test_the_card_approach_steers_by_a_fixed_bias(self):
         """看得见卡的那一段（就是 --card-slow-vx 减速的那一段）转向不再跟线，
         固定压一个 wz —— 卡是个固定目标，对着它对准比跟着底下的线走更能停正。
@@ -1639,6 +1687,25 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         self.assertIsNone(second.get("presence_cy_frac"))   # nothing to gate on
         self.assertEqual(second.get("presence_cue"), 0.0)   # and the log is honest
         self.assertTrue(second.get("presence"))             # window still holds
+
+    def test_presence_survives_the_detector_disarming_itself(self):
+        """presence 说的是"画面里有没有卡"，不是"我还要不要开火"。
+
+        2026-10-02 实车：车停在五角星前面，分类器逐帧都认得出来，但检测器内部
+        那套动作闸（调用方早就不用了）自己开了一次火 → armed=0 → dbg["presence"]
+        被门控成假 → 调用方数满 4 次漏检，把 card_flag / card_triggered 和
+        **投出来的票**一起复位：那次停车一张票都没剩下（什么都没做），
+        5 秒后同一张卡又触发了一次停车。"""
+        detector = ShapeDetector()
+        detector._presence_cue = lambda _gray: ((40, 300, 120, 90), 4.0)
+        detector._cue_hist.extend([1, 1, 1])          # window already confirmed
+        detector.armed = False                        # 内部动作闸开过一次火
+        blank = np.zeros((720, 1280, 3), np.uint8)
+
+        _, dbg = detector.update(blank)
+
+        self.assertFalse(detector.armed)
+        self.assertTrue(dbg.get("presence"))
 
     def test_card_detection_runs_every_other_frame_while_stopped(self):
         """Every frame costs 94-122 ms, which drops the loop to 6-8 Hz and makes the

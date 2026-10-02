@@ -585,6 +585,9 @@ def main():
             # classifier is how a card gets read as the wrong shape. The card is
             # stationary and the window is seconds long, so the wait is free.
             tilting = processed < tilt_until
+            # 每帧清空：下面投票那段在检测块外面，读到上一帧的 card_dbg 就会拿同一次
+            # 检测投两次票（--card-every-stopped 2 时票数正好翻倍）。
+            card_dbg = None
             if shape is not None and not tilting and (frames % shape_period == 0):
                 action, card_dbg = shape.update(
                     frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
@@ -699,7 +702,7 @@ def main():
             # 不是 update() 返回的 action —— 那个受 cooldown_ms 限制，一次停车最多
             # 给一次，投不了票。计数放在停车触发之后：触发那一帧会清票，先投会被
             # 它抹掉。
-            if processed < stop_until and card_dbg.get("shape"):
+            if processed < stop_until and card_dbg and card_dbg.get("shape"):
                 _name = card_dbg["shape"]
                 card_votes[_name] = card_votes.get(_name, 0) + 1
                 card_vote_total += 1
