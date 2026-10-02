@@ -1,37 +1,5 @@
 # Humanoid Robot: Jetson Orin Nano ONNX Deployment
 
-## p3 相位时钟跨棍原型（独立入口）
-
-`models/phase_clock_model_850/` 是交接 zip 的完整副本，运行前校验每个文件的
-SHA-256、ONNX 合同、49/12 接口、关节顺序、默认角度和 20 ms 控制周期。
-该权重来自触地调度训练，只有候选时钟的单次仿真回放；它尚未经过充分的时钟微调或真机验证。
-跨棍入口与巡线、图卡入口分开，不能同时占用 STM32 串口。
-
-在本目录运行：
-
-```bash
-python3 phase_clock_main.py --port /dev/ttyACM0
-# 确认机器人已恢复微屈膝初始姿态，最前脚尖距木棍近边净距 8 cm 后，在另一终端发一次：
-python3 tools/send_phase_start.py
-```
-
-第一条命令默认不使能电机，用于检查通信、姿态门槛和时钟日志。真机执行时显式加
-`--enable-motors`。启动信号是本机 `127.0.0.1:5008` 上的 JSON UDP
-`{"start": true}`；重复信号不会重置正在运行的时钟。也可用
-`--start-bind` 和 `--start-port` 改成本机其他 IPv4 回环地址、端口。
-外部 8 cm 定位由操作方完成，程序只检查编码器接近微屈膝姿态且关节速度够低，
-不能从 IMU/编码器判断脚尖与木棍间隙。
-
-WALK、LEAD、FOLLOW 在时钟第 0～6、7～21、22～37 tick 生效；第 38 tick
-`sequence_finished` 后立即发送失能命令并退出。这是当前指定的结束接管方式，
-**失能会撤去电机支撑**，因此真机试验须已有外部支撑。结束信号不代表已跨过木棍或站稳。
-不会自动再次启动；下一次需要重新定位并重启进程。
-
-`--log logs/phase_clock_run.csv` 记录 STM32 采样时间戳、状态序号、主机读取/推理/发送时刻、
-相位、完整关节和 IMU 数据及 actor 原始动作。actor 产生的目标仍经过现有的关节限位、
-速度限制和相对编码器偏差限制；日志中的 `action_*` 保持未经这些限制的原始值。
-跨棍推理只依赖 `numpy` 和 `onnxruntime`，不导入训练框架。
-
 ## Fixed joint-angle frames (without ONNX)
 
 Use `examples/fixed_joint_frames.json` as a template. `format` must be
