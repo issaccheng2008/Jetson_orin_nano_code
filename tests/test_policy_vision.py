@@ -400,6 +400,55 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertNotIn("event_id", published[-1].kwargs)
         self.assertEqual(published[-1].args[2], -1)
 
+    def test_the_re_pose_window_uses_the_static_mount_angle(self):
+        """重摆期间 STM32 上报的是**故意冻结**的旧姿态（策略不能看见内部加的偏置），
+        那不是相机真实所在：重摆把机身扳回安装姿态，所以这一整段该用静态安装角。
+        实测 43cm 触发距离，地面方框判据只在假设俯角 [38.6, 59.0] 内认卡 —— 冻结
+        的 25° 在外面，喂进去等于把重摆要解决的问题原样搬回来。"""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.8, None, detection())
+        shape = Mock()
+        shape.action_map = {}
+        # 卡一直在、却一直认不出形状：停车窗口整段开着，正是要测的那一段。
+        shape.update.return_value = (None, {"presence": True, "presence_cy_frac": 0.9})
+        attitude = Mock()
+        attitude.value = 25.0          # 冻结值 = 后仰 20° 时相机只朝下 25°
+        reads = [0]
+        clock = [0.0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 15:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, None
+            return True, frame
+
+        camera.read.side_effect = read
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--shape-every", "1", "--card-every-stopped", "1",
+                               "--card-tilt-ms", "500"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch("attitude_input.AttitudeInput", return_value=attitude),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+
+        pitches = [call.args[0] for call in shape.set_camera_pitch_deg.call_args_list]
+        self.assertEqual(pitches[0], 25.0)          # 停车之前：实时姿态照用
+        self.assertTrue(pitches[1:], "the stop window never opened")
+        self.assertTrue(all(pitch == 45.0 for pitch in pitches[1:]), pitches)
+
     def test_headless_runner_publishes_detection_and_zero_on_capture_failure(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()

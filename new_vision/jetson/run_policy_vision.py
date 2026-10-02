@@ -470,10 +470,24 @@ def main():
                       f"vx<={args.card_slow_vx:+.2f} for {args.card_resume_ms:.0f}ms",
                       flush=True)
             card_window_open = window_open
+            effective_pitch = args.camera_pitch_deg
             if attitude is not None:
                 attitude.poll()
-                if shape is not None:
-                    shape.set_camera_pitch_deg(attitude.value)
+                # The STM32 freezes the attitude it reports while it re-poses the body,
+                # so the policy does not see the offset being applied. That frozen value
+                # is not where the camera is: the re-pose puts the body back on its
+                # install pose, which the static config already describes. Feeding the
+                # frozen value to the card geometry reintroduces exactly the failure the
+                # re-pose exists to fix -- measured at the 43 cm trigger distance, the
+                # ground-square gate accepts an assumed pitch of [38.6, 59.0] deg and
+                # the frozen 25 deg is far outside it, so the card is rejected either
+                # way. Gated on the window rather than the frame: the classifier does
+                # not run at all until --card-tilt-ms expires, and by then the low-pass
+                # has long since left the window.
+                if not (window_open and card_event_id == 0):
+                    effective_pitch = attitude.value
+            if shape is not None:
+                shape.set_camera_pitch_deg(effective_pitch)
             _, _, confidence, visualization, debug = detector.process(frame)
             frames += 1
             log_frames += 1
@@ -743,7 +757,7 @@ def main():
                     # 车道宽锚和实时俯角：前者是横向比例尺的绝对缩放，后者只在
                     # 有姿态广播时才会从静态安装角上动起来。
                     f"lscale={debug.get('lateral_scale', 1.0):.3f} "
-                    f"pitch={(attitude.value if attitude is not None else args.camera_pitch_deg):.1f}",
+                    f"pitch={effective_pitch:.1f}",
                     flush=True)
                 last_log = processed
                 last_log_at = processed
