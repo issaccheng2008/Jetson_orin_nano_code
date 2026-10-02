@@ -1804,6 +1804,55 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         for call in on.set_camera_pitch_deg.call_args_list:
             self.assertEqual(call.args[0], 45.0)
 
+    def test_hold_still_publishes_zeros_whatever_the_controller_decides(self):
+        """台架测机身姿态时得开 C（姿态从它来），但 C 一使能电机、B 一发
+        vx=0.3 车就走了。这个开关把发出去的 vx/wz 压成 0，检测和日志照跑。"""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection(error=9.0))
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.return_value = (None, {"presence": False, "card_found": False})
+
+        def run(extra):
+            camera = Mock()
+            camera.isOpened.return_value = True
+            camera.get.side_effect = [1280, 720]
+            clock = [0.0]
+            reads = [0]
+
+            def read():
+                reads[0] += 1
+                clock[0] += 0.1
+                if reads[0] > 5:
+                    run_policy_vision.signal.signal.call_args.args[1](None, None)
+                    return False, frame
+                return True, frame
+
+            camera.read.side_effect = read
+            with (
+                patch("sys.argv", ["run_policy_vision.py", "--headless"] + extra),
+                patch.object(run_policy_vision.signal, "signal"),
+                patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+                patch("utils.open_camera", return_value=camera),
+                patch("line_detector_v1_warp.LineDetector", return_value=detector),
+                patch("shape_detector.ShapeDetector", return_value=shape),
+                patch("attitude_input.AttitudeInput", side_effect=OSError),
+                patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+                patch("cv2.imshow", side_effect=AssertionError("headless")),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(run_policy_vision.main(), 0)
+            return client_cls.return_value.publish.call_args_list
+
+        driving = run([])
+        self.assertTrue(any(call.args[0] > 0 for call in driving))
+        held = run(["--hold-still"])
+        self.assertTrue(held)
+        for call in held:
+            self.assertEqual(call.args[0], 0.0)
+            self.assertEqual(call.args[1], 0.0)
+
     def test_card_detection_runs_every_other_frame_while_stopped(self):
         """Every frame costs 94-122 ms, which drops the loop to 6-8 Hz and makes the
         policy see one held packet for 6-8 of its 50 Hz ticks instead of 3."""

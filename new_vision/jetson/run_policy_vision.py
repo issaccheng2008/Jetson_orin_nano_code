@@ -119,6 +119,12 @@ def parse_args():
                              "so the frame counts as loss (hold, then stop) instead "
                              "of steering on it. Off by default because the bound has "
                              "not been measured against a normal lap yet")
+    parser.add_argument("--hold-still", action="store_true",
+                        help="Publish zero vx/wz whatever the controller decides. "
+                             "Detection, logging and the card logic all keep running "
+                             "and the robot just stands, which is what a bench test of "
+                             "the body-pitch effect needs: it lets the full stack "
+                             "run (the attitude comes from main.py) without driving")
     parser.add_argument("--line-pitch", action="store_true",
                         help="Also feed the body pitch to the LINE detector, but only "
                              "across the card window and --line-pitch-hold-s after it "
@@ -434,6 +440,7 @@ def main():
               f"red={'off' if args.no_red_detect else 'on'}; "
               f"sl_gain={args.single_line_gain}; "
               f"line_pitch={'on' if args.line_pitch else 'off'}; "
+              f"hold-still={'on' if args.hold_still else 'off'}; "
               f"center_dead={args.center_dead_cm}cm; "
               f"bias={args.bias_straight_cm}->{args.bias_cm}"
               f"(dead {args.bias_dead_px}, full {args.bias_gate_px})", flush=True)
@@ -840,6 +847,13 @@ def main():
             # card_event_id, not card_action_triggered: the latter is re-armed when
             # the card finally leaves the frame, which would tilt a second time.
             in_card_window = processed < stop_until or processed < card_until
+            # --hold-still：只观测不驱动。台架测"机身姿态对读数的影响"时要开
+            # C（姿态是 C 从 STM32 读了广播的），但 C 一使能电机、B 这边一发
+            # vx=0.3 车就走了。这里把命令压成 0 —— 检测、日志、图卡那套逻辑
+            # 全都照跑，只有"发出去的 vx/wz"是零，于是策略原地站着（也就是
+            # 那个后仰的站姿），读数还能正常观察。
+            if args.hold_still:
+                vx, wz = 0.0, 0.0
             client.publish(vx, wz, visible_qr,
                            hold_upright=(args.hold_upright and in_card_window),
                            card_tilt=(in_card_window and card_event_id == 0),
