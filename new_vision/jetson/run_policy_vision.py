@@ -216,6 +216,17 @@ def parse_args():
                              "tracking the line well, and keeping its estimate of where "
                              "the lane is beats restarting from the image middle. Turn "
                              "it on to break a lock that had already gone wrong")
+    parser.add_argument("--card-vote-frames", type=int,
+                        default=max(1, int(os.getenv("CARD_VOTE_FRAMES", "20"))),
+                        help="Stopped, count every per-frame classification and let "
+                             "the plurality decide the card. One frame is never "
+                             "trustworthy - blurred, mid-gait, half out of frame - but "
+                             "which shape wins out of 20 is. The result goes out as "
+                             "soon as this many votes are in, and every stop gets an "
+                             "answer: if --card-stop-ms runs out first the plurality "
+                             "so far is used anyway. Needs the classifier to actually "
+                             "get that many looks - it runs at ~10 Hz, so this wants "
+                             "roughly 2s between --card-tilt-ms and --card-stop-ms")
     parser.add_argument("--card-clear-calls", type=int,
                         default=max(1, int(os.getenv("CARD_CLEAR_CALLS", "4"))),
                         help="Consecutive detection calls with no card before the flag "
@@ -354,6 +365,7 @@ def main():
         shape = ShapeDetector(stable_frames=args.card_stable_frames,
                               cooldown_ms=3200, debug=False)
         shape_names = {number: name for name, number in shape.action_map.items()}
+        shape_numbers = dict(shape.action_map)
 
     # 机身姿态只喂给图卡，不喂巡线。走路时俯仰以 1.7Hz 摆 30~40°，低通过的
     # 滞后值描述不了当前这一帧，喂进 IPM 反而更糟；巡线那边靠车道宽锚定解决，
@@ -422,6 +434,9 @@ def main():
         card_armed = True        # and it has since been seen far enough to trigger
         card_action_triggered = False
         card_dbg = {}
+        # 这次停车的形状票：{形状名: 票数}。停车触发时清空，见下面。
+        card_votes = {}
+        card_vote_total = 0
         lateral_warned = None    # None until the lateral bound first trips
         card_window_open = False
         dumped = 0
@@ -594,36 +609,10 @@ def main():
                     with open(stem + ".json", "w", encoding="utf-8") as handle:
                         json.dump({"t": processed, **card_dbg}, handle,
                                   indent=1, default=str)
-                # Phase two waits for phase one. The classifier is only reliable on a
-                # card that is close, and the trigger line is what says it is. Acting
-                # as soon as a shape appears classified a card 50 cm away - top=186,
-                # cy=0.40 - on a small warp. The box only reaches that far down the
-                # frame after card_trigger_frac, so nothing may act before it.
-                # (hu was cited here as the reading that was right. It is not: on the
-                # 2026-09-26 laps every frame of every card read hu=circle at 0.005
-                # to 0.07, including the pentagram and the cross. It is degenerate,
-                # not corroborating.)
-                reached = (card_reach is not None
-                           and card_reach >= card_reach_line)
-                if action is not None and reached and not card_action_triggered and card_event_id == 0:
-                    card_action = action
-                    card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
-                    card_until = processed + args.card_hold_ms / 1000.0
-                    card_action_triggered = True
-                    recognized_this_frame = True
-                    # Meant to be impossible to miss in a scrolling log: this is the
-                    # one line that says the robot knew what it was looking at.
-                    quad = card_dbg.get("quad_work")
-                    width = ""
-                    if quad is not None:
-                        qx = np.asarray(quad, dtype=float)[:, 0]
-                        width = f"框宽={float(qx.max() - qx.min()):.0f}px "
-                    print("\n" + "=" * 68, flush=True)
-                    print(f"  ★★★  识别到图卡：{CARD_NAMES_ZH.get(shape_names.get(action), '?')}"
-                          f"（{shape_names.get(action, '?')}）  qr={action}", flush=True)
-                    print(f"        距离画面 {fmt(card_dbg.get('presence_cy_frac'), '.2f')}  "
-                          f"{width}保持 {args.card_hold_ms:.0f} ms", flush=True)
-                    print("=" * 68 + "\n", flush=True)
+                # 动作不在这里出 —— 单帧确认就发是旧路子，会在一张卡很远的时候就
+                # 开火（50cm、top=186、cy=0.40 那次）。现在停车之后投票，见下面。
+                # update() 返回的 action 受 cooldown_ms 限制、一次停车最多给一次，
+                # 投票用不上它（票从 card_dbg["shape"] 来）。
                 # The cue flickers while the robot walks, so the flag needs several
                 # consecutive misses before it drops. A single absent frame used to
                 # re-arm the stop, and the robot crept forward and stopped again.
@@ -636,6 +625,11 @@ def main():
                         card_flag = False
                         card_triggered = False
                         card_action_triggered = False
+                        # 卡走了，票也跟着作废。不清的话：窗口关闭后
+                        # card_event_id 归零、这里又把 card_action_triggered 归零，
+                        # 兜底分支就会拿着上一批旧票再投一次 —— 实机是刚起步又停下。
+                        card_votes = {}
+                        card_vote_total = 0
                 # Seeing a card only slows the robot down. Stopping waits until the card
                 # is close, on the same card_reach card_reach_line the action gate uses.
                 #
@@ -654,6 +648,8 @@ def main():
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
                     tilt_until = processed + args.card_tilt_ms / 1000.0
+                    card_votes = {}
+                    card_vote_total = 0
                     # 和下面"识别到图卡"那条配成一对：这两个时刻是整趟里唯一需要
                     # 肉眼确认的，中间重摆那一秒多什么都不会打印，所以它们要能
                     # 从刷屏里一眼捞出来。
@@ -695,6 +691,44 @@ def main():
                         f"armed={int(bool(getattr(shape, 'armed', True)))} "
                         f"cand={getattr(shape, 'candidate', None)}"
                         f"x{getattr(shape, 'candidate_count', 0)}", flush=True)
+            # ── 停车投票 ──
+            # 停车窗口里，每一帧的分类结果投一票。用 card_dbg["shape"]（每帧都写），
+            # 不是 update() 返回的 action —— 那个受 cooldown_ms 限制，一次停车最多
+            # 给一次，投不了票。计数放在停车触发之后：触发那一帧会清票，先投会被
+            # 它抹掉。
+            if processed < stop_until and card_dbg.get("shape"):
+                _name = card_dbg["shape"]
+                card_votes[_name] = card_votes.get(_name, 0) + 1
+                card_vote_total += 1
+
+            # 票够了就出；停车的预算（--card-stop-ms）用完还没够，也按手上的多数
+            # 票出 —— **每次停车必须给出一个**。出完 card_until 会把窗口接上，
+            # 机器人继续停着等动作。一票都没有才什么都不出（那次确实没看到卡）。
+            # 并列时按名字排序取第一个，结果可复现。
+            if (card_votes and not card_action_triggered and card_event_id == 0
+                    and (card_vote_total >= args.card_vote_frames
+                         or processed >= stop_until)):
+                winner = max(sorted(card_votes), key=card_votes.get)
+                card_action = shape_numbers[winner]
+                card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
+                card_until = processed + args.card_hold_ms / 1000.0
+                card_action_triggered = True
+                recognized_this_frame = True
+                tally = " ".join(f"{n}:{card_votes[n]}" for n in
+                                 sorted(card_votes, key=card_votes.get, reverse=True))
+                votes_cast = card_vote_total
+                # 出完就清票：同一批票只能定一次案。
+                card_votes = {}
+                card_vote_total = 0
+                print("\n" + "=" * 68, flush=True)
+                print(f"  ★★★  识别到图卡（投票）："
+                      f"{CARD_NAMES_ZH.get(winner, '?')}（{winner}）  "
+                      f"qr={card_action}", flush=True)
+                print(f"        票 {votes_cast} 张 / 要求 {args.card_vote_frames}"
+                      f"    {tally}"
+                      f"    保持 {args.card_hold_ms:.0f} ms", flush=True)
+                print("=" * 68 + "\n", flush=True)
+
             if card_action != -1 and processed >= card_until:
                 card_action = -1
                 card_event_id = 0

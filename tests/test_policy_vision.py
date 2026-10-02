@@ -378,12 +378,12 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         shape.update.side_effect = lambda *a, **k: (
             3 if reads[0] in (2, 35) else None,
-            {"presence": True, "presence_cy_frac": 0.9},
+            {"presence": True, "presence_cy_frac": 0.9, "shape": "square"},
         )
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless",
                                "--shape-every", "1", "--card-hold-ms", "5000",
-                               "--card-tilt-ms", "0"]),
+                               "--card-vote-frames", "1", "--card-tilt-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -549,7 +549,8 @@ class VisionEntryPointTests(unittest.TestCase):
         shape = Mock()
         shape.action_map = {"square": 3}
         shape.update.side_effect = lambda *a, **k: (
-            (None, {"presence": True, "card_found": True, "presence_cy_frac": 0.9})
+            (None, {"presence": True, "card_found": True, "presence_cy_frac": 0.9,
+                    "shape": "square"})
             if seen[0] >= 2
             else (None, {"presence": False, "card_found": False,
                          "presence_cy_frac": None}))
@@ -560,7 +561,8 @@ class VisionEntryPointTests(unittest.TestCase):
             return clock[0]
 
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1"]),
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-vote-frames", "1"]),
             patch.object(run_policy_vision.signal, "signal") as signals,
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -599,13 +601,17 @@ class VisionEntryPointTests(unittest.TestCase):
         detector = Mock()
         detector.process.return_value = (0, 0, 0.8, None, detection())
         shape = Mock()
-        # A shape is only acted on once the card has reached the trigger line; the
-        # centroid has to be reported for that to be knowable.
-        shape.update.side_effect = [(3, {"presence_cy_frac": 0.9})] + [(None, {})] * 2
+        # 投票制下动作只在停车窗口里出，所以这一帧要同时满足停车闸（presence +
+        # cy 过线）才拿得到票。--card-vote-frames 1 让它第一帧就定案，把这条
+        # 测的"event 生命周期"和投票分开。
+        shape.update.side_effect = [
+            (3, {"presence": True, "presence_cy_frac": 0.9, "shape": "square"})
+        ] + [(None, {})] * 2
         shape.action_map = {"square": 3}
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless",
-                               "--shape-every", "1", "--card-hold-ms", "3000"]),
+                               "--shape-every", "1", "--card-hold-ms", "3000",
+                               "--card-vote-frames", "1"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -648,7 +654,8 @@ class VisionEntryPointTests(unittest.TestCase):
         shape = Mock()
         shape.action_map = {"square": 3}
         shape.update.side_effect = lambda *a, **k: (
-            (3, {"presence": True, "presence_cy_frac": 0.9}) if seen["card"]
+            (3, {"presence": True, "presence_cy_frac": 0.9, "shape": "square"})
+            if seen["card"]
             else (None, {"presence": False, "presence_cy_frac": None}))
         clock = [0.0]
         reads = [0]
@@ -665,6 +672,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-vote-frames", "1",
                                "--card-hold-ms", "5000", "--card-stop-ms", "3000"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
@@ -785,6 +793,56 @@ class VisionEntryPointTests(unittest.TestCase):
         detector = LineDetector(1280, 720)
         _, _, confidence, _, debug = detector.process(np.full((720, 1280, 3), 255, np.uint8))
         self.assertEqual(SteeringController().command(debug, confidence, 0.03), (0, 0))
+
+    def test_the_card_is_decided_by_voting_after_the_stop(self):
+        """停下之后按票数定案：哪一类票多就是哪一类。不是看哪一帧先"确认" ——
+        单帧靠不住（模糊、步态抖动、半张卡出画面），多数票才靠得住。"""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"square": 3, "triangle": 6}
+        plan = {2: "triangle", 3: "square", 4: "square"}
+        shape.update.side_effect = lambda *a, **k: (
+            (None, {"presence": True, "presence_cy_frac": 0.95,
+                    "shape": plan.get(reads[0])}))
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 10:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        out = io.StringIO()
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-every-stopped", "1",
+                               "--card-tilt-ms", "0",
+                               "--card-vote-frames", "3"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(out),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        qr = [call.args[2] for call in client_cls.return_value.publish.call_args_list]
+        # read 2 停车并投出 triangle；read 3 投 square；read 4 第 3 张票到，定案 square
+        self.assertEqual(qr[0], -1)
+        self.assertEqual(qr[1], -1)
+        self.assertEqual(qr[3], 3)
+        self.assertIn("square", out.getvalue())
 
     def test_the_card_approach_steers_by_a_fixed_bias(self):
         """看得见卡的那一段（就是 --card-slow-vx 减速的那一段）转向不再跟线，
@@ -970,7 +1028,7 @@ class VisionEntryPointTests(unittest.TestCase):
         shape.action_map = {"square": 3}
         shape.update.side_effect = lambda *a, **k: (
             (3, {"presence": True, "card_found": True,
-                 "presence_cy_frac": plan[reads[0]]})
+                 "presence_cy_frac": plan[reads[0]], "shape": "square"})
             if reads[0] in plan
             else (None, {"presence": False, "card_found": False,
                          "presence_cy_frac": None}))
@@ -989,7 +1047,8 @@ class VisionEntryPointTests(unittest.TestCase):
         out = io.StringIO()
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
-                               "--card-trigger-frac", "0.5"]),
+                               "--card-trigger-frac", "0.5",
+                               "--card-vote-frames", "1"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -1001,6 +1060,8 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         # reads 2-4 are short of the line and must be ignored; read 5 reaches it.
+        # --card-vote-frames 1 so the vote settles on that same frame; the default 20
+        # would need a stop window this mock does not have.
         qr = [call.args[2] for call in client_cls.return_value.publish.call_args_list]
         self.assertEqual(qr[1:4], [-1, -1, -1])
         self.assertEqual(qr[4], 3)
