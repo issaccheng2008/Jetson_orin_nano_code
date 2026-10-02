@@ -246,22 +246,21 @@ class ShapeDetector:
             "cue_aspect_max": 2.6,     # 长边/短边上限
             "cue_fill_min": 0.30,      # 连通域面积 / 外接矩形面积
             "cue_edge_margin": 4,      # 上/左/右被画面切掉的不算完整卡
-            # ⚠️ 2026-10-02 加严。presence 现在不只是"减速"：它还会让
-            # --card-slow-wz 往右压一个固定 wz，误识别一次的代价从"白减速一下"
-            # 变成"在别的地方往右拐一下"。实测 dump 里出现过 score=0.18 的命中
-            # （inner_frac × 对比度，几乎没有余量），把这一类挡掉：纸面要占外接
-            # 矩形 1% 以上、要比环亮 6 灰阶以上（原来 0.5% / 4 灰阶，都贴着噪声）。
-            "cue_inner_min": 0.01,     # 环内亮孔占比下限（必须有纸面）
+            # ⚠️ 2026-10-02 试过加严（0.01 / 6.0 / hist_m 4），实车把它退回来了：
+            # 卡在眼前 9 帧都 found=1 shape=triangle，presence 却连着 7 帧 False ——
+            # 而 card_flag 靠 presence 撑着（连续 --card-clear-calls 次没有就掉），
+            # 停车闸第一条就是 card_flag，于是**根本不停**。真卡的 cue 命中本来就是
+            # 断续的，hist_m 多要一帧就够不着了。要防"别处误识别导致减速后右拐"，
+            # 别在这里挡 —— 那是停车的前置信号，换个地方（见 --card-slow-wz）。
+            "cue_inner_min": 0.005,    # 环内亮孔占比下限（必须有纸面）
             "cue_ring_max": 20.0,      # 环厚（面积/周长）上限，拒实心粗笔画
             "cue_core_gray_min": 100.0,  # 亮孔灰度下限
-            "cue_contrast_min": 6.0,   # 亮孔 − 环 灰度下限
+            "cue_contrast_min": 4.0,   # 亮孔 − 环 灰度下限
             # 时间累积：抖动是步态频率的周期运动，单帧判定必然断续。
             # 近 N 帧里出现 M 次算"卡在前面"；再看最近 R 帧里至少有一次命中，
             # 把尾随段压到 R-1 帧，不然卡走了 presence 还挂着就是假阳性。
-            # M 从 3 提到 4 同上：单帧误命中的代价变大了。真卡是连续命中，多要
-            # 一帧大约晚一次检测调用（--shape-every 6 时约 0.3s）。
             "cue_hist_n": 9,
-            "cue_hist_m": 4,
+            "cue_hist_m": 3,
             "cue_hist_recent": 3,
         }
 
