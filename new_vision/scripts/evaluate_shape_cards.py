@@ -91,8 +91,7 @@ def main() -> int:
     if args.dump:
         os.makedirs(args.dump, exist_ok=True)
 
-    detector = ShapeDetector()
-    classes = sorted(detector.action_map)
+    classes = sorted(ShapeDetector().action_map)
     known = set(classes)
 
     # truth -> predicted (or "-" for no shape back)
@@ -110,6 +109,10 @@ def main() -> int:
             unknown_label.append(path.name)
             continue
 
+        # 每张重建一个检测器。它带跨帧状态（_cue_hist / armed / trusted /
+        # miss_count），复用会把上一张的结果带进下一张 —— 分类本身是逐帧算的，
+        # 但 presence 那一路不是，31 张连跑出来的"找到框"列会互相污染。
+        detector = ShapeDetector()
         _action, dbg = detector.update(frame)
         found = dbg.get("quad") is not None or bool(dbg.get("presence"))
         shape = dbg.get("shape")

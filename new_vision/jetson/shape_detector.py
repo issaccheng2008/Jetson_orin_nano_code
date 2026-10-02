@@ -546,10 +546,16 @@ class ShapeDetector:
             # stationary robot's cy walked 0.51 -> 0.78. The caller gates on cy, so
             # only a hit may supply one. presence itself stays windowed, or a single
             # missed call would drop the card while walking.
+            if hit:
+                # 分数任何一次命中都写。它只是诊断，没有东西拿它当判据，而以前
+                # 只在"确认命中"时写，会把「没命中」和「命中但时间窗还没攒够」
+                # 混成同一个 0 —— 拿 `[shape]` 行的 cue= 列去拟合门槛会漏掉一半
+                # 样本，拟合出来的数偏小。
+                dbg["presence_cue"] = cue_score
             if hit and dbg["presence"] and self._cue_box is not None:
-                # 用最近一次命中框做可视化：累积确认期间框不闪
-                dbg["presence_box_work"], dbg["presence_box"], \
-                    dbg["presence_cue"] = self._cue_box
+                # 框和 cy 仍然只在确认命中时给：调用方拿 cy 当停车闸，
+                # 累积确认期间框不闪也是这个道理。
+                dbg["presence_box_work"], dbg["presence_box"] = self._cue_box[:2]
                 ys = self._cue_box[0][:, 1]
                 dbg["presence_cy_frac"] = float(ys.min() + ys.max()) * 0.5 / WORK_H
                 dbg["cue_cy_frac"] = dbg["presence_cy_frac"]
