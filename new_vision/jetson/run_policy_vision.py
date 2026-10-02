@@ -640,15 +640,23 @@ def main():
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
                     tilt_until = processed + args.card_tilt_ms / 1000.0
+                    # 和下面"识别到图卡"那条配成一对：这两个时刻是整趟里唯一需要
+                    # 肉眼确认的，中间重摆那一秒多什么都不会打印，所以它们要能
+                    # 从刷屏里一眼捞出来。
                     if card_width_px is not None:
-                        print(f"[shape] card {card_reach:.0f}px of "
-                              f"{card_reach_line:.0f}px "
-                              f"(cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')}) "
-                              f"-> stand still {args.card_stop_ms:.0f} ms", flush=True)
+                        how = (f"框宽 {card_reach:.0f}px / 阈值 "
+                               f"{card_reach_line:.0f}px")
                     else:
-                        print(f"[shape] cue cy {card_reach:.2f} of "
-                              f"{card_reach_line:.2f}, no box "
-                              f"-> stand still {args.card_stop_ms:.0f} ms", flush=True)
+                        how = (f"没框，退回 cy {card_reach:.2f} / 阈值 "
+                               f"{card_reach_line:.2f}")
+                    print("\n" + "=" * 68, flush=True)
+                    print(f"  ●●●  停车读卡 —— stand still {args.card_stop_ms:.0f}ms"
+                          f"    {how}"
+                          f"    cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')}",
+                          flush=True)
+                    print(f"        先重摆 {args.card_tilt_ms:.0f}ms（这期间不认形状），"
+                          f"之后才开始识别", flush=True)
+                    print("=" * 68 + "\n", flush=True)
                 # Why a card that is plainly in view did not become an action: the
                 # quad gates (found/closure), the classifier (shape/rules), or the
                 # consecutive-frame latch. Only while a card is around, at 4 Hz.

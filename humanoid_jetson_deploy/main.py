@@ -394,12 +394,16 @@ def main() -> int:
                 card_tilt = snapshot is not None and snapshot.card_tilt
                 if card_tilt != card_tilt_active:
                     card_tilt_event += 1
-                    link.send_action(
-                        card_tilt_event,
-                        ACTION_CARD_TILT if card_tilt else ACTION_CARD_RESTORE,
-                    )
-                    print(f"[shape] card_tilt={'on' if card_tilt else 'off'} "
-                          f"event={card_tilt_event}")
+                    action_id = (ACTION_CARD_TILT if card_tilt
+                                 else ACTION_CARD_RESTORE)
+                    link.send_action(card_tilt_event, action_id)
+                    # 停车这一秒多里唯一发出去的两条命令，和视觉那边的
+                    # "停车读卡 / 识别到图卡"两条 banner 对成一对。
+                    print("\n" + "=" * 68)
+                    print(f"  ●●●  姿态事件 action={action_id} "
+                          f"event={card_tilt_event}"
+                          f"    {'重摆：机身扳回安装姿态，上报的姿态冻结' if card_tilt else '恢复：机身回站姿，上报改回真实值'}")
+                    print("=" * 68 + "\n")
                     card_tilt_active = card_tilt
                 if shape_controller is not None:
                     if snapshot.event_id:
