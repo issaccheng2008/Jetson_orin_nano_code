@@ -135,6 +135,21 @@ def monotonic_us() -> int:
     return (time.monotonic_ns() // 1000) & 0xFFFFFFFF
 
 
+# How long the policy keeps being fed the pre-untilt observation after the untilt
+# (action 8) goes out.
+#
+# The STM32 clears its feedback freeze in the SAME instant it starts ramping the lean
+# back, so from that tick on it reports a body that is still tilted and moving - a
+# pose the model never commanded. On the 2026-10-02 run that is exactly where the
+# 87-degree hip split came from. So hold the snapshot on this side until the ramp
+# has had time to finish.
+#
+# The ramp is a firmware constant: LEAN_ANGLE_RAD 0.3491 / LEAN_RAMP_RATE 0.6 rad/s
+# = 0.582 s. Keep CARD_UNTILT_HOLD_S in step with it; a bit of margin costs nothing
+# because the model is standing still either way.
+CARD_UNTILT_HOLD_S = 0.65
+
+
 def slew_limit(target: np.ndarray, previous: np.ndarray, dt: float) -> np.ndarray:
     maximum_change = config.MAX_TARGET_SPEED_RAD_S * dt
     return previous + np.clip(target - previous, -maximum_change, maximum_change)
@@ -313,6 +328,8 @@ def main() -> int:
         upright_active = False
         card_tilt_active = False
         card_tilt_event = 0
+        tilt_release_at = 0.0
+        held_observation = None
         last_action_tx = -float("inf")
 
         while not stop_requested:
@@ -375,36 +392,58 @@ def main() -> int:
                 # question either way: has the robot actually settled?
                 stopped = (np.max(np.abs(velocity_command)) <= 0.02
                            and np.max(np.abs(qd_policy)) <= 0.2)
-                # The untilt has to be requested BEFORE the shape action, and this is
-                # why it is up here instead of next to the upright hold below.
+                # Two edges, and they do NOT both fire on the vision's flag.
                 #
-                # The STM32 runs one action at a time: anything that arrives while it
-                # is busy comes back ACTION_BUSY and is dropped. Sent second, the
-                # untilt is the one that gets dropped - silently, because nothing
-                # polls its status - and the body stays pitched forward (the re-posed
-                # pose) through the whole arm/head action. Sent first, the untilt is
-                # accepted and it is the shape request that waits, which is the order
-                # the card procedure wants anyway: tilt -> identify -> untilt -> act.
+                # RISING (send 7) waits for `stopped`. The STM32 latches its frozen
+                # snapshot AND starts the lean ramp the instant 7 lands, so 7 has to
+                # land while the robot is already standing. Sent on the stop-trigger
+                # frame the snapshot is a mid-stride pose - on the 2026-10-02 run, body
+                # level at -2.85 deg with one knee straight and the other bent 27 deg.
+                # The lean is there to undo a ~20 deg back-tilt, so on a level body it
+                # just pushed the robot 20 deg past level, and the model - which never
+                # saw any of it - was handed that pose the moment the freeze lifted.
+                #
+                # FALLING (send 8) does not wait: the vision dropped the flag, the body
+                # should start going back now.
+                #
+                # Both edges go out BEFORE the shape action. The STM32 runs one action
+                # at a time and anything arriving while it is busy comes back
+                # ACTION_BUSY and is dropped - silently, because nothing polls this
+                # one's status. Sent second, the untilt is the one that gets dropped and
+                # the body stays pitched through the whole arm/head action.
                 #
                 # The STM32 re-poses the body and freezes the attitude it reports, so
-                # the vision's geometry never sees the stop at all. Requested and
-                # released on the two edges of the vision's flag. Each edge carries a
+                # the vision's geometry never sees the stop at all. Each edge carries a
                 # fresh event id - the STM32 reads a repeated event id as a
                 # retransmission, not as a new command.
                 card_tilt = snapshot is not None and snapshot.card_tilt
-                if card_tilt != card_tilt_active:
+                if not card_tilt_active and card_tilt and stopped:
+                    card_tilt_active = True
                     card_tilt_event += 1
-                    action_id = (ACTION_CARD_TILT if card_tilt
-                                 else ACTION_CARD_RESTORE)
-                    link.send_action(card_tilt_event, action_id)
+                    link.send_action(card_tilt_event, ACTION_CARD_TILT)
                     # 停车这一秒多里唯一发出去的两条命令，和视觉那边的
                     # "停车读卡 / 识别到图卡"两条 banner 对成一对。
                     print("\n" + "=" * 68)
-                    print(f"  ●●●  姿态事件 action={action_id} "
+                    print(f"  ●●●  姿态事件 action={ACTION_CARD_TILT} "
                           f"event={card_tilt_event}"
-                          f"    {'重摆：机身扳回安装姿态，上报的姿态冻结' if card_tilt else '恢复：机身回站姿，上报改回真实值'}")
+                          f"    重摆：机身扳回安装姿态（等到了站定才发）")
                     print("=" * 68 + "\n")
-                    card_tilt_active = card_tilt
+                elif card_tilt_active and not card_tilt:
+                    card_tilt_active = False
+                    card_tilt_event += 1
+                    link.send_action(card_tilt_event, ACTION_CARD_RESTORE)
+                    # Snapshot the frozen observation and hold it for the ramp back -
+                    # see CARD_UNTILT_HOLD_S. Taken here, before 8 is processed, so
+                    # these are still the STM32's frozen values.
+                    tilt_release_at = now + CARD_UNTILT_HOLD_S
+                    held_observation = (q_policy, qd_policy, accel_policy,
+                                        gyro_policy, projected_gravity)
+                    print("\n" + "=" * 68)
+                    print(f"  ●●●  姿态事件 action={ACTION_CARD_RESTORE} "
+                          f"event={card_tilt_event}"
+                          f"    恢复：机身回站姿；策略继续看旧状态 "
+                          f"{CARD_UNTILT_HOLD_S * 1000:.0f}ms")
+                    print("=" * 68 + "\n")
                 if shape_controller is not None:
                     if snapshot.event_id:
                         if shape_controller.accept(snapshot.event_id, snapshot.event_action, now):
@@ -476,6 +515,22 @@ def main() -> int:
                         f"vy={velocity_command[1]:+.3f} m/s, "
                         f"wz={velocity_command[2]:+.3f} rad/s] "
                     )
+
+            # The untilt ramp. The STM32 clears its feedback freeze in the same
+            # instant it starts ramping the lean back, so it immediately starts
+            # reporting a tilted, moving body - one the model never commanded. That
+            # is the pose that produced the 87-degree hip split on the 2026-10-02
+            # run. Keep replaying the snapshot taken when 8 went out until the ramp
+            # has had time to finish (CARD_UNTILT_HOLD_S), then hand the model the
+            # live state again - by which point the body is back on its stand pose.
+            if tilt_release_at > 0.0:
+                if now >= tilt_release_at:
+                    tilt_release_at = 0.0
+                    held_observation = None
+                    print("[shape] untilt ramp done; policy sees live state again")
+                elif held_observation is not None:
+                    (q_policy, qd_policy, accel_policy, gyro_policy,
+                     projected_gravity) = held_observation
 
             if not args.fixed_policy:
                 if upright_hold:
