@@ -1749,12 +1749,15 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         self.assertFalse(detector.armed)
         self.assertTrue(dbg.get("presence"))
 
-    def test_the_line_only_sees_the_pitch_across_the_card_window(self):
+    def test_the_line_only_sees_the_pitch_while_the_robot_is_not_driving(self):
         """--line-pitch 默认关：巡线的几何完全不动（老行为）。
 
-        开着的时候，走路那一段仍然喂静态安装角 —— 步态以 1.7Hz 摆 30~40°，
-        低通的值描述不了当前这一帧（原注释里试过，反而更糟）。只有停车窗口
-        和之后 --line-pitch-hold-s 那一段才换成实时俯角。"""
+        开着的时候判的是"车在不在走"：vx<=0 的帧（台架 --hold-still、停车窗口、
+        窗口之后的 hold）吃实时俯角；走路那一段回静态安装角 —— 步态以 1.7Hz 摆
+        30~40°，低通的值描述不了当前这一帧（原注释里试过，反而更糟）。
+
+        ⚠️ 一开始只写了"停车窗口 + hold"，台架测不到 —— 台架上没有卡，窗口从没
+        开过，每帧都喂静态安装角，等于开关没开。这一条两次都踩在上面。"""
         def run(extra, pitch):
             frame = np.zeros((720, 1280, 3), dtype=np.uint8)
             camera = Mock()
@@ -1778,6 +1781,8 @@ class ShapeDetectorReportingTests(unittest.TestCase):
                 return True, frame
 
             camera.read.side_effect = read
+            attitude = Mock()
+            attitude.value = 30.0        # 后仰着的机身：实时俯角 ≠ 安装角
             with (
                 patch("sys.argv", ["run_policy_vision.py", "--headless",
                                    "--camera-pitch-deg", str(pitch)] + extra),
@@ -1786,8 +1791,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
                 patch("utils.open_camera", return_value=camera),
                 patch("line_detector_v1_warp.LineDetector", return_value=detector),
                 patch("shape_detector.ShapeDetector", return_value=shape),
-                # 造不出 attitude（代码只吞 OSError，收不到端口就是这条路）
-                patch("attitude_input.AttitudeInput", side_effect=OSError),
+                patch("attitude_input.AttitudeInput", return_value=attitude),
                 patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
                 patch("cv2.imshow", side_effect=AssertionError("headless")),
                 contextlib.redirect_stdout(io.StringIO()),
@@ -1798,11 +1802,16 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         off = run([], 45.0)
         self.assertEqual(off.set_camera_pitch_deg.call_count, 0)
 
-        on = run(["--line-pitch"], 45.0)
-        # 全程没有卡：窗口从没开过，所以每一帧喂的都是静态安装角
-        self.assertGreater(on.set_camera_pitch_deg.call_count, 0)
-        for call in on.set_camera_pitch_deg.call_args_list:
-            self.assertEqual(call.args[0], 45.0)
+        # 走起来（没开 --hold-still，控制器发 vx=0.3）：回静态安装角。
+        # 只看最后一帧 —— 第一帧还没有"上一帧发了多少"，按停着算。
+        driving = run(["--line-pitch"], 45.0)
+        self.assertGreater(driving.set_camera_pitch_deg.call_count, 0)
+        self.assertEqual(driving.set_camera_pitch_deg.call_args_list[-1].args[0], 45.0)
+
+        # 停着不动（--hold-still 把 vx 压成 0）：吃实时俯角
+        held = run(["--line-pitch", "--hold-still"], 45.0)
+        self.assertGreater(held.set_camera_pitch_deg.call_count, 0)
+        self.assertEqual(held.set_camera_pitch_deg.call_args_list[-1].args[0], 30.0)
 
     def test_hold_still_publishes_zeros_whatever_the_controller_decides(self):
         """台架测机身姿态时得开 C（姿态从它来），但 C 一使能电机、B 一发

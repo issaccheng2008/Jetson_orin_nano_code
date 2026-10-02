@@ -460,6 +460,7 @@ def main():
         stop_until = 0.0
         resume_until = 0.0
         line_pitch_until = 0.0       # 窗口关掉之后，还要继续喂巡线俯角到什么时候
+        last_cmd_vx = 0.0            # 上一帧发出去的速度，判"车在不在走"
         tilt_until = 0.0
         card_flag = False        # a card is in view on this approach
         card_absent = 0          # consecutive detection calls without one
@@ -561,16 +562,18 @@ def main():
             if shape is not None:
                 shape.set_camera_pitch_deg(effective_pitch)
             if args.line_pitch:
-                # 巡线也吃俯角，但只在"机身被停车动作摆到非安装姿态"那一段：
-                # 停车窗口 + 恢复后的 --line-pitch-hold-s。走路时恢复静态安装角
-                # —— 步态以 1.7Hz 摆 30~40°，低通的值描述不了当前这一帧，喂进去
-                # 反而更糟（这是原注释，针对的就是走路那一段）。
-                # 窗口里 effective_pitch 本来就是静态值（重摆会把机身扳回安装
-                # 姿态），所以那一段等于没变；真正起作用的是窗口之后那几秒 ——
-                # 台架实测那几秒读数偏 15cm。
+                # 巡线也吃俯角，条件是"车没在走"：停车窗口、窗口关掉之后的
+                # --line-pitch-hold-s（机身要走回站姿）、以及任何发出去的
+                # vx<=0 的帧（台架 --hold-still 就落在这一档）。
+                # 走路时仍旧回静态安装角 —— 步态以 1.7Hz 摆 30~40°，低通的值
+                # 描述不了当前这一帧，这是原注释，针对的正是走路那一段。
+                #
+                # 一开始只写了"窗口 + hold"，结果台架测不到：台架上没有卡，
+                # 窗口从没开过，于是每帧都喂静态安装角 = no-op。
                 detector.set_camera_pitch_deg(
                     effective_pitch
-                    if (window_open or processed < line_pitch_until)
+                    if (window_open or processed < line_pitch_until
+                        or last_cmd_vx <= 0.0)
                     else args.camera_pitch_deg)
             _, _, confidence, visualization, debug = detector.process(frame)
             frames += 1
@@ -854,6 +857,7 @@ def main():
             # 那个后仰的站姿），读数还能正常观察。
             if args.hold_still:
                 vx, wz = 0.0, 0.0
+            last_cmd_vx = vx
             client.publish(vx, wz, visible_qr,
                            hold_upright=(args.hold_upright and in_card_window),
                            card_tilt=(in_card_window and card_event_id == 0),
