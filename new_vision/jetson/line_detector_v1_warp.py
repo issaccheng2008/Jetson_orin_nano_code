@@ -221,13 +221,13 @@ class LineDetector:
         self.bottom_lock_step = 2
         self.bottom_lock_min_pair_ratio = 0.55
         # 锁有效的第二条：线心离画面中心不超过这个像素数。24px ≈ 8cm（近带
-        # 0.332cm/px），弯道上正常偏差就有 8~10cm —— 2026-10-02 实车：这一条
-        # 单独把近带锁否掉（`001_00` 那帧 bottom_pair_ratio=1.00、线看得清清楚楚，
-        # 只因 base_err_px=-37.9 判无效），然后退到单边线/远带，角度读出 30~64°、
-        # 融合放大 2.3~3.5 倍，wz 顶死，最后线整个离开近带跑出弯道。
-        # 六次丢锁的 dump 里 lock 有效一共只有 4/36。
-        # 40px ≈ 13cm：先按这个跑一趟做对照，只看 loss dump 的 lock 有效数。
-        self.bottom_lock_sym_tol_px = 40.0
+        # 0.332cm/px）。
+        # ⛔ 2026-10-02 试过放宽到 40px —— **实车三次全跑出去，而且短距离就跑出去**，
+        # 比 24 差得多，已退回。放宽这条会让"车已经明显偏到一边"的帧也算锁有效，
+        # 于是转向继续信任那个本来就偏了的近带读数，偏得更快。
+        # （离线预演只看到 lock 有效 4/36 -> 11/36、坏帧角度和融合放大没动，
+        #  就以为"至少不亏" —— 漏掉的是"锁有效之后拿它去转向"这一段的行为。）
+        self.bottom_lock_sym_tol_px = 24.0
         self.bottom_lock_blend = 0.72  # stronger lock anchor, less band-scan bias in curves
         self.bottom_lock_conf_penalty = 0.45
         self.lock_reacquire_reset = True
