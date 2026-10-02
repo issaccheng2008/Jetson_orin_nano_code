@@ -136,9 +136,20 @@ def pack_command(packet: CommandPacket) -> bytes:
     return _pack_frame(MSG_COMMAND, packet.sequence, payload)
 
 
+# action_id values that may go on the wire.
+# 3/4 (square / diamond) are NOT here: those cards are walked by the Nano's own
+# one-foot policy and never reach the STM32. 7/8 are the card re-pose
+# (LEAN / RESTORE) - pose events rather than shape actions, but they travel on
+# the same request, and leaving them out here is what made every card_tilt send
+# raise "invalid upper-body action request" before it ever hit the wire.
+SENDABLE_ACTION_IDS = (1, 2, 5, 6, ACTION_CARD_TILT, ACTION_CARD_RESTORE)
+
+
 def pack_action_request(packet: ActionRequestPacket) -> bytes:
-    if not 0 < packet.event_id <= 0xFFFFFFFF or packet.action_id not in (1, 2, 5, 6):
-        raise ValueError("invalid upper-body action request")
+    if (not 0 < packet.event_id <= 0xFFFFFFFF
+            or packet.action_id not in SENDABLE_ACTION_IDS):
+        raise ValueError(f"invalid action request: event_id={packet.event_id} "
+                         f"action_id={packet.action_id}")
     return _pack_frame(MSG_ACTION_REQUEST, packet.sequence,
                        ACTION_REQUEST_PAYLOAD.pack(packet.event_id, packet.action_id))
 

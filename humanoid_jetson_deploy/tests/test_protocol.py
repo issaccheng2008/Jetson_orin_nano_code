@@ -27,6 +27,24 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(len(pack_action_request(request)), 15)
         self.assertEqual(len(pack_action_status(status)), 16)
 
+    def test_the_card_re_pose_events_are_sendable(self):
+        """7/8 走的是同一个请求包。白名单里少了它们的话，send_action 会在写串口
+        之前就抛 ValueError —— card_tilt 从来没上过线就是这个原因。"""
+        from protocol import ACTION_CARD_RESTORE, ACTION_CARD_TILT
+        for action_id in (ACTION_CARD_TILT, ACTION_CARD_RESTORE):
+            with self.subTest(action_id=action_id):
+                request = ActionRequestPacket(sequence=1, event_id=9, action_id=action_id)
+                self.assertEqual(len(pack_action_request(request)), 15)
+
+    def test_the_leg_card_ids_are_refused(self):
+        """3/4 是正方形/菱形，走 Nano 自己的抬腿策略，从来不下发 STM32 ——
+        发过去固件会把它当成别的东西。挡住是有意的，别顺手放宽白名单。"""
+        for action_id in (3, 4):
+            with self.subTest(action_id=action_id):
+                request = ActionRequestPacket(sequence=1, event_id=9, action_id=action_id)
+                with self.assertRaises(ValueError):
+                    pack_action_request(request)
+
     def test_fragmented_state_round_trip(self):
         source = StatePacket(
             sequence=65535,
