@@ -183,19 +183,21 @@ def parse_args():
                              "drives the same joints the STM32 re-pose drives. Turn on "
                              "exactly one of the two")
     parser.add_argument("--card-tilt-ms", type=float,
-                        default=float(os.getenv("CARD_TILT_MS", "1300")),
+                        default=float(os.getenv("CARD_TILT_MS", "1800")),
                         help="After the stop trigger, spend this long not looking at "
-                             "the card at all while the robot re-poses the body. The "
-                             "STM32 is asked for the tilt on the trigger and this is "
-                             "the window it gets; identifying during it reads a body "
-                             "that is still moving. 0 identifies immediately. "
-                             "It also sets when the untilt is released: nothing can be "
-                             "identified before it, so the release never goes out "
-                             "earlier, and it has to outlast the STM32's worst case "
-                             "there (settle cap 0.6s + ramp 0.4s) or the release "
-                             "arrives while the STM32 is still busy and is dropped "
-                             "silently, leaving the body re-posed for the rest of the "
-                             "run. 1000ms is right on that edge; 1300 leaves ~0.25s")
+                             "the card at all. The classifier does not run until it "
+                             "expires, because a frame taken mid-tilt is a frame of a "
+                             "body in motion. 0 identifies immediately. "
+                             "It has to outlast two things: how long the robot takes "
+                             "to settle - main.py only asks for the tilt once it reads "
+                             "`stopped`, and asking earlier snapshots a mid-stride pose "
+                             "- plus the STM32's lean ramp, which is a firmware "
+                             "constant (20 deg at 0.6 rad/s = 0.58s). ~0.9 + 0.58 is "
+                             "where 1800 comes from. "
+                             "Too early and the classifier looks at a body that is "
+                             "still leaning, while the geometry assumes the install "
+                             "pose - every card gets rejected. Check --card-stop-ms "
+                             "(default 3000) still covers this plus identification.")
     parser.add_argument("--card-cold-start", action="store_true",
                         help="On the stopped-to-walking edge, wipe the controller's loop "
                              "state and the detector's memory instead of keeping them. "
