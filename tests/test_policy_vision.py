@@ -1352,6 +1352,38 @@ class LineDetectorStateTests(unittest.TestCase):
     """The detector's cross-frame memory is what keeps a bad lock alive: the scan
     hint feeds the next frame's search, and smoothed_err is a long EMA."""
 
+    def test_setting_the_camera_pitch_rebuilds_the_geometry(self):
+        """巡线原来完全不知道机身俯角（姿态只喂了图卡）。台架对照：车一步不动、
+        只把站姿换成后仰，读数当场垮（ang 22→45、curve 0→-24、far -33→-70、
+        近带锁失效）。俯角被烤进两处 —— 鸟瞰单应 M 和逐行地面 LUT —— 换它必须
+        重建这两样，err_scale_cm 跟着走。"""
+        import numpy as np
+        from line_detector_v1_warp import LineDetector
+        detector = LineDetector(1280, 720)
+        M0 = detector.M.copy()
+        lut0 = detector._lut_cm_per_px.copy()
+        scale0 = detector.err_scale_cm
+
+        # 安装角本身必须是逐位 no-op —— 走路时每帧都在调它
+        detector.set_camera_pitch_deg(45.0)
+        np.testing.assert_array_equal(detector.M, M0)
+        np.testing.assert_array_equal(detector._lut_cm_per_px, lut0)
+        self.assertEqual(detector.err_scale_cm, scale0)
+
+        # 换成后仰姿态，几何必须真的变
+        detector.set_camera_pitch_deg(30.0)
+        self.assertFalse(np.array_equal(detector.M, M0))
+        self.assertFalse(np.array_equal(detector._lut_cm_per_px, lut0))
+        self.assertNotAlmostEqual(detector.err_scale_cm, scale0)
+        # 横向比例尺随俯角变小：视线更平，同样像素跨的横向距离更远
+        self.assertLess(detector.err_scale_cm, scale0)
+
+        # 换回安装角要精确还原
+        detector.set_camera_pitch_deg(45.0)
+        np.testing.assert_allclose(detector.M, M0)
+        np.testing.assert_allclose(detector._lut_cm_per_px, lut0)
+        self.assertAlmostEqual(detector.err_scale_cm, scale0)
+
     def test_reset_state_restores_every_key_to_its_starting_value(self):
         from line_detector_v1_warp import LineDetector
         detector = LineDetector(1280, 720)
@@ -1716,6 +1748,61 @@ class ShapeDetectorReportingTests(unittest.TestCase):
 
         self.assertFalse(detector.armed)
         self.assertTrue(dbg.get("presence"))
+
+    def test_the_line_only_sees_the_pitch_across_the_card_window(self):
+        """--line-pitch 默认关：巡线的几何完全不动（老行为）。
+
+        开着的时候，走路那一段仍然喂静态安装角 —— 步态以 1.7Hz 摆 30~40°，
+        低通的值描述不了当前这一帧（原注释里试过，反而更糟）。只有停车窗口
+        和之后 --line-pitch-hold-s 那一段才换成实时俯角。"""
+        def run(extra, pitch):
+            frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+            camera = Mock()
+            camera.isOpened.return_value = True
+            camera.get.side_effect = [1280, 720]
+            detector = Mock()
+            detector.process.return_value = (0, 0, 0.8, None, detection())
+            shape = Mock()
+            shape.action_map = {"square": 3}
+            shape.update.return_value = (None, {"presence": False,
+                                                "card_found": False})
+            clock = [0.0]
+            reads = [0]
+
+            def read():
+                reads[0] += 1
+                clock[0] += 0.1
+                if reads[0] > 6:
+                    run_policy_vision.signal.signal.call_args.args[1](None, None)
+                    return False, frame
+                return True, frame
+
+            camera.read.side_effect = read
+            with (
+                patch("sys.argv", ["run_policy_vision.py", "--headless",
+                                   "--camera-pitch-deg", str(pitch)] + extra),
+                patch.object(run_policy_vision.signal, "signal"),
+                patch.object(run_policy_vision, "ConnectorClient"),
+                patch("utils.open_camera", return_value=camera),
+                patch("line_detector_v1_warp.LineDetector", return_value=detector),
+                patch("shape_detector.ShapeDetector", return_value=shape),
+                # 造不出 attitude（代码只吞 OSError，收不到端口就是这条路）
+                patch("attitude_input.AttitudeInput", side_effect=OSError),
+                patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+                patch("cv2.imshow", side_effect=AssertionError("headless")),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(run_policy_vision.main(), 0)
+            return detector
+
+        off = run([], 45.0)
+        self.assertEqual(off.set_camera_pitch_deg.call_count, 0)
+
+        on = run(["--line-pitch"], 45.0)
+        # 全程没有卡：窗口从没开过，所以每一帧喂的都是静态安装角
+        self.assertGreater(on.set_camera_pitch_deg.call_count, 0)
+        for call in on.set_camera_pitch_deg.call_args_list:
+            self.assertEqual(call.args[0], 45.0)
 
     def test_card_detection_runs_every_other_frame_while_stopped(self):
         """Every frame costs 94-122 ms, which drops the loop to 6-8 Hz and makes the

@@ -119,6 +119,18 @@ def parse_args():
                              "so the frame counts as loss (hold, then stop) instead "
                              "of steering on it. Off by default because the bound has "
                              "not been measured against a normal lap yet")
+    parser.add_argument("--line-pitch", action="store_true",
+                        help="Also feed the body pitch to the LINE detector, but only "
+                             "across the card window and --line-pitch-hold-s after it "
+                             "(the stretch where the stop pose leaves the body off its "
+                             "install angle). While walking the static mount angle is "
+                             "kept, because the 1.7 Hz gait swing is not something a "
+                             "low-passed pitch describes. Off by default")
+    parser.add_argument("--line-pitch-hold-s", type=float,
+                        default=float(os.getenv("LINE_PITCH_HOLD_S", "2.5")),
+                        help="How long after the card window closes the live pitch "
+                             "keeps going to the line detector. The body takes about "
+                             "2 s to walk out of the leaning stand pose")
     parser.add_argument("--no-shape-detect", action="store_true",
                         help="Skip geometric card detection entirely; qr stays -1")
     parser.add_argument("--dump-on-loss", default="",
@@ -415,6 +427,7 @@ def main():
               f"yaw_sign={args.yaw_sign}; "
               f"red={'off' if args.no_red_detect else 'on'}; "
               f"sl_gain={args.single_line_gain}; "
+              f"line_pitch={'on' if args.line_pitch else 'off'}; "
               f"center_dead={args.center_dead_cm}cm; "
               f"bias={args.bias_straight_cm}->{args.bias_cm}"
               f"(dead {args.bias_dead_px}, full {args.bias_gate_px})", flush=True)
@@ -433,6 +446,7 @@ def main():
         card_until = 0.0
         stop_until = 0.0
         resume_until = 0.0
+        line_pitch_until = 0.0       # 窗口关掉之后，还要继续喂巡线俯角到什么时候
         tilt_until = 0.0
         card_flag = False        # a card is in view on this approach
         card_absent = 0          # consecutive detection calls without one
@@ -505,6 +519,9 @@ def main():
                 # speed one more stage before releasing, so the robot builds speed in
                 # two steps instead of the connector's single 0.4 s slew.
                 resume_until = processed + args.card_resume_ms / 1000.0
+                # 机身从重摆姿态走回站姿要 ~2s，这段巡线也得跟着俯角走，
+                # 否则恢复以后那几秒的几何是错的（--line-pitch）。
+                line_pitch_until = processed + args.line_pitch_hold_s
                 print(f"[vision] card window closed; "
                       f"{'cold start' if args.card_cold_start else 'resuming frozen'} "
                       f"(hold={controller.hold[0]:+.2f},{controller.hold[1]:+.2f} "
@@ -530,6 +547,18 @@ def main():
                     effective_pitch = attitude.value
             if shape is not None:
                 shape.set_camera_pitch_deg(effective_pitch)
+            if args.line_pitch:
+                # 巡线也吃俯角，但只在"机身被停车动作摆到非安装姿态"那一段：
+                # 停车窗口 + 恢复后的 --line-pitch-hold-s。走路时恢复静态安装角
+                # —— 步态以 1.7Hz 摆 30~40°，低通的值描述不了当前这一帧，喂进去
+                # 反而更糟（这是原注释，针对的就是走路那一段）。
+                # 窗口里 effective_pitch 本来就是静态值（重摆会把机身扳回安装
+                # 姿态），所以那一段等于没变；真正起作用的是窗口之后那几秒 ——
+                # 台架实测那几秒读数偏 15cm。
+                detector.set_camera_pitch_deg(
+                    effective_pitch
+                    if (window_open or processed < line_pitch_until)
+                    else args.camera_pitch_deg)
             _, _, confidence, visualization, debug = detector.process(frame)
             frames += 1
             log_frames += 1

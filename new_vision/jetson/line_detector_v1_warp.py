@@ -109,7 +109,8 @@ class LineDetector:
         self.center_x = self.bird_w // 2  # 160
 
         # Build IPM matrix (same as V2/V3)
-        self.M = self._build_birdseye_matrix(lookahead=(10.0, 80.0))
+        self._ipm_lookahead = (10.0, 80.0)   # set_camera_pitch_deg 也要用它重建
+        self.M = self._build_birdseye_matrix(lookahead=self._ipm_lookahead)
         self.M_inv = np.linalg.inv(self.M)
         self.cm_per_px = self._compute_cm_per_px()
         self.z_per_px = (80.0 - 20.0) / float(self.bird_h - 1)  # vertical cm per px
@@ -392,6 +393,30 @@ class LineDetector:
         except Exception:
             width = 0.0
         return width if width > 0.0 else 35.0
+
+    def set_camera_pitch_deg(self, pitch_deg):
+        """换掉光轴俯角（安装角 + 机身实时前倾）。
+
+        cam_pitch 只被烤进两个结构：鸟瞰单应 M（和它的逆）和逐行地面 LUT。
+        重建这两样，err_scale_cm 跟着 LUT 走。cm_per_px / _asp / pix_angle_gain
+        都只依赖内参，与俯角无关，不动。
+
+        为什么要它：2026-10-02 台架对照 —— 车一步没动，只把站姿从直立换成
+        后仰，读数当场垮（ang 22→45、curve 0→-24、far -33→-70、近带锁失效），
+        之后 lateral_scale 还要花 ~15s 在新几何上重新收敛。停车做动作时机身
+        必然后仰，而巡线原来完全不知道这件事（姿态只喂了图卡）。
+
+        走路时不要每帧喂：步态以 1.7Hz 摆，低通滞后值还不如静态安装角。
+        调用方按状态决定喂不喂，见 run_policy_vision.py 的 --line-pitch。
+        """
+        new = math.radians(float(pitch_deg))
+        if abs(new - self.cam_pitch) < 1e-9:
+            return                      # 大多数帧是这一条，省掉重建
+        self.cam_pitch = new
+        self.M = self._build_birdseye_matrix(lookahead=self._ipm_lookahead)
+        self.M_inv = np.linalg.inv(self.M)
+        self._build_ground_lut()
+        self._rebuild_err_scale()
 
     def _build_ground_lut(self):
         """逐行的地面距离和横向比例尺。
