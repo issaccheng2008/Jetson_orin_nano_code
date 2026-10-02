@@ -702,7 +702,13 @@ def main():
             # 不是 update() 返回的 action —— 那个受 cooldown_ms 限制，一次停车最多
             # 给一次，投不了票。计数放在停车触发之后：触发那一帧会清票，先投会被
             # 它抹掉。
-            if processed < stop_until and card_dbg and card_dbg.get("shape"):
+            #
+            # 已经判过的卡不再进票箱。这一条是让"不重复"在**本层自己成立**：出票
+            # 分支靠 card_action_triggered / card_event_id 挡，清票靠卡离开那一段，
+            # 三处只要有一处没跟上就会拿着残留的票再定一次案。判过的卡连票都不该
+            # 收，就不需要依赖那三处同步。
+            if (processed < stop_until and not card_action_triggered
+                    and card_dbg and card_dbg.get("shape")):
                 _name = card_dbg["shape"]
                 card_votes[_name] = card_votes.get(_name, 0) + 1
                 card_vote_total += 1
