@@ -171,6 +171,16 @@ def parse_args():
                         default=float(os.getenv("CARD_SLOW_VX", "0.2")),
                         help="Forward speed while a card is in view but not yet close "
                              "enough to act on")
+    parser.add_argument("--card-slow-wz", type=float,
+                        default=float(os.getenv("CARD_SLOW_WZ", "-0.2")),
+                        help="Fixed yaw rate, rad/s, held for as long as a card is in "
+                             "view and the robot is creeping toward it - the same "
+                             "stretch --card-slow-vx covers. It replaces the line "
+                             "controller's steering there; negative turns right. The "
+                             "card is a fixed target rather than a lane, so lining up "
+                             "on it beats following the line underneath, and lining up "
+                             "is what keeps the stop square to the card. 0 leaves the "
+                             "controller alone")
     parser.add_argument("--card-resume-ms", type=float,
                         default=float(os.getenv("CARD_RESUME_MS", "500")),
                         help="On the stopped-to-walking edge, hold --card-slow-vx this "
@@ -268,6 +278,8 @@ def parse_args():
         parser.error("card-stop-ms must be finite and nonnegative")
     if not math.isfinite(args.card_slow_vx) or not 0 <= args.card_slow_vx <= 1:
         parser.error("card-slow-vx must be in [0, 1]")
+    if not math.isfinite(args.card_slow_wz) or abs(args.card_slow_wz) > args.max_wz:
+        parser.error("card-slow-wz must be finite and within +/-max-wz")
     if not math.isfinite(args.center_dead_cm) or args.center_dead_cm < 0:
         parser.error("center-dead-cm must be finite and nonnegative")
     if args.max_wz_right is not None and not (
@@ -720,6 +732,12 @@ def main():
                 # to work with before the card is behind the robot.
                 if card_flag or processed < resume_until:
                     vx = min(vx, args.card_slow_vx)
+                # 往卡走的那一段，转向不再跟线：卡是个固定目标，对着它对准比跟着底下
+                # 的线走更能停正。**只在还没为这张卡停下之前压** —— 停下之后（以及
+                # 起步那段，resume_until）卡往往还在画面里，那时候再压就是刚起步往
+                # 一边偏了。card_triggered 落地时清零，所以换一张卡会重新压上。
+                if card_flag and not card_triggered and args.card_slow_wz != 0.0:
+                    wz = args.card_slow_wz
             previous = processed
             visible_qr = card_action if recognized_this_frame else -1
             event = ({"event_id": card_event_id, "event_action": card_action}

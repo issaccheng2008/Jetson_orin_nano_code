@@ -786,6 +786,59 @@ class VisionEntryPointTests(unittest.TestCase):
         _, _, confidence, _, debug = detector.process(np.full((720, 1280, 3), 255, np.uint8))
         self.assertEqual(SteeringController().command(debug, confidence, 0.03), (0, 0))
 
+    def test_the_card_approach_steers_by_a_fixed_bias(self):
+        """看得见卡的那一段（就是 --card-slow-vx 减速的那一段）转向不再跟线，
+        固定压一个 wz —— 卡是个固定目标，对着它对准比跟着底下的线走更能停正。
+        没卡的时候照旧走控制器。"""
+        with patch("sys.argv", ["run_policy_vision.py"]):
+            self.assertAlmostEqual(run_policy_vision.parse_args().card_slow_wz, -0.2)
+
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.8, None, detection())
+        plan = {2: 0.40, 3: 0.40, 5: 0.40, 6: 0.40, 7: 0.40, 8: 0.90, 9: 0.90}
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.side_effect = lambda *a, **k: (
+            (None, {"presence": True, "card_found": True,
+                    "presence_cy_frac": plan[reads[0]]})
+            if reads[0] in plan
+            else (None, {"presence": False, "card_found": False,
+                         "presence_cy_frac": None}))
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 30:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-slow-vx", "0.2", "--card-trigger-frac", "0.75",
+                               "--card-clear-calls", "4", "--card-slow-wz", "-0.33"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        published = client_cls.return_value.publish.call_args_list
+        self.assertNotAlmostEqual(published[0].args[1], -0.33)   # 没卡：控制器说了算
+        self.assertAlmostEqual(published[1].args[1], -0.33)      # 看到卡：固定压住
+        self.assertAlmostEqual(published[6].args[1], -0.33)      # 还在往近处挪，没松
+
     def test_the_box_width_decides_the_stop_when_there_is_a_box(self):
         """cy is an angle, so the body pitching moves it without the card moving at
         all. A 2026-10-01 lap pitched from +16 to -24 degrees; one card read cy=0.877
