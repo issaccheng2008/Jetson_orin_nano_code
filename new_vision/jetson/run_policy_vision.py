@@ -183,12 +183,19 @@ def parse_args():
                              "drives the same joints the STM32 re-pose drives. Turn on "
                              "exactly one of the two")
     parser.add_argument("--card-tilt-ms", type=float,
-                        default=float(os.getenv("CARD_TILT_MS", "1000")),
+                        default=float(os.getenv("CARD_TILT_MS", "1300")),
                         help="After the stop trigger, spend this long not looking at "
                              "the card at all while the robot re-poses the body. The "
                              "STM32 is asked for the tilt on the trigger and this is "
                              "the window it gets; identifying during it reads a body "
-                             "that is still moving. 0 identifies immediately")
+                             "that is still moving. 0 identifies immediately. "
+                             "It also sets when the untilt is released: nothing can be "
+                             "identified before it, so the release never goes out "
+                             "earlier, and it has to outlast the STM32's worst case "
+                             "there (settle cap 0.6s + ramp 0.4s) or the release "
+                             "arrives while the STM32 is still busy and is dropped "
+                             "silently, leaving the body re-posed for the rest of the "
+                             "run. 1000ms is right on that edge; 1300 leaves ~0.25s")
     parser.add_argument("--card-cold-start", action="store_true",
                         help="On the stopped-to-walking edge, wipe the controller's loop "
                              "state and the detector's memory instead of keeping them. "
