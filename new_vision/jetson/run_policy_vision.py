@@ -398,6 +398,12 @@ def main():
         except OSError as exc:
             print(f"[attitude] 端口 {args.attitude_port} 收不了：{exc}；"
                   "相机俯角退回静态安装角")
+    if args.line_pitch and attitude is None:
+        # 这个组合会静默失效：effective_pitch 恒等于静态安装角，而
+        # set_camera_pitch_deg(安装角) 是逐位 no-op —— 开关开着，什么也没发生。
+        # 2026-10-02 台架就是这么白跑了一趟（日志里 pitch=45.0 一直不变）。
+        print("[vision] ⚠️ --line-pitch 开着，但姿态收不到（见上一行）—— "
+              "巡线会一直用静态安装角，这个开关等于没开", flush=True)
 
     stopped = False
 
