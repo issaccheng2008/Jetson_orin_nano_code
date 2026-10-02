@@ -699,10 +699,17 @@ def main():
             # `card_tilt` is the mechanism in use: the STM32 re-poses the body and
             # freezes the attitude it reports. `hold_upright` is the superseded one and
             # is off unless asked for - both drive the same joints.
+            #
+            # The re-pose is only for READING the card. Once the shape is named the
+            # body goes back and the action runs on truthful attitude again, so the
+            # fall comes off at the event, not at the end of the window:
+            #   tilt -> identify -> untilt -> act
+            # card_event_id, not card_action_triggered: the latter is re-armed when
+            # the card finally leaves the frame, which would tilt a second time.
             in_card_window = processed < stop_until or processed < card_until
             client.publish(vx, wz, visible_qr,
                            hold_upright=(args.hold_upright and in_card_window),
-                           card_tilt=in_card_window,
+                           card_tilt=(in_card_window and card_event_id == 0),
                            **event)
             if processed - last_log >= 0.5:
                 # Left of the bar is what the robot is doing; right of it is why.

@@ -647,11 +647,14 @@ class VisionEntryPointTests(unittest.TestCase):
         # card geometry is calibrated for, and the policy's own stopped pose is pitched
         # back about 20 degrees. Nothing before or after the window asks for it.
         # The mechanism in use: main.py turns the two edges of this into the two
-        # action requests the STM32 re-poses the body on.
-        self.assertFalse(published[0].kwargs["card_tilt"])
-        self.assertTrue(published[1].kwargs["card_tilt"])
-        self.assertTrue(published[resumed - 1].kwargs["card_tilt"])
-        self.assertFalse(published[resumed].kwargs["card_tilt"])
+        # action requests the STM32 re-poses the body on. The re-pose is only for
+        # reading, so it comes off the moment the shape is named — the action then
+        # runs on truthful attitude. In this harness the shape is named on the same
+        # frame the stop fires, so the flag is never up: the case where it is up is
+        # test_the_card_is_not_looked_at_while_the_body_is_being_re_posed.
+        self.assertIn("event_id", published[1].kwargs)
+        for call in published:
+            self.assertFalse(call.kwargs.get("card_tilt", False))
         # The superseded one is off unless --hold-upright is passed: it drives the same
         # joints, so exactly one of the two may be on.
         for call in published:
@@ -1572,7 +1575,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
                                "--card-every-stopped", "2", "--card-tilt-ms", "1000"]),
             patch.object(run_policy_vision.signal, "signal"),
-            patch.object(run_policy_vision, "ConnectorClient"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
             patch("line_detector_v1_warp.LineDetector", return_value=detector),
             patch("shape_detector.ShapeDetector", return_value=shape),
@@ -1581,6 +1584,11 @@ class ShapeDetectorReportingTests(unittest.TestCase):
             contextlib.redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(run_policy_vision.main(), 0)
+        # The shape is never named in this harness, so the re-pose stays requested for
+        # the whole window - exactly the frames the detector is held off for.
+        published = client_cls.return_value.publish.call_args_list
+        self.assertFalse(published[0].kwargs["card_tilt"])
+        self.assertTrue(published[1].kwargs["card_tilt"])
         # The trigger lands on read 2, so 1000 ms of mocked time is reads 3..12 skipped
         # and the every-other-frame cadence picks up from the first read at or after
         # the window. Asserted against the tilt being ten reads long rather than a
