@@ -1424,8 +1424,14 @@ class ShapeDetector:
         warp = cv2.morphologyEx(warp, cv2.MORPH_CLOSE, kernel)
         k3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         warp = cv2.dilate(warp, k3, iterations=1)
-        contours, _ = cv2.findContours(warp, cv2.RETR_LIST,
-                                       cv2.CHAIN_APPROX_SIMPLE)
+        # RETR_CCOMP + 只取没有父轮廓的那些 = 只认"墨的外边界"，洞（背景）不参与。
+        # RETR_LIST 会把洞也吐出来，而洞是可以比图形本身还大的：外框环 + 十字的臂
+        # 会围出一整块背景象限，面积 8218 对十字的 4594 —— 它当上主体、被画成实心，
+        # fill 0.93 又正好走"实心块豁免贴边检查"那条路，于是判成正方形。
+        # 2026-10-02 实车：同一张静止的十字卡在 square/cross 之间逐帧跳，
+        # 差别只在 close+dilate 之后那圈外框闭没闭合。
+        contours, hierarchy = cv2.findContours(warp, cv2.RETR_CCOMP,
+                                               cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return None
         # 参考=卡大小（warp边长）：inset-warp后外框环不进warp，最大
@@ -1436,7 +1442,11 @@ class ShapeDetector:
         area_ref = float(size_ref * size_ref)
         cw, ch = warp.shape[1], warp.shape[0]
         cands = []
-        for c in contours:
+        for index, c in enumerate(contours):
+            # 洞（父轮廓存在）也是候选 —— 细笔画图形被锯断时，环的"内边界"反而
+            # 是完整的那条。但它**不享受下面"实心块豁免"**：豁免是给"图形几乎
+            # 填满 warp"的实心卡用的，而洞是背景，一块背景象限不该被当成图形。
+            is_hole = hierarchy[0][index][3] != -1
             a = cv2.contourArea(c)
             if a >= area_ref * 0.99:
                 continue
@@ -1448,7 +1458,11 @@ class ShapeDetector:
             # （fill 0.98 / solidity 0.98 / 顶点 4），却连 _classify_contour
             # 都没走到。所以实心块（≥0.85）放行这两道，细环照旧受管。
             (rw, rh) = cv2.minAreaRect(c)[1]
-            if a < 0.85 * max(rw * rh, 1e-6):
+            thin = a < 0.85 * max(rw * rh, 1e-6)
+            if thin or is_hole:
+                # 居中闸对洞也生效：洞是背景区域，只有**居中**的才可能是图形
+                # （环的内边界就居中；十字把画面切出来的那块背景象限偏心 50px，
+                # 2026-10-02 实车就是它当上主体，判成正方形）。
                 M = cv2.moments(c)
                 if M["m00"] <= 0:
                     continue
@@ -1457,7 +1471,9 @@ class ShapeDetector:
                 if (abs(cx - cw / 2) > cw * 0.15
                         or abs(cy - ch / 2) > ch * 0.15):
                     continue
-                if max(iw, ih) > size_ref * 0.95:
+                # 贴边闸只管"细的"：它挡的是 quad 偏了留下的细环残片。居中、
+                # 又不细的洞（整张卡的内边界）不是残片，别误杀。
+                if thin and max(iw, ih) > size_ref * 0.95:
                     continue
             cands.append((a, c, (ix, iy, iw, ih)))
         if not cands:
