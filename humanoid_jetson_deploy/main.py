@@ -375,6 +375,32 @@ def main() -> int:
                 # question either way: has the robot actually settled?
                 stopped = (np.max(np.abs(velocity_command)) <= 0.02
                            and np.max(np.abs(qd_policy)) <= 0.2)
+                # The untilt has to be requested BEFORE the shape action, and this is
+                # why it is up here instead of next to the upright hold below.
+                #
+                # The STM32 runs one action at a time: anything that arrives while it
+                # is busy comes back ACTION_BUSY and is dropped. Sent second, the
+                # untilt is the one that gets dropped - silently, because nothing
+                # polls its status - and the body stays pitched forward (the re-posed
+                # pose) through the whole arm/head action. Sent first, the untilt is
+                # accepted and it is the shape request that waits, which is the order
+                # the card procedure wants anyway: tilt -> identify -> untilt -> act.
+                #
+                # The STM32 re-poses the body and freezes the attitude it reports, so
+                # the vision's geometry never sees the stop at all. Requested and
+                # released on the two edges of the vision's flag. Each edge carries a
+                # fresh event id - the STM32 reads a repeated event id as a
+                # retransmission, not as a new command.
+                card_tilt = snapshot is not None and snapshot.card_tilt
+                if card_tilt != card_tilt_active:
+                    card_tilt_event += 1
+                    link.send_action(
+                        card_tilt_event,
+                        ACTION_CARD_TILT if card_tilt else ACTION_CARD_RESTORE,
+                    )
+                    print(f"[shape] card_tilt={'on' if card_tilt else 'off'} "
+                          f"event={card_tilt_event}")
+                    card_tilt_active = card_tilt
                 if shape_controller is not None:
                     if snapshot.event_id:
                         if shape_controller.accept(snapshot.event_id, snapshot.event_action, now):
@@ -425,21 +451,6 @@ def main() -> int:
                 upright_hold = requested and (upright_active or stopped)
                 if upright_active and not upright_hold:
                     policy.reset()
-                # The other way round the same problem: the STM32 re-poses the body and
-                # freezes the attitude it reports, so the vision's geometry never sees
-                # the stop at all. Requested and released on the two edges of the
-                # vision's flag. Each edge carries a fresh event id - the STM32 reads a
-                # repeated event id as a retransmission, not as a new command.
-                card_tilt = snapshot is not None and snapshot.card_tilt
-                if card_tilt != card_tilt_active:
-                    card_tilt_event += 1
-                    link.send_action(
-                        card_tilt_event,
-                        ACTION_CARD_TILT if card_tilt else ACTION_CARD_RESTORE,
-                    )
-                    print(f"[shape] card_tilt={'on' if card_tilt else 'off'} "
-                          f"event={card_tilt_event}")
-                    card_tilt_active = card_tilt
                 upright_active = upright_hold
                 # A fixed-test timer must never override live vision commands.
                 if (args.command_source == "fixed" and args.walk_seconds > 0

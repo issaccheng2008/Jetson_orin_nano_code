@@ -65,10 +65,14 @@ class ShapeActionController:
             elif now - self.phase_start >= self.stop_timeout:
                 raise TimeoutError("Robot did not stop before shape action")
         elif phase == "upper":
-            if upper_status == 2:
+            if upper_status == 2:                       # ACTION_DONE
                 self.phase = "idle"
-            elif upper_status in (3, 4, 5):
+            elif upper_status in (4, 5):                # ACTION_INVALID / ACTION_FAILED
                 raise RuntimeError(f"STM32 rejected shape action: status={upper_status}")
+            # status 3 (ACTION_BUSY) is not a rejection: the STM32 runs one action at
+            # a time and is still finishing the card untilt when the shape request
+            # first goes out. Keep requesting until it takes it - the send repeats at
+            # 10 Hz in main.py and the timeout below still bounds the wait.
             elif now - self.phase_start >= self.action_timeout:
                 raise TimeoutError("STM32 shape action did not complete")
         elif phase == "stand" and now - self.phase_start >= self.stand_seconds:

@@ -50,6 +50,59 @@ class ShapeMainTests(unittest.TestCase):
             self.assertEqual(main.main(), 1)
             return walk, foot, link
 
+    def run_ticks(self, snapshots):
+        """像 run_one_tick，但喂多帧 —— 撤重摆那一帧和形状请求是同一帧，
+        顺序只有在那一帧里才看得见。"""
+        with patch("sys.argv", ["main.py", "--model", "walk.onnx", "--no-plot",
+                                 "--command-source", "vision", "--one-foot-model", "foot.onnx"]):
+            args = main.parse_args()
+        state = SimpleNamespace(
+            status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID,
+            accel_m_s2=np.array([0, 0, 9.81], dtype=np.float32),
+            gyro_rad_s=np.zeros(3, dtype=np.float32),
+            orientation_wxyz=np.array([1, 0, 0, 0], dtype=np.float32),
+            joint_position=config.Q_DEFAULT.copy(),
+            joint_velocity=np.zeros(12, dtype=np.float32), sequence=1,
+        )
+        with (
+            patch.object(main, "parse_args", return_value=args),
+            patch.object(main.signal, "signal"),
+            patch.object(main, "HumanoidPolicy") as walk_cls,
+            patch.object(main, "OneFootPolicy") as foot_cls,
+            patch.object(main, "UdpCommandSource") as source_cls,
+            patch.object(main, "SerialLink") as link_cls,
+            patch.object(main, "PositionCsvLogger"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            walk_cls.return_value.step.return_value = (
+                config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.0)
+            foot_cls.return_value.step.return_value = (
+                config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(46), 0.0)
+            source_cls.return_value.get_snapshot.side_effect = snapshots
+            link = link_cls.return_value
+            link.wait_for_state.return_value = state
+            link.get_latest_state.side_effect = (
+                [state] * len(snapshots) + [RuntimeError("end test")])
+            link.get_action_status.return_value = 0
+            self.assertEqual(main.main(), 1)
+            return link
+
+    def test_the_untilt_is_requested_before_the_shape_action(self):
+        """8 必须排在 1-6 前面。STM32 一次只跑一个动作，后到的直接 BUSY 丢掉 ——
+        而 8 是唯一没人轮询状态的那条，被丢掉是静默的，机身就一直保持重摆后的
+        前倾姿态把整套动作做完。视觉的线上顺序是：窗口开着时只有 card_tilt=True、
+        没有 event；识别到的那一帧才同时有 card_tilt=False 和 event。"""
+        from protocol import ACTION_CARD_RESTORE, ACTION_CARD_TILT
+        window = CommandSnapshot(np.zeros(3, dtype=np.float32), -1, 0, -1,
+                                 card_tilt=True)
+        identify = CommandSnapshot(np.zeros(3, dtype=np.float32), 1, 765, 1,
+                                   card_tilt=False)
+        link = self.run_ticks([window, identify])
+        sends = [call.args for call in link.send_action.call_args_list]
+        self.assertEqual(sends, [(1, ACTION_CARD_TILT),
+                                 (2, ACTION_CARD_RESTORE),
+                                 (765, 1)])
+
     def test_arm_card_sends_only_upper_body_request(self):
         walk, foot, link = self.run_one_tick(1)
         link.send_action.assert_called_once_with(765, 1)
