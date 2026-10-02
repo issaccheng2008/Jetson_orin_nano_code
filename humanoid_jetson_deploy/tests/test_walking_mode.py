@@ -26,6 +26,18 @@ class WalkingModeTests(unittest.TestCase):
         self.assertEqual(self.args("--command-source", "vision").udp_command_port, 5005)
         self.assertEqual(self.args("--wz", "0.5").wz, 0.5)
 
+    def test_the_yaw_limit_is_wide_enough_to_sweep_past_the_old_0_5(self):
+        """固定指令模式的偏航上限原来写死 0.5（视觉那条路自己夹 0.5，但固定
+        模式也走同一个 clamp_command），想试更大的偏航就被挡掉。放宽到 MAX_WZ。"""
+        from command_source import MAX_WZ, clamp_command
+
+        self.assertGreater(MAX_WZ, 0.5)
+        self.assertEqual(self.args("--wz", str(MAX_WZ)).wz, MAX_WZ)
+        self.assertAlmostEqual(float(clamp_command([0.2, 0.0, 0.8])[2]), 0.8)
+        self.assertAlmostEqual(float(clamp_command([0.2, 0.0, MAX_WZ + 1])[2]), MAX_WZ)
+        # 视觉那条路的行为不变：它自己先夹到 --max-wz（默认 0.5）
+        self.assertAlmostEqual(float(clamp_command([0.2, 0.0, 0.5])[2]), 0.5)
+
     def test_rejects_stop_and_invalid_forward_commands(self):
         for vx in ("0", "-0.1", "nan", "inf", "1.1"):
             with self.subTest(vx=vx), patch.object(main, "parse_args", return_value=self.args("--vx", vx)):

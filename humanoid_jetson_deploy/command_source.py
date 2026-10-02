@@ -21,6 +21,14 @@ class CommandSnapshot:
     card_tilt: bool = False
 
 
+# 偏航指令的硬上限。原来写死 0.5：视觉那条路自己会夹（--max-wz 默认 0.5），
+# 但固定指令模式（--command-source fixed --wz X）也走这个函数，想试更大的
+# 偏航就被这里挡掉了。放宽到 1.0 —— 视觉那条路的行为完全不变（它自己先夹）。
+# ⚠️ 策略的训练指令范围是未知的，超出它可能做不出对应动作甚至不稳，
+# 往大调的时候一次加一点。
+MAX_WZ = 1.0
+
+
 def clamp_command(command) -> np.ndarray:
     command = np.asarray(command, dtype=np.float32).reshape(3)
     if not np.all(np.isfinite(command)):
@@ -29,7 +37,7 @@ def clamp_command(command) -> np.ndarray:
         [
             np.clip(command[0], 0.0, 1.0),
             0.0,
-            np.clip(command[2], -0.5, 0.5),
+            np.clip(command[2], -MAX_WZ, MAX_WZ),
         ],
         dtype=np.float32,
     )

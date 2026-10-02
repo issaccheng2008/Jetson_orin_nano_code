@@ -11,7 +11,7 @@ import numpy as np
 
 import config
 from attitude_broadcast import AttitudeBroadcaster
-from command_source import FixedCommandSource, UdpCommandSource
+from command_source import MAX_WZ, FixedCommandSource, UdpCommandSource
 from fixed_joint_policy import FixedJointPolicy
 from imu_filter import (
     projected_gravity_from_quaternion,
@@ -201,8 +201,8 @@ def main() -> int:
         else:
             if not np.isfinite(args.vx) or not 0.0 < args.vx <= 1.0:
                 raise SystemExit("vx must be finite and in (0, 1] for constant forward walking")
-            if not np.isfinite(args.wz) or not -0.5 <= args.wz <= 0.5:
-                raise SystemExit("wz must be finite and in [-0.5, 0.5]")
+            if not np.isfinite(args.wz) or not -MAX_WZ <= args.wz <= MAX_WZ:
+                raise SystemExit(f"wz must be finite and in [{-MAX_WZ}, {MAX_WZ}]")
             if not np.isfinite(args.walk_seconds) or args.walk_seconds < 0:
                 raise SystemExit("walk-seconds must be finite and nonnegative")
 
