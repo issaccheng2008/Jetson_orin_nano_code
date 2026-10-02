@@ -220,7 +220,14 @@ class LineDetector:
         self.bottom_lock_rows = 10
         self.bottom_lock_step = 2
         self.bottom_lock_min_pair_ratio = 0.55
-        self.bottom_lock_sym_tol_px = 24.0
+        # 锁有效的第二条：线心离画面中心不超过这个像素数。24px ≈ 8cm（近带
+        # 0.332cm/px），弯道上正常偏差就有 8~10cm —— 2026-10-02 实车：这一条
+        # 单独把近带锁否掉（`001_00` 那帧 bottom_pair_ratio=1.00、线看得清清楚楚，
+        # 只因 base_err_px=-37.9 判无效），然后退到单边线/远带，角度读出 30~64°、
+        # 融合放大 2.3~3.5 倍，wz 顶死，最后线整个离开近带跑出弯道。
+        # 六次丢锁的 dump 里 lock 有效一共只有 4/36。
+        # 40px ≈ 13cm：先按这个跑一趟做对照，只看 loss dump 的 lock 有效数。
+        self.bottom_lock_sym_tol_px = 40.0
         self.bottom_lock_blend = 0.72  # stronger lock anchor, less band-scan bias in curves
         self.bottom_lock_conf_penalty = 0.45
         self.lock_reacquire_reset = True
