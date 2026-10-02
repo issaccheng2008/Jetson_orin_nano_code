@@ -177,6 +177,13 @@ def parse_args():
                              "long before releasing to full speed, so the start mirrors "
                              "the stop's 0.4 -> 0.2 -> 0 shape. 0 releases on the first "
                              "walking frame, leaving only the connector's slew")
+    parser.add_argument("--card-tilt-ms", type=float,
+                        default=float(os.getenv("CARD_TILT_MS", "1000")),
+                        help="After the stop trigger, spend this long not looking at "
+                             "the card at all while the robot re-poses the body. The "
+                             "STM32 is asked for the tilt on the trigger and this is "
+                             "the window it gets; identifying during it reads a body "
+                             "that is still moving. 0 identifies immediately")
     parser.add_argument("--card-cold-start", action="store_true",
                         help="On the stopped-to-walking edge, wipe the controller's loop "
                              "state and the detector's memory instead of keeping them. "
@@ -382,6 +389,7 @@ def main():
         card_until = 0.0
         stop_until = 0.0
         resume_until = 0.0
+        tilt_until = 0.0
         card_flag = False        # a card is in view on this approach
         card_absent = 0          # consecutive detection calls without one
         card_triggered = False   # this card has already been acted on
@@ -513,7 +521,13 @@ def main():
                 shape_period = min(args.shape_every, args.card_every_stopped)
             else:
                 shape_period = args.shape_every
-            if shape is not None and (frames % shape_period == 0):
+            # The robot is re-posing the body for the first --card-tilt-ms of the stop.
+            # Not looking at all, rather than looking and rejecting: a frame taken
+            # mid-tilt is a frame of a body in motion, and feeding those to the
+            # classifier is how a card gets read as the wrong shape. The card is
+            # stationary and the window is seconds long, so the wait is free.
+            tilting = processed < tilt_until
+            if shape is not None and not tilting and (frames % shape_period == 0):
                 action, card_dbg = shape.update(
                     frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
                 # "多近了"这一个量，动作闸和停车闸共用。有真框就量框宽（对机身俯仰
@@ -599,6 +613,7 @@ def main():
                     card_triggered = True
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
+                    tilt_until = processed + args.card_tilt_ms / 1000.0
                     if card_width_px is not None:
                         print(f"[shape] card {card_reach:.0f}px of "
                               f"{card_reach_line:.0f}px "
@@ -679,6 +694,8 @@ def main():
             client.publish(vx, wz, visible_qr,
                            hold_upright=(processed < stop_until
                                          or processed < card_until),
+                           card_tilt=(processed < stop_until
+                                      or processed < card_until),
                            **event)
             if processed - last_log >= 0.5:
                 # Left of the bar is what the robot is doing; right of it is why.

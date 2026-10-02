@@ -382,7 +382,8 @@ class VisionEntryPointTests(unittest.TestCase):
         )
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless",
-                               "--shape-every", "1", "--card-hold-ms", "5000"]),
+                               "--shape-every", "1", "--card-hold-ms", "5000",
+                               "--card-tilt-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -649,6 +650,11 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertTrue(published[1].kwargs["hold_upright"])
         self.assertTrue(published[resumed - 1].kwargs["hold_upright"])
         self.assertFalse(published[resumed].kwargs["hold_upright"])
+        # Same window, the other mechanism: main.py turns these two edges into the
+        # two action requests the STM32 re-poses the body on.
+        self.assertFalse(published[0].kwargs["card_tilt"])
+        self.assertTrue(published[1].kwargs["card_tilt"])
+        self.assertFalse(published[resumed].kwargs["card_tilt"])
         # It drives again the moment the window closes - there is no blind clearance
         # stage. The controller was idle all through the stop and its loop state is kept
         # (the stop is a pause), so this lands near a fresh controller's value for the
@@ -1502,8 +1508,10 @@ class ShapeDetectorReportingTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
+            # --card-tilt-ms 0: this test is about the stopped cadence, and the tilt
+            # delay would push the first looked-at frame ten frames later.
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
-                               "--card-every-stopped", "2"]),
+                               "--card-every-stopped", "2", "--card-tilt-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient"),
             patch("utils.open_camera", return_value=camera),
@@ -1519,6 +1527,66 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         self.assertEqual(inside[:10], [4, 6, 8, 10, 12, 14, 16, 18, 20, 22])
         # And once the window closes it is back to --shape-every 1, every frame.
         self.assertLess(shape.update.call_count, reads[0] * 0.75)
+
+    def test_the_card_is_not_looked_at_while_the_body_is_being_re_posed(self):
+        """--card-tilt-ms holds off every look at the card at the start of the stop.
+
+        A frame taken mid-tilt is a frame of a body in motion, and the classifier reads
+        the card's shape off that geometry. The card is stationary and the stop window
+        is seconds long, so the wait costs nothing. Same harness as the cadence test,
+        with the default tilt instead of 0.
+        """
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.8, None, detection())
+        seen = []
+        shape = Mock()
+        shape.action_map = {"square": 3}
+
+        def update(*_a, **_k):
+            seen.append(reads[0])
+            if reads[0] in (2, 3):
+                return None, {"presence": True, "card_found": True,
+                              "presence_cy_frac": 0.9}
+            return None, {"presence": False, "card_found": False,
+                          "presence_cy_frac": None}
+
+        shape.update.side_effect = update
+        clock = [0.0]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 40:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-every-stopped", "2", "--card-tilt-ms", "1000"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        # The trigger lands on read 2, so 1000 ms of mocked time is reads 3..12 skipped
+        # and the every-other-frame cadence picks up from the first read at or after
+        # the window. Asserted against the tilt being ten reads long rather than a
+        # fixed index: the mocked clock accumulates 0.1 and lands either side of the
+        # boundary. With --card-tilt-ms 0 the same harness looks from read 4.
+        inside = [i for i in seen if i > 3]
+        self.assertEqual(inside[:5], [12, 14, 16, 18, 20])
 
     def test_a_card_in_view_speeds_the_detection_up_before_the_stop(self):
         """The stop fires on the first cy at or above the trigger line, so

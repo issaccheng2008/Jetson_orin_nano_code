@@ -59,6 +59,10 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
         # Vision is standing the robot still for a card and wants the body held
         # upright while it reads it. Absent means no, so an older vision is unchanged.
         "hold_upright": bool(message.get("hold_upright", False)),
+        # Same window, different mechanism: the STM32 re-poses the body and reports a
+        # frozen attitude instead of the Nano holding a pose. The two drive the same
+        # joints, so a rig uses one or the other, never both.
+        "card_tilt": bool(message.get("card_tilt", False)),
     }
     if "event_id" in message or "event_action" in message:
         event_id = int(message["event_id"])
@@ -114,7 +118,8 @@ class CommandSmoother:
         self.vx = slew_toward(self.vx, float(target["vx"]), self.max_vx_accel * dt)
         self.wz = slew_toward(self.wz, float(target["wz"]), self.max_wz_accel * dt)
         output = {"vx": self.vx, "vy": 0.0, "wz": self.wz, "qr": int(target["qr"]),
-                  "hold_upright": bool(target.get("hold_upright", False))}
+                  "hold_upright": bool(target.get("hold_upright", False)),
+                  "card_tilt": bool(target.get("card_tilt", False))}
         if "event_id" in target:
             output["event_id"] = int(target["event_id"])
             output["event_action"] = int(target["event_action"])

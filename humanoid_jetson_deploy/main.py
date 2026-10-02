@@ -24,6 +24,8 @@ from shape_actions import ShapeActionController, UPPER_CARDS
 from position_monitor import LivePositionPlot, PositionCsvLogger
 from protocol import (
     ACTION_BUSY,
+    ACTION_CARD_RESTORE,
+    ACTION_CARD_TILT,
     ACTION_DONE,
     COMMAND_ENABLE,
     COMMAND_ESTOP,
@@ -309,6 +311,8 @@ def main() -> int:
         step = 0
         card_policy_active = False
         upright_active = False
+        card_tilt_active = False
+        card_tilt_event = 0
         last_action_tx = -float("inf")
 
         while not stop_requested:
@@ -421,6 +425,21 @@ def main() -> int:
                 upright_hold = requested and (upright_active or stopped)
                 if upright_active and not upright_hold:
                     policy.reset()
+                # The other way round the same problem: the STM32 re-poses the body and
+                # freezes the attitude it reports, so the vision's geometry never sees
+                # the stop at all. Requested and released on the two edges of the
+                # vision's flag. Each edge carries a fresh event id - the STM32 reads a
+                # repeated event id as a retransmission, not as a new command.
+                card_tilt = snapshot is not None and snapshot.card_tilt
+                if card_tilt != card_tilt_active:
+                    card_tilt_event += 1
+                    link.send_action(
+                        card_tilt_event,
+                        ACTION_CARD_TILT if card_tilt else ACTION_CARD_RESTORE,
+                    )
+                    print(f"[shape] card_tilt={'on' if card_tilt else 'off'} "
+                          f"event={card_tilt_event}")
+                    card_tilt_active = card_tilt
                 upright_active = upright_hold
                 # A fixed-test timer must never override live vision commands.
                 if (args.command_source == "fixed" and args.walk_seconds > 0

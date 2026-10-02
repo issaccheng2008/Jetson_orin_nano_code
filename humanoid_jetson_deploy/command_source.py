@@ -18,6 +18,7 @@ class CommandSnapshot:
     event_id: int = 0
     event_action: int = -1
     hold_upright: bool = False
+    card_tilt: bool = False
 
 
 def clamp_command(command) -> np.ndarray:
@@ -55,6 +56,7 @@ class UdpCommandSource:
         self.event_id = 0
         self.event_action = -1
         self.hold_upright = False
+        self.card_tilt = False
         self.last_update = 0.0
         self.lock = threading.Lock()
         self.stop = threading.Event()
@@ -83,6 +85,7 @@ class UdpCommandSource:
                 if event_id < 0 or event_id > 0xFFFFFFFF or (event_id > 0 and event_action not in (1, 2, 3, 4, 5, 6)):
                     raise ValueError("invalid shape event")
                 hold_upright = bool(message.get("hold_upright", False))
+                card_tilt = bool(message.get("card_tilt", False))
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError):
                 continue
             with self.lock:
@@ -91,6 +94,7 @@ class UdpCommandSource:
                 self.event_id = event_id
                 self.event_action = event_action if event_id else -1
                 self.hold_upright = hold_upright
+                self.card_tilt = card_tilt
                 self.last_update = time.monotonic()
 
     def get(self) -> np.ndarray:
@@ -101,10 +105,12 @@ class UdpCommandSource:
             command = self.command.copy()
             qr, event_id, event_action = self.qr, self.event_id, self.event_action
             hold_upright = self.hold_upright
+            card_tilt = self.card_tilt
             age = time.monotonic() - self.last_update
         if age > self.timeout_s:
             return CommandSnapshot(np.zeros(3, dtype=np.float32))
-        return CommandSnapshot(command, qr, event_id, event_action, hold_upright)
+        return CommandSnapshot(command, qr, event_id, event_action, hold_upright,
+                               card_tilt)
 
     def close(self) -> None:
         self.stop.set()

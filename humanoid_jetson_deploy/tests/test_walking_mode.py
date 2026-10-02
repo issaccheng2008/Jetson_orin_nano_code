@@ -11,6 +11,7 @@ import numpy as np
 import config
 import main
 from command_source import CommandSnapshot
+from protocol import ACTION_CARD_RESTORE, ACTION_CARD_TILT
 from protocol import STATE_ENCODERS_VALID, STATE_IMU_VALID
 
 
@@ -181,6 +182,44 @@ class WalkingModeTests(unittest.TestCase):
             # Engaged on the settled frame and kept through the moving one; only the
             # release frame reached the policy.
             self.assertEqual(policy.step.call_count, 1)
+
+    def test_the_card_tilt_flag_becomes_two_action_requests(self):
+        """The vision cannot reach the serial port, so the two edges of its card_tilt
+        flag become the two requests the STM32 re-poses and restores the body on."""
+        def state(sequence):
+            return SimpleNamespace(
+                status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID,
+                accel_m_s2=np.array([0, 0, 9.81], dtype=np.float32),
+                gyro_rad_s=np.zeros(3, dtype=np.float32),
+                orientation_wxyz=np.array([1, 0, 0, 0], dtype=np.float32),
+                joint_position=config.Q_DEFAULT.copy(),
+                joint_velocity=np.zeros(12, dtype=np.float32), sequence=sequence,
+            )
+
+        tilting = CommandSnapshot(np.zeros(3, dtype=np.float32), card_tilt=True)
+        walking = CommandSnapshot(np.array([0.3, 0.0, 0.0], dtype=np.float32))
+        with (
+            patch.object(main, "parse_args", return_value=self.args("--command-source", "vision")),
+            patch.object(main.signal, "signal"),
+            patch.object(main, "HumanoidPolicy") as policy_cls,
+            patch.object(main, "SerialLink") as link_cls,
+            patch.object(main, "UdpCommandSource") as source_cls,
+            patch.object(main, "PositionCsvLogger"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            source_cls.return_value.get_snapshot.side_effect = [
+                walking, tilting, tilting, walking]
+            policy_cls.return_value.step.return_value = (
+                config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.0)
+            link = link_cls.return_value
+            link.wait_for_state.return_value = state(1)
+            link.get_latest_state.side_effect = [state(1), state(2), state(3), state(4),
+                                                 RuntimeError("stale state")]
+            self.assertEqual(main.main(), 1)
+            sent = [(c.args[0], c.args[1]) for c in link.send_action.call_args_list]
+            self.assertEqual([a for _, a in sent], [ACTION_CARD_TILT, ACTION_CARD_RESTORE])
+            # Fresh event ids: the STM32 reads a repeated one as a retransmission.
+            self.assertEqual(len({e for e, _ in sent}), 2)
 
 
 if __name__ == "__main__":

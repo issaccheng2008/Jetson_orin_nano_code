@@ -23,6 +23,14 @@ ACTION_DONE = 2
 ACTION_BUSY = 3
 ACTION_INVALID = 4
 ACTION_FAILED = 5
+
+# Card-stop body re-pose. 1-6 are the six printed shapes; these two are not shapes and
+# never carry a card event. On START the STM32 re-poses the body and, for the rest of
+# the stop, reports the attitude it held before that; on RESTORE it puts both back.
+# The vision asks by publishing card_tilt, and main.py turns the two edges of that
+# flag into these two requests.
+ACTION_CARD_TILT = 7
+ACTION_CARD_RESTORE = 8
 MAX_PAYLOAD = 512
 
 COMMAND_ENABLE = 1 << 0
