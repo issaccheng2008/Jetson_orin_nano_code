@@ -177,6 +177,11 @@ def parse_args():
                              "long before releasing to full speed, so the start mirrors "
                              "the stop's 0.4 -> 0.2 -> 0 shape. 0 releases on the first "
                              "walking frame, leaving only the connector's slew")
+    parser.add_argument("--hold-upright", action="store_true",
+                        help="Superseded by --card-tilt-ms and NOT used: this asks the "
+                             "Nano to hold the legs straight through the stop, which "
+                             "drives the same joints the STM32 re-pose drives. Turn on "
+                             "exactly one of the two")
     parser.add_argument("--card-tilt-ms", type=float,
                         default=float(os.getenv("CARD_TILT_MS", "1000")),
                         help="After the stop trigger, spend this long not looking at "
@@ -691,11 +696,13 @@ def main():
             # Re-read here rather than reusing the top of the loop: the window can be
             # opened by this very frame's trigger, and the standstill it asks for
             # starts now, not on the next one.
+            # `card_tilt` is the mechanism in use: the STM32 re-poses the body and
+            # freezes the attitude it reports. `hold_upright` is the superseded one and
+            # is off unless asked for - both drive the same joints.
+            in_card_window = processed < stop_until or processed < card_until
             client.publish(vx, wz, visible_qr,
-                           hold_upright=(processed < stop_until
-                                         or processed < card_until),
-                           card_tilt=(processed < stop_until
-                                      or processed < card_until),
+                           hold_upright=(args.hold_upright and in_card_window),
+                           card_tilt=in_card_window,
                            **event)
             if processed - last_log >= 0.5:
                 # Left of the bar is what the robot is doing; right of it is why.

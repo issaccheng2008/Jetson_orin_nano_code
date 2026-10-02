@@ -646,15 +646,16 @@ class VisionEntryPointTests(unittest.TestCase):
         # The whole stop asks the robot to hold its legs straight: that is the pose the
         # card geometry is calibrated for, and the policy's own stopped pose is pitched
         # back about 20 degrees. Nothing before or after the window asks for it.
-        self.assertFalse(published[0].kwargs["hold_upright"])
-        self.assertTrue(published[1].kwargs["hold_upright"])
-        self.assertTrue(published[resumed - 1].kwargs["hold_upright"])
-        self.assertFalse(published[resumed].kwargs["hold_upright"])
-        # Same window, the other mechanism: main.py turns these two edges into the
-        # two action requests the STM32 re-poses the body on.
+        # The mechanism in use: main.py turns the two edges of this into the two
+        # action requests the STM32 re-poses the body on.
         self.assertFalse(published[0].kwargs["card_tilt"])
         self.assertTrue(published[1].kwargs["card_tilt"])
+        self.assertTrue(published[resumed - 1].kwargs["card_tilt"])
         self.assertFalse(published[resumed].kwargs["card_tilt"])
+        # The superseded one is off unless --hold-upright is passed: it drives the same
+        # joints, so exactly one of the two may be on.
+        for call in published:
+            self.assertFalse(call.kwargs.get("hold_upright", False))
         # It drives again the moment the window closes - there is no blind clearance
         # stage. The controller was idle all through the stop and its loop state is kept
         # (the stop is a pause), so this lands near a fresh controller's value for the
