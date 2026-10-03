@@ -334,15 +334,16 @@ def parse_args():
                              "+5~6 cm, so 3 had the robot pulsing almost "
                              "continuously even while it was basically on the line")
     parser.add_argument("--wz-stop-cm", type=float, default=None,
-                        help="Where a running turn ends, cm, on the OPPOSITE side: "
-                             "a left turn runs until err has crossed to -stop-cm "
-                             "(mirrored for a right turn). Unset = --wz-fire-cm, so "
-                             "the stop line is the mirror of the fire line: +4.5 "
-                             "starts it, -4.5 ends it. 0 = stop the moment err "
-                             "crosses the centre; any value below fire stops it "
-                             "earlier. Added 2026-10-03 in two steps: the turn used "
-                             "to be a fixed 2.5 s burst nothing could cut; then a "
-                             "same-side stop cut it at 2 cm, the robot came out of "
+                        help="Where a running turn ends, cm. Signed, no range "
+                             "limit: positive = on the OPPOSITE side (a left turn "
+                             "runs until err reaches -stop-cm, mirrored for a right "
+                             "turn); 0 = the moment err crosses the centre; "
+                             "negative = stop early on the SAME side (err back "
+                             "inside |stop-cm|). Unset = --wz-fire-cm, so the stop "
+                             "line is the mirror of the fire line: +4.5 starts it, "
+                             "-4.5 ends it. Added 2026-10-03 in two steps: the turn "
+                             "used to be a fixed 2.5 s burst nothing could cut; then "
+                             "a same-side stop cut it at 2 cm, the robot came out of "
                              "every turn still right of centre, gathered new right "
                              "error on the straight and left the track on the right")
     # 0.4 / 0.5 是**实车跑出来的好值**，而且挑的是"大且稳"那一端：关节在小角度
@@ -469,14 +470,12 @@ def parse_args():
     # 1.0 / 2.5 只是默认值，不是上限下限。
     if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_step,
                                            args.wz_turn_s, args.wz_gap_s))
-            and (args.wz_stop_cm is None
-                 or (math.isfinite(args.wz_stop_cm)
-                     and 0 <= args.wz_stop_cm <= args.wz_fire_cm))
+            and (args.wz_stop_cm is None or math.isfinite(args.wz_stop_cm))
             and 0 < args.wz_fire_cm
             and 0 < args.wz_step <= args.max_wz
             and args.wz_turn_s > 0.0
             and args.wz_gap_s >= 0.0):
-        parser.error("need 0 < wz-fire-cm, 0 <= wz-stop-cm <= wz-fire-cm "
+        parser.error("need 0 < wz-fire-cm, a finite wz-stop-cm "
                      "(unset = wz-fire-cm, the mirror), 0 < wz-step <= max-wz, "
                      "wz-turn-s > 0, and wz-gap-s >= 0 (0 = no forced coast)")
     return args
@@ -623,9 +622,15 @@ def main():
                      "转完不强制滑行（--wz-gap-s 0），err 还在阈值上就接着开")
             stop_cm = (args.wz_fire_cm if args.wz_stop_cm is None
                        else args.wz_stop_cm)
-            release = (f"err 翻到另一侧的 {stop_cm}cm 才收手"
-                       f"（--wz-stop-cm 不写就是 fire 的镜像）"
-                       if stop_cm > 0.0 else "err 一翻过中心就收手")
+            if args.wz_stop_cm is None:
+                release = (f"err 翻到另一侧的 {stop_cm}cm 才收手"
+                           f"（--wz-stop-cm 不写就是 fire 的镜像）")
+            elif stop_cm > 0.0:
+                release = f"err 翻到另一侧的 {stop_cm}cm 才收手"
+            elif stop_cm < 0.0:
+                release = f"err 回到同侧的 {-stop_cm}cm 以内就收手"
+            else:
+                release = "err 一翻过中心就收手"
             print(f"[wz] 离散模式：wz 只有 {levels} 两个状态。"
                   f"err ≥ {args.wz_fire_cm}cm 就开一段转向，{release}，最多 "
                   f"{args.wz_turn_s:.2f}s（--wz-turn-s 是上限，不是定长）；"

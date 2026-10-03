@@ -2618,6 +2618,10 @@ class DiscreteSteeringTests(unittest.TestCase):
             self.assertEqual(self.step(controller, 0.5), 0.5)  # 同侧不收
         self.assertEqual(self.step(controller, -4.9), 0.5)     # 还差一点到 −5
         self.assertEqual(self.step(controller, -5.0), 0.0)     # 到了镜像位置（含等号）
+        # 负数 = 同侧提前收（上一版的 2cm 语义，现在随手可调）
+        same_side = self.controller(turn_s=2.5, gap_s=1.0, stop_cm=-2.0)
+        self.assertEqual(self.step(same_side, 6.0), 0.5)
+        self.assertEqual(self.step(same_side, 1.9), 0.0)
 
     def test_a_high_error_still_waits_out_the_gap(self):
         """曾经是"一段跑完误差还在就立刻再开"——那出来的是**连续转弯**。
@@ -2632,13 +2636,13 @@ class DiscreteSteeringTests(unittest.TestCase):
         硬约束，那是拿形状要求去锁调参。现在只查"是不是个能用的数"。"""
         for kw in ({"turn_s": 1.5}, {"turn_s": 3.0}, {"gap_s": 2.0},
                    {"gap_s": 0.5}, {"gap_s": 0.0}, {"step": 0.3},
-                   {"stop_cm": 0.0}, {"stop_cm": 5.0}, {"stop_cm": None}):
+                   {"stop_cm": 0.0}, {"stop_cm": 5.0}, {"stop_cm": None},
+                   {"stop_cm": -2.0}, {"stop_cm": 8.0}):
             with self.subTest(**kw):
                 self.controller(**kw)
         for kw in ({"turn_s": 0.0}, {"turn_s": -1.0}, {"gap_s": -0.5},
                    {"step": 0.0}, {"step": 0.9}, {"fire_cm": 0.0},
-                   {"turn_s": float("nan")}, {"stop_cm": -0.1},
-                   {"stop_cm": 5.1}, {"stop_cm": float("nan")}):
+                   {"turn_s": float("nan")}, {"stop_cm": float("nan")}):
             with self.subTest(**kw), self.assertRaises(ValueError):
                 self.controller(**kw)
 
@@ -2703,17 +2707,20 @@ class DiscreteSteeringTests(unittest.TestCase):
         with patch("sys.argv", ["run_policy_vision.py", "--wz-step", "0.3"]):
             self.assertAlmostEqual(run_policy_vision.parse_args().wz_step, 0.3)
 
-    def test_the_cli_stop_band_must_be_inside_the_fire_band(self):
-        """stop > fire 会说"每帧都回到带内" —— 转向一帧都开不出来，静默失效。
-        所以这个组合在 argparse 里就拒掉。"""
-        for extra in (["--wz-stop-cm", "-0.1"], ["--wz-stop-cm", "5.1"],
-                      ["--wz-stop-cm", "nan"]):
-            with self.subTest(extra=extra), \
-                    patch("sys.argv", ["run_policy_vision.py", *extra]), \
-                    self.assertRaises(SystemExit):
-                run_policy_vision.parse_args()
-        with patch("sys.argv", ["run_policy_vision.py", "--wz-stop-cm", "0"]):
-            self.assertAlmostEqual(run_policy_vision.parse_args().wz_stop_cm, 0.0)
+    def test_the_cli_stop_line_has_no_range_limit(self):
+        """收手线只是个数：正数 = 另一侧、0 = 中心、负数 = 同侧提前收 —— 不设范围。
+        2026-10-03：原来卡 0 ≤ stop ≤ fire，"同侧 3~4cm 就收"和"翻到另一侧更深"
+        两种都被拒；限制去掉，只要求是个能用的数。"""
+        for value, expected in (("0", 0.0), ("-3.5", -3.5), ("8", 8.0),
+                                ("2.5", 2.5)):
+            with self.subTest(value=value), \
+                    patch("sys.argv", ["run_policy_vision.py",
+                                       "--wz-stop-cm", value]):
+                self.assertAlmostEqual(
+                    run_policy_vision.parse_args().wz_stop_cm, expected)
+        with patch("sys.argv", ["run_policy_vision.py", "--wz-stop-cm", "nan"]), \
+                self.assertRaises(SystemExit):
+            run_policy_vision.parse_args()
         # 不写 = None → 控制器把它解析成 fire 的镜像
         with patch("sys.argv", ["run_policy_vision.py"]):
             self.assertIsNone(run_policy_vision.parse_args().wz_stop_cm)
@@ -2731,7 +2738,7 @@ class DiscreteSteeringTests(unittest.TestCase):
         for kw in (dict(fire_cm=0.0), dict(fire_cm=float("nan")),
                    dict(step=0.0), dict(step=0.9), dict(turn_s=0.0),
                    dict(turn_s=-1.0), dict(gap_s=-0.5),
-                   dict(stop_cm=-0.1), dict(stop_cm=5.1),
+                   dict(stop_cm=float("nan")),
                    dict(turn_s=float("nan"))):
             with self.subTest(kw=kw), self.assertRaises(ValueError):
                 DiscreteSteeringController(inner, **kw)

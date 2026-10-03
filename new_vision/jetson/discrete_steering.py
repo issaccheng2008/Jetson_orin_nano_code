@@ -12,15 +12,15 @@
 **一串转向只有五个数**（曾经有六个：两档幅度 + 强阈值 + 时长的两套名字）：
 
     --wz-fire-cm   什么时候开
-    --wz-stop-cm   什么时候收手，在**另一侧**的量（不写 = --wz-fire-cm，即镜像）
+    --wz-stop-cm   什么时候收手（不写 = --wz-fire-cm，即镜像；不设范围）
     --wz-turn-s    最多转多久（是**上限**，不是定长）
     --wz-gap-s     收手后空多久
     --wz-step      转多猛（一个数，不分档）
 
-开的时候只看 err 过没过阈值；开了之后只看一件事：err 有没有翻到另一侧、
-到了 `stop_cm` 那个位置。**默认就是开火线的镜像**：+4.5 触发 → 一直转到 −4.5
-才收手（右→左；左→右同理由 `turn_wz` 的符号镜像）。
-`--wz-stop-cm 0` = 只翻过中心就收；正数越小收得越早。
+开的时候只看 err 过没过阈值；开了之后只看一件事：err 到了停手线的哪一边。
+`stop_cm` 是**带符号**的：正数 = 另一侧的量（+4.5 触发 → 转到 −4.5 才收），
+0 = 只翻过中心，负数 = 同侧的提前收（−2 = err 回到同侧 2cm 以内就收）。
+**不写就是开火线的镜像**（= --wz-fire-cm），右转按 `turn_wz` 的符号镜像。
 
 2026-10-03 实车走了两步：先是定长 2.5s 谁也叫不停（出弯那一下把车带出直道）；
 改成的"同侧 2cm 就收"又收得太早 —— 每转完都还在中心右边，直道上再攒新的右偏，
@@ -59,8 +59,6 @@ class DiscreteSteeringController:
             raise ValueError("discrete steering settings must be finite")
         if fire_cm <= 0.0:
             raise ValueError("fire-cm must be positive")
-        if not 0.0 <= stop_cm <= fire_cm:
-            raise ValueError("need 0 <= stop-cm <= fire-cm")
         if turn_s <= 0.0:
             raise ValueError("turn-s must be positive")
         if gap_s < 0.0:
