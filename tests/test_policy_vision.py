@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch, Mock
 import contextlib
 import io
@@ -2292,6 +2293,294 @@ class LaneWidthAnchorTests(unittest.TestCase):
         self.assertGreaterEqual(detector.lateral_scale, detector.lateral_scale_min)
         self._feed(20.0)
         self.assertLessEqual(detector.lateral_scale, detector.lateral_scale_max)
+
+
+class StartGateTests(unittest.TestCase):
+    """两阀是"与"，而且只锁存不撤销。"""
+
+    def test_two_valves_are_anded(self):
+        from start_gate import StartGate
+        gate = StartGate(mode="both")
+        gate.observe_shape("circle")
+        gate.observe_shape("circle")
+        self.assertTrue(gate.shape_passed)
+        self.assertFalse(gate.passed)          # 阀2 过了，阀1 还没
+        gate.observe_qr("1")
+        self.assertTrue(gate.passed)
+
+    def test_latching_survives_frames_that_report_nothing(self):
+        from start_gate import StartGate
+        gate = StartGate(mode="both")
+        gate.observe_qr("1")
+        gate.observe_shape("square")
+        gate.observe_shape("square")
+        for _ in range(20):
+            gate.observe_qr(None)
+            gate.observe_shape(None)
+        self.assertTrue(gate.qr_passed)
+        self.assertTrue(gate.shape_passed)
+
+    def test_the_payload_has_to_match_exactly(self):
+        from start_gate import StartGate
+        gate = StartGate(mode="qr", expected_qr="1")
+        for wrong in ("2", "01", "", " 1 2 "):
+            self.assertFalse(gate.observe_qr(wrong))
+            self.assertEqual(gate.last_qr, wrong.strip())
+            self.assertFalse(gate.qr_passed)
+        self.assertTrue(gate.observe_qr(" 1 "))
+        self.assertTrue(gate.passed)
+
+    def test_the_shape_needs_consecutive_same_name(self):
+        from start_gate import StartGate
+        gate = StartGate(mode="shape", shape_confirm=2)
+        self.assertFalse(gate.observe_shape("circle"))
+        self.assertFalse(gate.observe_shape("square"))   # 换了名字，从头数
+        self.assertEqual(gate.shape_streak, 1)
+        self.assertTrue(gate.observe_shape("square"))
+        self.assertTrue(gate.shape_passed)
+
+    def test_a_none_between_two_readings_does_not_reset_the_streak(self):
+        from start_gate import StartGate
+        gate = StartGate(mode="shape", shape_confirm=2)
+        gate.observe_shape("diamond")
+        gate.observe_shape(None)        # 这一帧没跑检测，不该把证据抹掉
+        self.assertFalse(gate.shape_passed)
+        self.assertTrue(gate.observe_shape("diamond"))
+
+    def test_either_valve_can_be_asked_for_alone(self):
+        from start_gate import StartGate
+        self.assertTrue(StartGate(mode="qr").observe_qr("1"))
+        self.assertTrue(StartGate(mode="qr").passed is False)
+        self.assertTrue(StartGate(mode="shape", shape_confirm=1)
+                        .observe_shape("cross"))
+        self.assertTrue(StartGate(mode="off").passed)
+        with self.assertRaises(ValueError):
+            StartGate(mode="也许")
+
+    def test_the_status_line_names_both_valves(self):
+        from start_gate import StartGate
+        gate = StartGate(mode="both", shape_confirm=2)
+        gate.observe_shape("triangle")
+        text = gate.status()
+        self.assertIn("阀1", text)
+        self.assertIn("阀2", text)
+        self.assertIn("triangle", text)
+        self.assertIn("1/2", text)
+
+
+class QrReaderTests(unittest.TestCase):
+    """二维码 round-trip。码是现场生成的，不需要图片素材。"""
+
+    @staticmethod
+    def _frame(payload, side_px=110, canvas=(720, 1280)):
+        import cv2
+        code = cv2.QRCodeEncoder_create().encode(payload)
+        scale = max(1, side_px // max(code.shape))
+        code = cv2.resize(code, None, fx=scale, fy=scale,
+                          interpolation=cv2.INTER_NEAREST)
+        gray = np.full(canvas, 255, np.uint8)
+        height, width = code.shape
+        y = (canvas[0] - height) // 2
+        x = (canvas[1] - width) // 2
+        gray[y:y + height, x:x + width] = code
+        return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+    def test_round_trip_payload_one(self):
+        from qr_reader import QrReader
+        reader = QrReader()
+        reading = reader.decode(self._frame("1"))
+        self.assertIsNotNone(reading)
+        self.assertEqual(reading.payload, "1")
+        self.assertGreater(reading.edge_px, 40.0)
+        self.assertEqual(reader.hits, 1)
+
+    def test_a_small_code_needs_the_upscale_pass(self):
+        """5cm 的码站在 30~40cm 外只有几十像素，raw 那一遍会漏。"""
+        from qr_reader import QrReader
+        frame = self._frame("1", side_px=50)
+        self.assertIsNotNone(QrReader(upscale=2.0).decode(frame))
+
+    def test_other_payloads_come_back_for_the_gate_to_reject(self):
+        """白名单在 StartGate 不在 Reader —— 扫到别的码要能打日志说明。"""
+        from qr_reader import QrReader
+        reading = QrReader().decode(self._frame("2"))
+        self.assertIsNotNone(reading)
+        self.assertEqual(reading.payload, "2")
+
+    def test_the_edge_gate_rejects_codes_outside_the_band(self):
+        from qr_reader import QrReader
+        frame = self._frame("1")
+        self.assertIsNone(QrReader(upscale=1.0, min_edge_px=120.0).decode(frame))
+        self.assertIsNone(QrReader(upscale=1.0, max_edge_px=50.0).decode(frame))
+
+    def test_a_blank_frame_returns_none_and_still_counts_the_scan(self):
+        from qr_reader import QrReader
+        reader = QrReader()
+        self.assertIsNone(reader.decode(np.full((720, 1280, 3), 255, np.uint8)))
+        self.assertEqual((reader.scans, reader.hits), (1, 0))
+        self.assertGreaterEqual(reader.last_cost_ms, 0.0)
+
+    def test_a_frame_larger_than_max_side_is_shrunk_first(self):
+        """2560x1440 直接放大到 5120x2880 是几百毫秒一次；先缩回 1280
+        再解，5cm 的码在 35cm 处还有 ~97px，够用。"""
+        from qr_reader import QrReader
+        frame = self._frame("1", side_px=220, canvas=(1440, 2560))
+        self.assertEqual(QrReader(max_side=1280).decode(frame).payload, "1")
+
+
+class StartGateIntegrationTests(unittest.TestCase):
+    """门控在真主循环里：两阀没全过之前，一个字都不许动。"""
+
+    def _camera(self, frame, clock, reads_out):
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        reads = [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > reads_out:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        return camera, reads
+
+    def test_the_gate_holds_the_robot_then_hands_the_card_logic_back(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        clock = [0.0]
+        camera, reads = self._camera(frame, clock, 16)
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        # 宽 200px 的框：比 43cm 那条停车线（~99px）近得多，所以门控一放开就该
+        # 立刻进停车读卡 —— 起点那张卡本来就在线内。
+        quad = np.array([[500., 200.], [700., 200.], [700., 300.], [500., 300.]])
+        shape = Mock()
+        shape.action_map = {"circle": 1}
+        shape.update.side_effect = lambda *a, **k: (
+            (None, {"presence": True, "card_found": True, "presence_cy_frac": 0.9,
+                    "shape": "circle", "quad_work": quad})
+            if reads[0] >= 2
+            else (None, {"presence": False, "card_found": False,
+                         "presence_cy_frac": None}))
+        reading = SimpleNamespace(payload="1", strategy="raw", edge_px=83.0,
+                                  cost_ms=70.0)
+        out = io.StringIO()
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--start-gate", "both", "--qr-every", "1",
+                               "--shape-every", "1", "--card-every-stopped", "1",
+                               "--card-vote-frames", "1", "--card-stop-ms", "500",
+                               "--card-hold-ms", "500"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch("qr_reader.QrReader") as qr_cls,
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(out),
+        ):
+            qr_cls.return_value.decode.return_value = reading
+            qr_cls.return_value.scans = 1
+            qr_cls.return_value.geom_rejects = 0
+            qr_cls.return_value.last_cost_ms = 70.0
+            self.assertEqual(run_policy_vision.main(), 0)
+        published = client_cls.return_value.publish.call_args_list
+        # 读 1：阀1 锁存（二维码）。读 2：图卡连 1/2。读 3：连 2/2 → 释放。
+        # 这三帧谁也不许动，而且机身必须是被按住直立的。
+        self.assertGreaterEqual(len(published), 6)
+        for index in range(3):
+            with self.subTest(publish=index):
+                self.assertEqual(published[index].args[:2], (0.0, 0.0))
+                self.assertTrue(published[index].kwargs["hold_upright"])
+                self.assertFalse(published[index].kwargs["card_tilt"])
+                self.assertNotIn("event_id", published[index].kwargs)
+        # 释放之后，原来那套停车/投票逻辑原样复活，并真的出 event。
+        # 同一条 event 会在 --card-hold-ms 内逐帧重发（收端按 id 去重），所以数的是
+        # 有几个不同的 id，不是有几帧带着 id。
+        events = [call for call in published if call.kwargs.get("event_id")]
+        self.assertEqual(len({call.kwargs["event_id"] for call in events}), 1)
+        self.assertEqual(events[0].kwargs["event_action"], 1)      # circle
+        self.assertEqual(events[0].args[2], 1)                     # qr = 形状号
+        # 扫到就锁存：之后一次解码都不该再发生。
+        self.assertEqual(qr_cls.return_value.decode.call_count, 1)
+        self.assertIn("阀1 通过", out.getvalue())
+        self.assertIn("阀2 通过", out.getvalue())
+        self.assertIn("start gate released", out.getvalue())
+
+    def test_the_qr_is_only_read_every_n_frames(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        clock = [0.0]
+        camera, reads = self._camera(frame, clock, 30)
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"circle": 1}
+        shape.update.return_value = (None, {"presence": False, "card_found": False,
+                                            "presence_cy_frac": None})
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--start-gate", "qr", "--qr-every", "5"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch("qr_reader.QrReader") as qr_cls,
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            qr_cls.return_value.decode.return_value = None
+            qr_cls.return_value.scans = 0
+            qr_cls.return_value.geom_rejects = 0
+            qr_cls.return_value.last_cost_ms = 160.0
+            self.assertEqual(run_policy_vision.main(), 0)
+        self.assertLessEqual(qr_cls.return_value.decode.call_count, 7)
+
+    def test_a_shape_only_gate_never_builds_a_qr_reader(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        clock = [0.0]
+        camera, reads = self._camera(frame, clock, 8)
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"circle": 1}
+        shape.update.return_value = (None, {"presence": False, "card_found": False,
+                                            "presence_cy_frac": None})
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--start-gate", "shape"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch("qr_reader.QrReader") as qr_cls,
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        qr_cls.assert_not_called()
+
+    def test_the_gate_options_are_validated(self):
+        for extra in (["--start-gate", "shape", "--no-shape-detect"],
+                      ["--start-gate", "qr", "--qr-every", "0"],
+                      ["--start-gate", "qr", "--start-gate-qr-payload", " "],
+                      ["--start-gate", "both", "--qr-upscale", "0.5"],
+                      ["--start-gate", "both", "--qr-min-edge-px", "900"]):
+            with self.subTest(extra=extra):
+                with patch("sys.argv", ["run_policy_vision.py", *extra]):
+                    with self.assertRaises(SystemExit):
+                        run_policy_vision.parse_args()
+        # 不带门控开关时，一切照旧。
+        with patch("sys.argv", ["run_policy_vision.py"]):
+            self.assertEqual(run_policy_vision.parse_args().start_gate, "off")
 
 
 if __name__ == "__main__":

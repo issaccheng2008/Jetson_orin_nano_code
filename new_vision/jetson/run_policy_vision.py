@@ -137,6 +137,46 @@ def parse_args():
                         help="How long after the card window closes the live pitch "
                              "keeps going to the line detector. The body takes about "
                              "2 s to walk out of the leaning stand pose")
+    parser.add_argument("--start-gate", choices=("off", "qr", "shape", "both"),
+                        default="off",
+                        help="Hold the robot at vx=wz=0 until the start valves pass. "
+                             "'qr' = a QR code decoded to --start-gate-qr-payload; "
+                             "'shape' = the first card classified to a shape on "
+                             "--start-gate-shape-frames consecutive detection calls; "
+                             "'both' = the competition setting. While held the body is "
+                             "also asked to stand upright: the policy's own stopped "
+                             "pose leans back about 20 deg and the card geometry is "
+                             "calibrated at the install angle, so without that the "
+                             "classifier rejects every card with rej=ground and the "
+                             "gate never opens. Off by default, and a run without it "
+                             "behaves exactly as before")
+    parser.add_argument("--start-gate-qr-payload", default="1",
+                        help="The QR payload that opens the first valve")
+    parser.add_argument("--start-gate-shape-frames", type=int, default=2,
+                        help="Consecutive detection calls naming the same shape "
+                             "before the second valve latches")
+    parser.add_argument("--qr-every", type=int, default=5,
+                        help="Decode a QR every N frames while the first valve is "
+                             "still waiting. The decoder is CPU-only and costs tens "
+                             "of milliseconds; this is the knob to turn if the loop "
+                             "feels slow while the robot waits at the start")
+    parser.add_argument("--qr-max-side", type=int, default=1280,
+                        help="Shrink the frame so its long side is at most this "
+                             "before decoding; 0 disables. Stops a >720p camera from "
+                             "paying for a 2x upscale of an already large frame")
+    parser.add_argument("--qr-upscale", type=float, default=2.0,
+                        help="Retry the decode on a LANCZOS4-upscaled frame at this "
+                             "factor when the raw pass fails; 1 disables. Small or "
+                             "distant codes need it")
+    parser.add_argument("--qr-min-edge-px", type=float, default=15.0,
+                        help="Reject a decoded code whose mean side is shorter than "
+                             "this, in original-frame pixels")
+    parser.add_argument("--qr-max-edge-px", type=float, default=450.0,
+                        help="Reject a decoded code whose mean side is longer than "
+                             "this, in original-frame pixels")
+    parser.add_argument("--start-gate-log-s", type=float, default=1.0,
+                        help="How often to print the start-gate status line while "
+                             "the gate is still closed")
     parser.add_argument("--no-shape-detect", action="store_true",
                         help="Skip geometric card detection entirely; qr stays -1")
     parser.add_argument("--dump-on-loss", default="",
@@ -340,6 +380,23 @@ def parse_args():
         parser.error("dump-on-loss-ring must be at least 1")
     if not math.isfinite(args.dump_on_loss_cooldown) or args.dump_on_loss_cooldown < 0:
         parser.error("dump-on-loss-cooldown must be finite and nonnegative")
+    if args.start_gate in ("shape", "both") and args.no_shape_detect:
+        parser.error("start-gate shape/both needs shape detection")
+    if args.start_gate in ("qr", "both") and not args.start_gate_qr_payload.strip():
+        parser.error("start-gate-qr-payload must not be empty")
+    if args.start_gate_shape_frames < 1:
+        parser.error("start-gate-shape-frames must be at least 1")
+    if args.qr_every < 1:
+        parser.error("qr-every must be at least 1")
+    if not math.isfinite(args.qr_upscale) or args.qr_upscale < 1:
+        parser.error("qr-upscale must be finite and at least 1")
+    if args.qr_max_side < 0:
+        parser.error("qr-max-side must be nonnegative")
+    if not (math.isfinite(args.qr_min_edge_px) and math.isfinite(args.qr_max_edge_px)
+            and 0 < args.qr_min_edge_px < args.qr_max_edge_px):
+        parser.error("need 0 < qr-min-edge-px < qr-max-edge-px")
+    if not math.isfinite(args.start_gate_log_s) or args.start_gate_log_s <= 0:
+        parser.error("start-gate-log-s must be positive")
     return args
 
 
@@ -391,6 +448,20 @@ def main():
         shape_names = {number: name for name, number in shape.action_map.items()}
         shape_numbers = dict(shape.action_map)
 
+    # 起跑门控。--help 依旧不碰 cv2：QrReader 只在真的要用二维码时才 import。
+    start_gate = qr_reader = None
+    if args.start_gate != "off":
+        from start_gate import StartGate
+        start_gate = StartGate(mode=args.start_gate,
+                               expected_qr=args.start_gate_qr_payload,
+                               shape_confirm=args.start_gate_shape_frames)
+        if start_gate.require_qr:
+            from qr_reader import QrReader
+            qr_reader = QrReader(min_edge_px=args.qr_min_edge_px,
+                                 max_edge_px=args.qr_max_edge_px,
+                                 upscale=args.qr_upscale,
+                                 max_side=args.qr_max_side)
+
     # 机身姿态只喂给图卡，不喂巡线。走路时俯仰以 1.7Hz 摆 30~40°，低通过的
     # 滞后值描述不了当前这一帧，喂进 IPM 反而更糟；巡线那边靠车道宽锚定解决，
     # 那个只用"赛道多宽"这个物理事实，不依赖姿态。图卡是停稳之后才认的，
@@ -441,6 +512,7 @@ def main():
               f"sl_gain={args.single_line_gain}; "
               f"line_pitch={'on' if args.line_pitch else 'off'}; "
               f"hold-still={'on' if args.hold_still else 'off'}; "
+              f"gate={args.start_gate}; "
               f"center_dead={args.center_dead_cm}cm; "
               f"bias={args.bias_straight_cm}->{args.bias_cm}"
               f"(dead {args.bias_dead_px}, full {args.bias_gate_px})", flush=True)
@@ -448,6 +520,15 @@ def main():
             print(f"Body attitude: udp://{args.attitude_bind}:{args.attitude_port}"
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
                   f" 会被机身俯仰实时修正", flush=True)
+        if start_gate is not None:
+            print(f"[start-gate] {args.start_gate}：站住不动，直到两个阀都过；"
+                  f"期间机身按住直立（否则后仰 20°，几何闸会把每张卡都 "
+                  f"rej=ground）。", flush=True)
+            if start_gate.require_qr:
+                print(f"             阀1 qr_every={args.qr_every} "
+                      f"payload={args.start_gate_qr_payload!r} "
+                      f"upscale={args.qr_upscale} max_side={args.qr_max_side}",
+                      flush=True)
         start = previous = time.monotonic()
         last_log = -math.inf
         last_shape_log = -math.inf
@@ -473,6 +554,13 @@ def main():
         card_vote_total = 0
         lateral_warned = None    # None until the lateral bound first trips
         card_window_open = False
+        # 门控的"上一帧"状态。闸门关着时 window_open 为真，于是窗口关闭那套交接
+        # （drop_held_command / resume_until / line_pitch_until）被原样复用，
+        # 释放的那一帧走的就是停车窗口关闭走过的同一条路。
+        gate_window_open = start_gate is not None
+        gate_released = False
+        gate_last_log = -math.inf
+        qr_odd_seen = set()
         dumped = 0
         if args.shape_dump:
             os.makedirs(args.shape_dump, exist_ok=True)
@@ -501,7 +589,7 @@ def main():
                 controller.reset()
                 event = ({"event_id": card_event_id, "event_action": card_action}
                          if card_event_id and now < card_until else {})
-                client.publish(0.0, 0.0, -1, **event)
+                client.publish(0.0, 0.0, -1, hold_upright=gate_window_open, **event)
                 if now - last_log >= 0.5:
                     print("[vision -> connector] camera read failed; vx=0 wz=0", flush=True)
                     last_log = now
@@ -512,7 +600,10 @@ def main():
             # below has to be judged with the same clock as the window that set it -
             # judging it from the top of the loop ran one frame late.
             processed = time.monotonic()
-            window_open = processed < stop_until or processed < card_until
+            # 起跑门控关着 = 车还不许走，它算进 window_open —— 于是释放后的交接
+            # 自动走下面这段"窗口关闭"，一行都不用另写。
+            stop_window = processed < stop_until or processed < card_until
+            window_open = stop_window or gate_window_open
             if card_window_open and not window_open:
                 # Handover on the stopped-to-walking edge, BEFORE this frame is
                 # processed. Doing anything to the state after detector.process() left
@@ -536,12 +627,13 @@ def main():
                 # 机身从重摆姿态走回站姿要 ~2s，这段巡线也得跟着俯角走，
                 # 否则恢复以后那几秒的几何是错的（--line-pitch）。
                 line_pitch_until = processed + args.line_pitch_hold_s
-                print(f"[vision] card window closed; "
+                print(f"[vision] {'start gate released' if gate_released else 'card window closed'}; "
                       f"{'cold start' if args.card_cold_start else 'resuming frozen'} "
                       f"(hold={controller.hold[0]:+.2f},{controller.hold[1]:+.2f} "
                       f"lost_s={controller.lost_s:.2f}) "
                       f"vx<={args.card_slow_vx:+.2f} for {args.card_resume_ms:.0f}ms",
                       flush=True)
+                gate_released = False   # 一次性：用掉了就清，别让后面的卡窗口顶着这句话
             card_window_open = window_open
             effective_pitch = args.camera_pitch_deg
             if attitude is not None:
@@ -557,7 +649,12 @@ def main():
                 # way. Gated on the window rather than the frame: the classifier does
                 # not run at all until --card-tilt-ms expires, and by then the low-pass
                 # has long since left the window.
-                if not (window_open and card_event_id == 0):
+                #
+                # stop_window 而不是 window_open：冻结只在 card_tilt 重摆期间发生，
+                # 而重摆只属于停车窗口。起跑门控期间机身是被 hold_upright 扳直的、
+                # 姿态广播是活的，那几秒必须喂实时值 —— 机身还在从后仰走回直立的
+                # 路上，拿静态 45° 去算几何就是拿错假设分类。
+                if not (stop_window and card_event_id == 0):
                     effective_pitch = attitude.value
             if shape is not None:
                 shape.set_camera_pitch_deg(effective_pitch)
@@ -636,6 +733,26 @@ def main():
             # 每帧清空：下面投票那段在检测块外面，读到上一帧的 card_dbg 就会拿同一次
             # 检测投两次票（--card-every-stopped 2 时票数正好翻倍）。
             card_dbg = None
+            # ── 阀1：二维码 ──
+            # 只在还没扫到时跑，而且每 --qr-every 帧才解一次：detectAndDecode 是纯
+            # CPU 的，1280x720 raw 十几毫秒、再放大一倍几十毫秒，逐帧跑会把主循环
+            # 拖垮。扫到就锁存，之后一次都不再进来 —— 行进段一分钱都不付。
+            if (qr_reader is not None and not start_gate.qr_passed
+                    and frames % args.qr_every == 0):
+                reading = qr_reader.decode(frame)
+                if reading is not None:
+                    if start_gate.observe_qr(reading.payload):
+                        print("\n" + "=" * 68, flush=True)
+                        print(f"  ◆◆◆  阀1 通过：二维码 payload={reading.payload!r}"
+                              f"    {reading.strategy} 边长 {reading.edge_px:.0f}px"
+                              f"    解码 {reading.cost_ms:.0f}ms", flush=True)
+                        print("=" * 68 + "\n", flush=True)
+                    elif reading.payload not in qr_odd_seen:
+                        # 扫到了但不是要的那个：让它可见。场上还有别的码、或者
+                        # 规则换了 payload，两种情况看到这一行就知道该改什么。
+                        qr_odd_seen.add(reading.payload)
+                        print(f"[start-gate] ⚠️ 扫到 payload={reading.payload!r}，"
+                              f"不是 {start_gate.expected_qr!r}，忽略", flush=True)
             if shape is not None and not tilting and (frames % shape_period == 0):
                 action, card_dbg = shape.update(
                     frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
@@ -695,6 +812,12 @@ def main():
                 # been approached, so it cannot fire.
                 if card_reach is not None and card_reach < card_reach_line:
                     card_armed = True
+                # 门控期间不许开火。card_armed 的初值是 True，而起点那张卡本来就
+                # 在触发线以内（--card-trigger-dist-cm 43，卡在 40cm 内），不按住
+                # 的话机器人还没起步就会停车、重摆、出 event。只动 card_armed ——
+                # 下面那段判据一个字不改，卡的清理路径也没变。
+                if gate_window_open:
+                    card_armed = False
                 if (card_flag and not card_triggered and card_armed
                         and card_reach is not None
                         and card_reach >= card_reach_line):
@@ -745,6 +868,31 @@ def main():
                         f"armed={int(bool(getattr(shape, 'armed', True)))} "
                         f"cand={getattr(shape, 'candidate', None)}"
                         f"x{getattr(shape, 'candidate_count', 0)}", flush=True)
+            # ── 阀2：认出第一张图卡的形状 ──
+            # 放在停车触发之后是故意的：释放那一帧仍然算在门控里（card_armed 这一帧
+            # 刚被按住），下一帧起 card_armed 才是真的可以开火 —— 避免"开门与开火
+            # 同帧"这种时序上说不清的状态。
+            if start_gate is not None:
+                if (start_gate.require_shape and not start_gate.shape_passed
+                        and card_dbg and card_dbg.get("shape")):
+                    if start_gate.observe_shape(card_dbg["shape"]):
+                        print("\n" + "=" * 68, flush=True)
+                        print(f"  ◆◆◆  阀2 通过：图卡 "
+                              f"{CARD_NAMES_ZH.get(start_gate.last_shape, '?')}"
+                              f"（{start_gate.last_shape}）"
+                              f"    连续 {start_gate.shape_streak} 帧", flush=True)
+                        print("=" * 68 + "\n", flush=True)
+                if start_gate.passed and gate_window_open:
+                    gate_released = True
+                    card_armed = True
+                    if card_width_px is not None:
+                        print(f"[start-gate] 起步：第一张卡实测框宽 {card_width_px:.0f}px "
+                              f"/ 停车线 {card_reach_line:.0f}px —— "
+                              f"{'已经在线内，会立刻进停车读卡' if card_width_px >= card_reach_line else '还在线外，会走一段再停'}",
+                              flush=True)
+                    else:
+                        print("[start-gate] 起步：这一帧没有框，停车线由 cy 判",
+                              flush=True)
             # ── 停车投票 ──
             # 停车窗口里，每一帧的分类结果投一票。用 card_dbg["shape"]（每帧都写），
             # 不是 update() 返回的 action —— 那个受 cooldown_ms 限制，一次停车最多
@@ -794,8 +942,12 @@ def main():
                 card_event_id = 0
             # Two windows, whichever ends later: --card-stop-ms caps how long we wait
             # for a shape that may never settle, --card-hold-ms is the rules' action
-            # window once we do know it.
-            if processed < stop_until or processed < card_until:
+            # window once we do know it. 就地重读，不用顶上那个 window_open：窗口
+            # 可能就是这一帧的触发开的，它要的"站住"从这一帧算起。
+            # 起跑门控同一档 —— 它也不该把 controller 叫起来：站着等十分钟，
+            # PID 的积分会拿一段看不见的误差把自己喂饱，起步第一帧就用它去转。
+            if (processed < stop_until or processed < card_until
+                    or gate_window_open):
                 # Not running the controller here is the whole point: it would be fed
                 # the card-corrupted err for the length of the stop, and its integral
                 # and filtered derivative would carry that corruption into the first
@@ -858,10 +1010,25 @@ def main():
             if args.hold_still:
                 vx, wz = 0.0, 0.0
             last_cmd_vx = vx
+            # 门控期间按住直立：策略自己的站姿后仰约 20°，而相机 45° 是在直立时
+            # 标定的，几何闸只认 38.6~59° —— 不扳直，阀2 会把每一张卡都拒掉，机器人
+            # 永远不走。释放那帧仍然按着（gate_window_open 是上一帧的值），下一帧
+            # 才落，card_tilt 那条线上不会和它撞在同一帧。
             client.publish(vx, wz, visible_qr,
-                           hold_upright=(args.hold_upright and in_card_window),
+                           hold_upright=((args.hold_upright and in_card_window)
+                                         or (gate_window_open
+                                             and start_gate is not None
+                                             and start_gate.require_shape)),
                            card_tilt=(in_card_window and card_event_id == 0),
                            **event)
+            gate_window_open = start_gate is not None and not start_gate.passed
+            if start_gate is not None and processed - gate_last_log >= args.start_gate_log_s:
+                gate_last_log = processed
+                scans = qr_reader.scans if qr_reader is not None else 0
+                rej = qr_reader.geom_rejects if qr_reader is not None else 0
+                cost = qr_reader.last_cost_ms if qr_reader is not None else 0.0
+                print(f"[start-gate] {start_gate.status()} | 扫 {scans} 次/"
+                      f"{rej} 拒 单次 {cost:.0f}ms | 车=站着不动", flush=True)
             if processed - last_log >= 0.5:
                 # Left of the bar is what the robot is doing; right of it is why.
                 # Read only the left if it is behaving.
