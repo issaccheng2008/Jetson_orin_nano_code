@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import signal
 import time
 
@@ -12,7 +13,7 @@ import numpy as np
 import config
 from attitude_broadcast import AttitudeBroadcaster
 from command_source import (MAX_WZ, FixedCommandSource, ScriptedCommandSource,
-                            UdpCommandSource, parse_legs)
+                            UdpCommandSource, curve_legs, parse_legs)
 from fixed_joint_policy import FixedJointPolicy
 from imu_filter import (
     projected_gravity_from_quaternion,
@@ -65,10 +66,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument(
         "--command-source",
-        choices=("fixed", "scripted", "vision"),
+        choices=("fixed", "scripted", "curve", "vision"),
         default="fixed",
-        help="Walking: fixed test command, a --scripted-legs timeline, or "
-             "new_vision/connector UDP commands",
+        help="Walking: fixed test command, a --scripted-legs timeline, the "
+             "--curve-* open-loop bulge, or new_vision/connector UDP commands",
+    )
+    parser.add_argument(
+        "--curve-straight-s", type=float, default=3.16,
+        help="curve mode: straight leg before and after the turn, seconds "
+             "(default 3.16 = 0.632 m of track at 0.2 m/s)",
+    )
+    parser.add_argument(
+        "--curve-turn-s", type=float, default=12.19,
+        help="curve mode: how long to hold --curve-turn-wz, seconds "
+             "(default 12.19 = 180 deg at 0.258 rad/s). Scale this if the robot "
+             "does not achieve the commanded yaw rate",
+    )
+    parser.add_argument(
+        "--curve-turn-wz", type=float, default=0.258,
+        help="curve mode: yaw rate held through the turn, rad/s, positive = left "
+             "(default 0.258 = v/R, the rate that follows a 0.776 m arc)",
+    )
+    parser.add_argument(
+        "--curve-vx", type=float, default=0.2,
+        help="curve mode: forward speed for all three legs, m/s",
     )
     parser.add_argument(
         "--scripted-legs",
@@ -222,6 +243,17 @@ def main() -> int:
                 if not -MAX_WZ <= wz <= MAX_WZ:
                     raise SystemExit(
                         f"leg wz must be in [{-MAX_WZ}, {MAX_WZ}], got {wz}")
+        elif args.command_source == "curve":
+            try:
+                legs = curve_legs(args.curve_straight_s, args.curve_turn_s,
+                                  args.curve_vx, args.curve_turn_wz)
+                ScriptedCommandSource(legs)
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
+            if not 0.0 <= args.curve_vx <= 1.0:
+                raise SystemExit("curve-vx must be in [0, 1]")
+            if not -MAX_WZ <= args.curve_turn_wz <= MAX_WZ:
+                raise SystemExit(f"curve-turn-wz must be in [{-MAX_WZ}, {MAX_WZ}]")
         else:
             # vx=0 is allowed and means "let the policy stand": the robot holds its
             # own stopped pose instead of the all-zero joint frame --fixed-policy
@@ -287,6 +319,18 @@ def main() -> int:
                 f"SCRIPTED open loop, {len(parse_legs(args.scripted_legs))} legs, "
                 f"{command_source.total_s:g}s total: {args.scripted_legs}; "
                 "vision disconnected, no feedback"
+            )
+        elif args.command_source == "curve":
+            command_source = ScriptedCommandSource(curve_legs(
+                args.curve_straight_s, args.curve_turn_s,
+                args.curve_vx, args.curve_turn_wz))
+            command_source_description = (
+                f"CURVE open loop, {command_source.total_s:g}s: straight "
+                f"{args.curve_straight_s:g}s -> turn {args.curve_turn_s:g}s at "
+                f"wz={args.curve_turn_wz:+.3f} rad/s -> straight "
+                f"{args.curve_straight_s:g}s, all at vx={args.curve_vx:g} m/s "
+                f"({math.degrees(args.curve_turn_wz * args.curve_turn_s):+.0f} deg "
+                "if the yaw rate is achieved); vision disconnected, no feedback"
             )
         else:
             command_source = FixedCommandSource(args.vx, args.wz)

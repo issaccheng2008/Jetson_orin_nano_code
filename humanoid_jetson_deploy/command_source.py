@@ -94,6 +94,19 @@ class ScriptedCommandSource:
         pass
 
 
+def curve_legs(straight_s: float, turn_s: float, vx: float, turn_wz: float):
+    """A stadium bulge as an open-loop timeline: straight, one 180 turn, straight.
+
+    Defaults come straight off the track: centreline R = 0.776 m, so a semicircle
+    is pi*R = 2.438 m and a straight is (6.140 - 2*2.438)/2 = 0.632 m. At
+    vx = 0.2 that is 3.16 s of straight, and holding the arc needs
+    omega = v/R = 0.258 rad/s for pi/0.258 = 12.19 s of turn.
+    """
+    return [(straight_s, vx, 0.0),
+            (turn_s, vx, turn_wz),
+            (straight_s, vx, 0.0)]
+
+
 def parse_legs(spec: str):
     """`3.2:0.2:0; 12.2:0.2:0.258; 3.2:0.2:0` -> [(3.2, 0.2, 0.0), ...].
 

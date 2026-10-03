@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 
 from command_source import (ScriptedCommandSource, UdpCommandSource, clamp_command,
-                            parse_legs)
+                            curve_legs, parse_legs)
 
 
 class ScriptedCommandSourceTests(unittest.TestCase):
@@ -38,6 +38,15 @@ class ScriptedCommandSourceTests(unittest.TestCase):
         source = ScriptedCommandSource([(0.4, 0.2, 0.0), (0.4, 0.2, 0.4)])
         time.sleep(0.5)                     # 模拟"建好源之后还没开始走"
         np.testing.assert_allclose(source.get(), [0.2, 0.0, 0.0])
+
+    def test_curve_legs_are_the_straight_turn_straight_default(self) -> None:
+        """三个参数就是"直线多少秒、转多少秒、转多快"，默认值直接是场地几何：
+        0.632m 直道 / 0.2 = 3.16s，180° / (0.2/0.776) = 12.19s。"""
+        legs = curve_legs(3.16, 12.19, 0.2, 0.258)
+        self.assertEqual([(d, round(v, 3), round(w, 3)) for d, v, w in legs],
+                         [(3.16, 0.2, 0.0), (12.19, 0.2, 0.258), (3.16, 0.2, 0.0)])
+        source = ScriptedCommandSource(legs)
+        self.assertAlmostEqual(source.total_s, 18.51, places=6)
 
     def test_a_leg_needs_a_positive_length(self) -> None:
         for legs in ([], [(0.0, 0.2, 0.0)], [(-1.0, 0.2, 0.0)],
