@@ -2583,7 +2583,7 @@ class DiscreteSteeringTests(unittest.TestCase):
     def test_a_turn_holds_for_its_whole_duration(self):
         """err 一直在带外时，--wz-turn-s 仍然是那段转向的宽度，之后回 0。
         时长必须够长到机械真的做出来 —— 0.15s 在 3:8 的步频下只有两三步。
-        （它是上限，不是定长：err 回到 --wz-stop-cm 以内会提前收手，另一条测。）"""
+        （它是上限，不是定长：err 翻到另一侧的 --wz-stop-cm 就收手，另一条测。）"""
         controller = self.controller(turn_s=0.2)
         self.assertEqual(self.step(controller, 6.0), 0.5)      # 起转
         for _ in range(3):
@@ -2591,23 +2591,33 @@ class DiscreteSteeringTests(unittest.TestCase):
         self.assertEqual(self.step(controller, 0.0), 0.0)      # 0.20s，这一段结束
         self.assertEqual(self.step(controller, 0.0), 0.0)
 
-    def test_a_turn_stops_early_when_the_error_comes_back(self):
-        """2026-10-03 实车：出弯进直道那一下 err 已经回中，一段 2.5s 的定长转向
-        却谁也叫不停 —— 0.5×2.5 = 72° 的左转指令全落在只有 3 秒长的直道上。
-        现在开了之后每帧看一次：err 回到 --wz-stop-cm 以内就提前收手，
-        --wz-turn-s 从"每次转满"变成"最多转这么久"。"""
+    def test_a_turn_stops_when_the_error_reaches_the_mirror_line(self):
+        """收手线在**另一侧**。2026-10-03 实车走了两步：先是定长 2.5s 谁也叫不停
+        （出弯那一下把车带出直道）；改成"同侧 2cm 就收"又收得太早 —— 每转完都还
+        在中心右边，直道上再攒新的右偏，最后从**右**边出去。所以收手线改成开火线
+        的镜像位置：+fire 触发 → 转到 −fire 才停。"""
         controller = self.controller(turn_s=2.5, gap_s=1.0, stop_cm=2.0)
         self.assertEqual(self.step(controller, 6.0), 0.5)      # 起转
         for _ in range(10):
-            self.assertEqual(self.step(controller, 4.6), 0.5)  # 还在带外，一直转
-        self.assertEqual(self.step(controller, 2.0), 0.5)      # 正好在 stop 上，不算回来
-        self.assertEqual(self.step(controller, 1.9), 0.0)      # 回到带内 → 提前收手
+            self.assertEqual(self.step(controller, 4.6), 0.5)  # 同侧，一直转
+        self.assertEqual(self.step(controller, 1.0), 0.5)      # 掉到开火线以下也不收
+        self.assertEqual(self.step(controller, -1.9), 0.5)     # 翻过去了，还没到 −2
+        self.assertEqual(self.step(controller, -2.1), 0.0)     # 到了镜像位置 → 收手
         self.assertEqual(self.step(controller, 9.0), 0.0)      # 收手后照旧强制空
-        # --wz-stop-cm 0 = 只在 err 反了向时才收手（弯道行为和定长时代一模一样）
-        linear = self.controller(turn_s=2.5, gap_s=1.0, stop_cm=0.0)
-        self.assertEqual(self.step(linear, 6.0), 0.5)
-        self.assertEqual(self.step(linear, 0.5), 0.5)
-        self.assertEqual(self.step(linear, -0.1), 0.0)
+        # --wz-stop-cm 0 = 只翻过中心就收，最早的一种
+        crossover = self.controller(turn_s=2.5, gap_s=1.0, stop_cm=0.0)
+        self.assertEqual(self.step(crossover, 6.0), 0.5)
+        self.assertEqual(self.step(crossover, 0.5), 0.5)
+        self.assertEqual(self.step(crossover, -0.1), 0.0)
+
+    def test_the_default_stop_is_the_mirror_of_the_fire_line(self):
+        """不写 --wz-stop-cm 就是开火线的镜像：+5 触发 → 转到 −5 才收（从右到左）。"""
+        controller = self.controller(turn_s=2.5, gap_s=1.0)
+        self.assertEqual(self.step(controller, 6.0), 0.5)
+        for _ in range(10):
+            self.assertEqual(self.step(controller, 0.5), 0.5)  # 同侧不收
+        self.assertEqual(self.step(controller, -4.9), 0.5)     # 还差一点到 −5
+        self.assertEqual(self.step(controller, -5.0), 0.0)     # 到了镜像位置（含等号）
 
     def test_a_high_error_still_waits_out_the_gap(self):
         """曾经是"一段跑完误差还在就立刻再开"——那出来的是**连续转弯**。
@@ -2622,7 +2632,7 @@ class DiscreteSteeringTests(unittest.TestCase):
         硬约束，那是拿形状要求去锁调参。现在只查"是不是个能用的数"。"""
         for kw in ({"turn_s": 1.5}, {"turn_s": 3.0}, {"gap_s": 2.0},
                    {"gap_s": 0.5}, {"gap_s": 0.0}, {"step": 0.3},
-                   {"stop_cm": 0.0}, {"stop_cm": 5.0}):
+                   {"stop_cm": 0.0}, {"stop_cm": 5.0}, {"stop_cm": None}):
             with self.subTest(**kw):
                 self.controller(**kw)
         for kw in ({"turn_s": 0.0}, {"turn_s": -1.0}, {"gap_s": -0.5},
@@ -2704,6 +2714,9 @@ class DiscreteSteeringTests(unittest.TestCase):
                 run_policy_vision.parse_args()
         with patch("sys.argv", ["run_policy_vision.py", "--wz-stop-cm", "0"]):
             self.assertAlmostEqual(run_policy_vision.parse_args().wz_stop_cm, 0.0)
+        # 不写 = None → 控制器把它解析成 fire 的镜像
+        with patch("sys.argv", ["run_policy_vision.py"]):
+            self.assertIsNone(run_policy_vision.parse_args().wz_stop_cm)
 
     def test_reset_drops_a_running_turn(self):
         controller = self.controller(turn_s=1.0)

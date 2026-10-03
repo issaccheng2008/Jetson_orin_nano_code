@@ -333,16 +333,18 @@ def parse_args():
                              "is 5 and not 3: the measured curve steady state is "
                              "+5~6 cm, so 3 had the robot pulsing almost "
                              "continuously even while it was basically on the line")
-    parser.add_argument("--wz-stop-cm", type=float, default=2.0,
-                        help="End a running turn early, cm: if err falls back inside "
-                             "this band the demand that started the burst is gone, "
-                             "so it stops (the --wz-gap-s coast still follows). This "
-                             "makes --wz-turn-s a cap instead of a length. 0 = only "
-                             "stop when err reverses. Added 2026-10-03: a full 2.5 s "
-                             "burst fired as the robot left the bend onto the "
-                             "straight, err went back to centre and nothing could "
-                             "cut it, so 72 deg of left turn landed on a straight "
-                             "that is three seconds long end to end")
+    parser.add_argument("--wz-stop-cm", type=float, default=None,
+                        help="Where a running turn ends, cm, on the OPPOSITE side: "
+                             "a left turn runs until err has crossed to -stop-cm "
+                             "(mirrored for a right turn). Unset = --wz-fire-cm, so "
+                             "the stop line is the mirror of the fire line: +4.5 "
+                             "starts it, -4.5 ends it. 0 = stop the moment err "
+                             "crosses the centre; any value below fire stops it "
+                             "earlier. Added 2026-10-03 in two steps: the turn used "
+                             "to be a fixed 2.5 s burst nothing could cut; then a "
+                             "same-side stop cut it at 2 cm, the robot came out of "
+                             "every turn still right of centre, gathered new right "
+                             "error on the straight and left the track on the right")
     # 0.4 / 0.5 是**实车跑出来的好值**，而且挑的是"大且稳"那一端：关节在小角度
     # 上表现得比大角度还不稳，所以不能拿"刚好够用"的小量加精确时长去凑。
     # 不要拿去跟 vx/R 之类的算术比然后"修正"它 —— 2026-10-03 试过一版按
@@ -465,17 +467,18 @@ def parse_args():
         parser.error("start-gate-log-s must be positive")
     # 五个数都可以自由调：只查"是不是个能用的数"，不设形状边界。
     # 1.0 / 2.5 只是默认值，不是上限下限。
-    if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_stop_cm,
-                                           args.wz_step, args.wz_turn_s,
-                                           args.wz_gap_s))
+    if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_step,
+                                           args.wz_turn_s, args.wz_gap_s))
+            and (args.wz_stop_cm is None
+                 or (math.isfinite(args.wz_stop_cm)
+                     and 0 <= args.wz_stop_cm <= args.wz_fire_cm))
             and 0 < args.wz_fire_cm
-            and 0 <= args.wz_stop_cm <= args.wz_fire_cm
             and 0 < args.wz_step <= args.max_wz
             and args.wz_turn_s > 0.0
             and args.wz_gap_s >= 0.0):
-        parser.error("need 0 < wz-fire-cm, 0 <= wz-stop-cm <= wz-fire-cm, "
-                     "0 < wz-step <= max-wz, wz-turn-s > 0, "
-                     "and wz-gap-s >= 0 (0 = no forced coast)")
+        parser.error("need 0 < wz-fire-cm, 0 <= wz-stop-cm <= wz-fire-cm "
+                     "(unset = wz-fire-cm, the mirror), 0 < wz-step <= max-wz, "
+                     "wz-turn-s > 0, and wz-gap-s >= 0 (0 = no forced coast)")
     return args
 
 
@@ -618,9 +621,13 @@ def main():
             coast = (f"转完强制空 {args.wz_gap_s:.2f}s 才允许下一段"
                      if args.wz_gap_s > 0.0 else
                      "转完不强制滑行（--wz-gap-s 0），err 还在阈值上就接着开")
+            stop_cm = (args.wz_fire_cm if args.wz_stop_cm is None
+                       else args.wz_stop_cm)
+            release = (f"err 翻到另一侧的 {stop_cm}cm 才收手"
+                       f"（--wz-stop-cm 不写就是 fire 的镜像）"
+                       if stop_cm > 0.0 else "err 一翻过中心就收手")
             print(f"[wz] 离散模式：wz 只有 {levels} 两个状态。"
-                  f"err ≥ {args.wz_fire_cm}cm 就开一段转向，err 回到 "
-                  f"{args.wz_stop_cm}cm 以内就提前收手，最多 "
+                  f"err ≥ {args.wz_fire_cm}cm 就开一段转向，{release}，最多 "
                   f"{args.wz_turn_s:.2f}s（--wz-turn-s 是上限，不是定长）；"
                   f"{coast}。五个数都自由可调。"
                   f"{'两边都能转' if args.wz_allow_right else '只在车身偏右（err>0）时才左转，偏左不转'}"

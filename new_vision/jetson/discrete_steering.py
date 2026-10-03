@@ -12,13 +12,20 @@
 **一串转向只有五个数**（曾经有六个：两档幅度 + 强阈值 + 时长的两套名字）：
 
     --wz-fire-cm   什么时候开
-    --wz-stop-cm   什么时候提前收：err 回到这个带里 = 这一转不再被需要
+    --wz-stop-cm   什么时候收手，在**另一侧**的量（不写 = --wz-fire-cm，即镜像）
     --wz-turn-s    最多转多久（是**上限**，不是定长）
     --wz-gap-s     收手后空多久
     --wz-step      转多猛（一个数，不分档）
 
-开的时候只看 err 过没过阈值；开了之后只看一件事：err 有没有回到 `stop_cm` 以内，
-回了就提前收手（收手照旧进 gap）。幅度不改、档不换。
+开的时候只看 err 过没过阈值；开了之后只看一件事：err 有没有翻到另一侧、
+到了 `stop_cm` 那个位置。**默认就是开火线的镜像**：+4.5 触发 → 一直转到 −4.5
+才收手（右→左；左→右同理由 `turn_wz` 的符号镜像）。
+`--wz-stop-cm 0` = 只翻过中心就收；正数越小收得越早。
+
+2026-10-03 实车走了两步：先是定长 2.5s 谁也叫不停（出弯那一下把车带出直道）；
+改成的"同侧 2cm 就收"又收得太早 —— 每转完都还在中心右边，直道上再攒新的右偏，
+最后从**右**边出去。所以收手线改成开火线的对称位置。
+收手照旧进 gap；幅度不改、档不换。
 
 定长是 2026-10-03 实车改掉的：出弯进直道那一下打出一段 2.5s 的转向，err 已经回中
 也没有任何东西能打断它 —— 0.5×2.5 = 72° 的左转指令全落在只有 3 秒长的直道上。
@@ -43,8 +50,10 @@ import math
 from policy_bridge import clamp
 
 class DiscreteSteeringController:
-    def __init__(self, inner, fire_cm=5.0, stop_cm=2.0, turn_s=1.0, gap_s=2.5,
+    def __init__(self, inner, fire_cm=5.0, stop_cm=None, turn_s=1.0, gap_s=2.5,
                  step=0.5, allow_right=False):
+        # 不写 stop_cm 就是开火线的镜像：+fire 触发，转到 −fire 才收。
+        stop_cm = fire_cm if stop_cm is None else float(stop_cm)
         values = (fire_cm, stop_cm, turn_s, gap_s, step)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("discrete steering settings must be finite")
@@ -128,10 +137,11 @@ class DiscreteSteeringController:
     def _steer(self, err, dt):
         step = clamp(dt, 0.01, 0.2)
         if self.turn_left > 0.0:
-            # 这一转还被需要吗：err 回到 stop_cm 以内（含反向）就提前收手。
+            # 这一转还被需要吗：err 翻到**另一侧**、到了 stop_cm 才收手 ——
+            # 默认 stop_cm = fire，也就是开到镜像位置（+4.5 → −4.5）。
             # 定长时代这里不看 err，出弯那一下的 2.5s 转向没人能打断 —— 直道杀手。
             demand = err if self.turn_wz > 0.0 else -err
-            if demand < self.stop_cm:
+            if demand <= -self.stop_cm:
                 self.turn_left = 0.0
                 self.turn_wz = 0.0
                 self.gap_left = self.gap_s
