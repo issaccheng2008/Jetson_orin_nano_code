@@ -346,9 +346,9 @@ def parse_args():
                              "paired). 1.0 (default) leaves the gains exactly as "
                              "they are")
     parser.add_argument("--wz-mode", choices=("continuous", "discrete"),
-                        default="continuous",
-                        help="'continuous' (default) publishes the PID's yaw rate as "
-                             "it always has. 'discrete' replaces only the published "
+                        default="discrete",
+                        help="'discrete' (default since 2026-10-03, the mode the robot "
+                             "runs) replaces only the published "
                              "wz with a short pulse from {0, +-step-lo, +-step-hi}: "
                              "zero until |err| crosses --wz-fire-cm, then one "
                              "--wz-pulse-s burst, then zero again. Straights come out "
@@ -379,6 +379,15 @@ def parse_args():
                         help="How long one pulse lasts, seconds. Counted in vision "
                              "frames (16~29 Hz), so the real width is a whole number "
                              "of frames - 0.15 s is 2~4 of them")
+    parser.add_argument("--wz-allow-right", action="store_true",
+                        help="Allow negative wz. Off by default: the track only turns "
+                             "left in the direction of travel, so a right pulse is "
+                             "always a correction that overshot, and it pushes the "
+                             "robot out of the bend. With it off the published wz is "
+                             "either 0, +step-lo or +step-hi - three values, and only "
+                             "while the body is right of the lane centre (err > 0). "
+                             "Left of centre it coasts, which is what turns the "
+                             "corrections into the pulse-then-coast the polygon wants")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")
@@ -487,7 +496,7 @@ def main():
         controller = DiscreteSteeringController(
             controller, fire_cm=args.wz_fire_cm, strong_cm=args.wz_fire_strong_cm,
             step_lo=args.wz_step_lo, step_hi=args.wz_step_hi,
-            pulse_s=args.wz_pulse_s)
+            pulse_s=args.wz_pulse_s, allow_right=args.wz_allow_right)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
     from line_detector_v1_warp import LineDetector
@@ -583,14 +592,16 @@ def main():
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
                   f" 会被机身俯仰实时修正", flush=True)
         if args.wz_mode == "discrete":
-            print(f"[wz] 离散模式：wz 只会是 "
-                  f"{{0, ±{args.wz_step_lo}, ±{args.wz_step_hi}}}，"
-                  f"|eff| ≥ {args.wz_fire_cm}cm 打 {args.wz_step_lo}"
+            levels = (f"{{0, ±{args.wz_step_lo}, ±{args.wz_step_hi}}}"
+                      if args.wz_allow_right else
+                      f"{{0, +{args.wz_step_lo}, +{args.wz_step_hi}}}")
+            print(f"[wz] 离散模式：wz 只会是 {levels}，"
+                  f"err ≥ {args.wz_fire_cm}cm 打 {args.wz_step_lo}"
                   f"、≥ {args.wz_fire_strong_cm}cm 打 {args.wz_step_hi}，"
                   f"每次 {args.wz_pulse_s:.2f}s（约 {args.wz_pulse_s * 20:.0f} 帧）。"
-                  f"触发看日志里的 eff=；--center-dead-cm / "
-                  f"--steer-full-scale-cm / PID 增益在这个模式下不再影响输出。",
-                  flush=True)
+                  f"{'两边都能转' if args.wz_allow_right else '只在车身偏右（err>0）时才左转，偏左不转'}"
+                  f"；--center-dead-cm / --steer-full-scale-cm / --bias-cm / "
+                  f"PID 增益在这个模式下不影响输出。", flush=True)
             print(f"[wz] ⚠️ A 那边要用 --max-wz-accel 0，否则脉冲会被它的斜率"
                   f"限制削成三角形（默认 2.0 时 0→{args.wz_step_lo} 要爬 "
                   f"{args.wz_step_lo / 2.0:.2f}s）", flush=True)

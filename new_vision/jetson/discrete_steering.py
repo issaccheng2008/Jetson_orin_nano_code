@@ -31,7 +31,7 @@ from policy_bridge import clamp
 
 class DiscreteSteeringController:
     def __init__(self, inner, fire_cm=5.0, strong_cm=8.0,
-                 step_lo=0.4, step_hi=0.5, pulse_s=0.15):
+                 step_lo=0.4, step_hi=0.5, pulse_s=0.15, allow_right=False):
         values = (fire_cm, strong_cm, step_lo, step_hi, pulse_s)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("discrete steering settings must be finite")
@@ -47,6 +47,7 @@ class DiscreteSteeringController:
         self.step_lo = step_lo
         self.step_hi = step_hi
         self.pulse_s = pulse_s
+        self.allow_right = bool(allow_right)
         self.pulse_left = 0.0
         self.pulse_wz = 0.0
 
@@ -114,6 +115,13 @@ class DiscreteSteeringController:
                 max(0.0, self.pulse_left - clamp(dt, 0.01, 0.2)), 9)
             if self.pulse_left > 0.0:
                 return self.pulse_wz
+        # 单边：只有车身偏右（err > 0）才允许左转。偏左一律不转 —— 发一个负的
+        # wz 去纠，在只有左弯的赛道上等于把自己往弯外推；而且删掉右转之后，
+        # "打一发 → 滑行到 err 重新变正 → 再打一发"本身就是那个折线。
+        # err <= 0 时是精确的 0，不是"很小"。
+        if err <= 0.0 and not self.allow_right:
+            self.pulse_wz = 0.0
+            return 0.0
         if abs(err) >= self.strong_cm:
             level = self.step_hi
         elif abs(err) >= self.fire_cm:

@@ -393,6 +393,7 @@ class VisionEntryPointTests(unittest.TestCase):
         )
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--wz-mode", "continuous",
                                "--shape-every", "1", "--card-hold-ms", "5000",
                                "--card-vote-frames", "1", "--card-tilt-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
@@ -572,8 +573,9 @@ class VisionEntryPointTests(unittest.TestCase):
             return clock[0]
 
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
-                               "--card-vote-frames", "1"]),
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--wz-mode", "continuous",
+                               "--shape-every", "1", "--card-vote-frames", "1"]),
             patch.object(run_policy_vision.signal, "signal") as signals,
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -682,8 +684,9 @@ class VisionEntryPointTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
-                               "--card-vote-frames", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--wz-mode", "continuous",
+                               "--shape-every", "1", "--card-vote-frames", "1",
                                "--card-slow-vx", "0.2",
                                "--card-hold-ms", "5000", "--card-stop-ms", "3000"]),
             patch.object(run_policy_vision.signal, "signal"),
@@ -2365,12 +2368,31 @@ class DiscreteSteeringTests(unittest.TestCase):
     def test_the_two_thresholds_pick_the_two_steps(self):
         self.assertEqual(self.step(self.controller(), 6.0), 0.4)
         self.assertEqual(self.step(self.controller(), 12.0), 0.5)
-        self.assertEqual(self.step(self.controller(), -6.0), -0.4)
-        self.assertEqual(self.step(self.controller(), -12.0), -0.5)
+        # 默认不发负的 wz：赛道按行进方向只有左弯，右转永远是转过头之后的过冲
+        for err in (-6.0, -12.0):
+            with self.subTest(err=err):
+                self.assertEqual(self.step(self.controller(), err), 0.0)
+        self.assertEqual(self.step(self.controller(allow_right=True), -6.0), -0.4)
+        self.assertEqual(self.step(self.controller(allow_right=True), -12.0), -0.5)
+
+    def test_only_a_body_right_of_centre_may_turn_left(self):
+        """单边闸看的是 err 的符号（车在车道中心右边 = err > 0）。偏左就滑行 ——
+        正是这一条把"打一发脉冲"和"滑行"分开，折线靠它。"""
+        controller = self.controller(pulse_s=0.1)
+        self.assertEqual(self.step(controller, 6.0), 0.4)     # 偏右，转
+        self.assertEqual(self.step(controller, -6.0), 0.4)    # 脉冲里不看 err
+        self.step(controller, -6.0)                           # 窗口用完
+        self.assertEqual(self.step(controller, -6.0), 0.0)    # 偏左，不转
+        self.assertEqual(self.step(controller, -0.001), 0.0)  # 贴着中心也是 0
+        self.assertEqual(self.step(controller, 6.0), 0.4)     # 回到右边，又转
 
     def test_the_yaw_sign_is_applied(self):
+        # yaw_sign 照旧乘上去（真车上是 +1）。单边闸看的是 err 的符号，所以
+        # yaw_sign=-1 时同样是"车身偏右才动"，只是动的方向镜像过来。
         self.assertEqual(self.step(self.controller(yaw_sign=-1), 6.0), -0.4)
-        self.assertEqual(self.step(self.controller(yaw_sign=-1), -12.0), 0.5)
+        self.assertEqual(self.step(self.controller(yaw_sign=-1), -6.0), 0.0)
+        both = self.controller(yaw_sign=-1, allow_right=True)
+        self.assertEqual(self.step(both, -12.0), 0.5)
 
     def test_a_pulse_holds_then_lets_go(self):
         """脉冲是一段定长的爆发：宽度就是 --wz-pulse-s，之后回 0。"""
