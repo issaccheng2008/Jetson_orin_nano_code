@@ -104,9 +104,13 @@ class CommandSmoother:
     """
 
     def __init__(self, max_vx_accel: float, max_wz_accel: float) -> None:
-        for value in (max_vx_accel, max_wz_accel):
-            if not math.isfinite(value) or value <= 0.0:
-                raise ValueError("acceleration limits must be finite and positive")
+        if not math.isfinite(max_vx_accel) or max_vx_accel <= 0.0:
+            raise ValueError("vx acceleration limit must be finite and positive")
+        # 0 is not a limit of zero, it is no limit at all: --wz-mode discrete 要的就是
+        # 方波传递。这个斜率是为连续指令准备的（0.5 rad/s 要爬 0.25 s），短脉冲
+        # 经它一削就只剩个三角形，峰值也到不了。
+        if not math.isfinite(max_wz_accel) or max_wz_accel < 0.0:
+            raise ValueError("wz acceleration limit must be finite and nonnegative")
         self.max_vx_accel = max_vx_accel
         self.max_wz_accel = max_wz_accel
         self.vx = 0.0
@@ -116,7 +120,11 @@ class CommandSmoother:
         self, target: dict[str, float | int], dt: float
     ) -> dict[str, float | int]:
         self.vx = slew_toward(self.vx, float(target["vx"]), self.max_vx_accel * dt)
-        self.wz = slew_toward(self.wz, float(target["wz"]), self.max_wz_accel * dt)
+        if self.max_wz_accel > 0.0:
+            self.wz = slew_toward(self.wz, float(target["wz"]),
+                                  self.max_wz_accel * dt)
+        else:
+            self.wz = float(target["wz"])
         output = {"vx": self.vx, "vy": 0.0, "wz": self.wz, "qr": int(target["qr"]),
                   "hold_upright": bool(target.get("hold_upright", False)),
                   "card_tilt": bool(target.get("card_tilt", False))}
@@ -149,7 +157,10 @@ def parse_args() -> argparse.Namespace:
         "--max-wz-accel",
         type=float,
         default=2.0,
-        help="Slew limit on the forwarded yaw rate, rad/s^2 (0.5 rad/s in 0.25 s)",
+        help="Slew limit on the forwarded yaw rate, rad/s^2 (0.5 rad/s in 0.25 s). "
+             "0 = no limit at all, passed through on the same tick - that is what "
+             "--wz-mode discrete needs, because a short square pulse comes out of "
+             "this limiter as a triangle that never reaches its target",
     )
     parser.add_argument(
         "--log-every",
@@ -173,11 +184,10 @@ def main() -> int:
     args = parse_args()
     if args.publish_hz <= 0.0 or args.vision_timeout <= 0.0:
         raise SystemExit("publish-hz and vision-timeout must be positive")
-    if not all(
-        math.isfinite(value) and value > 0.0
-        for value in (args.max_vx_accel, args.max_wz_accel)
-    ):
-        raise SystemExit("max-vx-accel and max-wz-accel must be finite and positive")
+    if not math.isfinite(args.max_vx_accel) or args.max_vx_accel <= 0.0:
+        raise SystemExit("max-vx-accel must be finite and positive")
+    if not math.isfinite(args.max_wz_accel) or args.max_wz_accel < 0.0:
+        raise SystemExit("max-wz-accel must be finite and nonnegative (0 = no limit)")
 
     receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     receiver.setblocking(False)

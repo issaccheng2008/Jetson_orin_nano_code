@@ -135,6 +135,22 @@ class CommandSmootherTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 CommandSmoother(**kwargs)
 
+    def test_a_zero_yaw_limit_passes_the_command_through_on_the_same_tick(self) -> None:
+        """--wz-mode discrete 要的是方波传递。默认 2.0 会把 0→0.4 拉成 0.2 秒的
+        斜坡，比这短的脉冲过完就剩个三角形，峰值也到不了目标。0 = 完全不限。"""
+        ramped = CommandSmoother(1.0, 2.0)
+        self.assertLess(ramped.update({"vx": 0.0, "wz": 0.4, "qr": -1}, 0.02)["wz"],
+                        0.4)
+        direct = CommandSmoother(1.0, 0.0)
+        for target in (0.4, -0.5, 0.0, 0.5):
+            with self.subTest(target=target):
+                self.assertAlmostEqual(
+                    direct.update({"vx": 0.0, "wz": target, "qr": -1}, 0.02)["wz"],
+                    target)
+        # vx 那条照旧有斜率限制，关掉 wz 的没有连坐
+        self.assertLess(direct.update({"vx": 0.9, "wz": 0.0, "qr": -1}, 0.02)["vx"],
+                        0.9)
+
 
 if __name__ == "__main__":
     unittest.main()

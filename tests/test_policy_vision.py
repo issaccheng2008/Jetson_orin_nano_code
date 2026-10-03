@@ -2295,6 +2295,157 @@ class LaneWidthAnchorTests(unittest.TestCase):
         self.assertLessEqual(detector.lateral_scale, detector.lateral_scale_max)
 
 
+class DiscreteSteeringTests(unittest.TestCase):
+    """离散航向：只换发出去的 wz，SteeringController 本身一个字不动。"""
+
+    def controller(self, yaw_sign=1, **kw):
+        from discrete_steering import DiscreteSteeringController
+        return DiscreteSteeringController(
+            SteeringController(**NO_TRIM, yaw_sign=yaw_sign), **kw)
+
+    def step(self, controller, err, dt=0.05):
+        return controller.command(detection(error=err), 0.8, dt)[1]
+
+    def test_a_small_error_is_left_alone(self):
+        controller = self.controller()
+        for err in (0.0, 1.0, 2.9, -2.9):
+            with self.subTest(err=err):
+                self.assertEqual(self.step(controller, err), 0.0)
+
+    def test_the_two_thresholds_pick_the_two_steps(self):
+        self.assertEqual(self.step(self.controller(), 4.0), 0.4)
+        self.assertEqual(self.step(self.controller(), 9.0), 0.5)
+        self.assertEqual(self.step(self.controller(), -4.0), -0.4)
+        self.assertEqual(self.step(self.controller(), -9.0), -0.5)
+
+    def test_the_yaw_sign_is_applied(self):
+        self.assertEqual(self.step(self.controller(yaw_sign=-1), 4.0), -0.4)
+        self.assertEqual(self.step(self.controller(yaw_sign=-1), -9.0), 0.5)
+
+    def test_a_pulse_holds_then_lets_go(self):
+        """脉冲是一段定长的爆发：宽度就是 --wz-pulse-s，之后回 0。"""
+        controller = self.controller(pulse_s=0.2)
+        self.assertEqual(self.step(controller, 4.0), 0.4)      # 起脉冲
+        for _ in range(3):
+            self.assertEqual(self.step(controller, 4.0), 0.4)  # 0.15s，还在窗口里
+        self.assertEqual(self.step(controller, 0.0), 0.0)      # 0.20s，窗口用完
+        self.assertEqual(self.step(controller, 0.0), 0.0)
+
+    def test_an_error_that_stays_high_fires_again(self):
+        """弯道靠这个：脉冲跑完误差还在，就再打一发。误差掉下去才停。"""
+        controller = self.controller(pulse_s=0.1)
+        fired = [self.step(controller, 6.0) for _ in range(6)]
+        self.assertEqual(fired, [0.4] * 6)
+        self.assertEqual(self.step(controller, 1.0), 0.0)
+        self.assertEqual(self.step(controller, 1.0), 0.0)
+
+    def test_the_curve_upgrade_is_the_big_step(self):
+        controller = self.controller(pulse_s=0.1)
+        self.assertEqual(self.step(controller, 4.0), 0.4)
+        self.assertEqual(self.step(controller, 20.0), 0.4)   # 还在脉冲里，不换档
+        self.step(controller, 20.0)                          # 窗口用完
+        self.assertEqual(self.step(controller, 20.0), 0.5)   # 下一发是大档
+
+    def test_a_lost_frame_is_passed_through_and_fires_nothing(self):
+        """丢线那一帧走内层自己的淡出，不脉冲 —— 它发出来的既不是 0 也不是离散
+        档，而是内层按 --lost-hold-s 算的中间值，那就证明这一帧没被离散化。"""
+        from discrete_steering import DiscreteSteeringController
+        inner = SteeringController(**NO_TRIM)
+        controller = DiscreteSteeringController(inner)
+        self.assertEqual(self.step(controller, 4.0), 0.4)
+        lost = dict(detection(error=4.0, lost=3))
+        got = controller.command(lost, 0.8, 0.05)[1]
+        self.assertAlmostEqual(got, 0.4 * 0.75)
+        self.assertNotIn(round(got, 6), (0.0, 0.4, -0.4, 0.5, -0.5))
+        for _ in range(5):                       # --lost-hold-s 用完就归零
+            got = controller.command(lost, 0.8, 0.05)[1]
+        self.assertEqual(got, 0.0)
+
+    def test_a_non_finite_error_is_a_lost_frame_too(self):
+        controller = self.controller()
+        self.assertEqual(self.step(controller, 4.0), 0.4)
+        got = controller.command(dict(detection(error=float("nan"))), 0.8, 0.05)[1]
+        self.assertNotIn(round(got, 6), (0.0, 0.4, -0.4, 0.5, -0.5))
+
+    def test_the_held_command_is_the_pulse_not_the_pid(self):
+        """丢线淡出回放的是 hold，所以它必须是脉冲值。"""
+        from discrete_steering import DiscreteSteeringController
+        inner = SteeringController(**NO_TRIM)
+        controller = DiscreteSteeringController(inner)
+        self.assertEqual(self.step(controller, 9.0), 0.5)
+        self.assertEqual(controller.hold[1], 0.5)
+        self.assertEqual(inner.hold[1], 0.5)
+        self.assertNotEqual(inner.last_steer, 0.0)   # PID 的意见还留着，日志要用
+
+    def test_reset_drops_a_running_pulse(self):
+        controller = self.controller(pulse_s=1.0)
+        self.assertEqual(self.step(controller, 9.0), 0.5)
+        controller.reset()
+        self.assertEqual(self.step(controller, 0.0), 0.0)
+        self.assertEqual(self.step(controller, 9.0), 0.5)
+
+    def test_the_settings_are_validated(self):
+        from discrete_steering import DiscreteSteeringController
+        inner = SteeringController(**NO_TRIM)
+        for kw in (dict(fire_cm=0.0), dict(fire_cm=9.0, strong_cm=3.0),
+                   dict(step_lo=0.0), dict(step_lo=0.6, step_hi=0.6),
+                   dict(step_hi=0.9), dict(pulse_s=0.0),
+                   dict(fire_cm=float("nan"))):
+            with self.subTest(kw=kw), self.assertRaises(ValueError):
+                DiscreteSteeringController(inner, **kw)
+
+
+class DiscreteSteeringIntegrationTests(unittest.TestCase):
+    """--wz-mode discrete 在真主循环里：发出去的 wz 只会有那 5 个值。"""
+
+    def test_only_the_discrete_levels_reach_the_connector(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        # 直道 → 弯道 → 大偏差，循环喂，让三个档都出现
+        errors = [0.3, 0.3, 5.0, 5.0, 5.0, 12.0, 12.0, 12.0, 0.3, 0.3]
+        detector.process.side_effect = lambda _f: (
+            0, 0, 0.8, None, detection(error=errors[(reads[0] - 1) % len(errors)]))
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.return_value = (None, {"presence": False, "card_found": False,
+                                            "presence_cy_frac": None})
+        clock, reads = [0.0], [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.05
+            if reads[0] > 20:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--wz-mode", "discrete", "--shape-every", "4"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        published = [call.args[1] for call in client_cls.return_value.publish.call_args_list]
+        self.assertTrue(published)
+        for wz in published:
+            with self.subTest(wz=wz):
+                self.assertIn(round(wz, 6), (0.0, 0.4, -0.4, 0.5, -0.5))
+        # 直道那几帧（err=0.3）必须是 0
+        self.assertEqual(published[0], 0.0)
+        self.assertEqual(published[1], 0.0)
+
+
 class StartGateTests(unittest.TestCase):
     """两阀是"与"，而且只锁存不撤销。"""
 

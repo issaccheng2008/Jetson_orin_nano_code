@@ -334,6 +334,33 @@ def parse_args():
                              "centre past the symmetry tolerance / edges never "
                              "paired). 1.0 (default) leaves the gains exactly as "
                              "they are")
+    parser.add_argument("--wz-mode", choices=("continuous", "discrete"),
+                        default="continuous",
+                        help="'continuous' (default) publishes the PID's yaw rate as "
+                             "it always has. 'discrete' replaces only the published "
+                             "wz with a short pulse from {0, +-step-lo, +-step-hi}: "
+                             "zero until |err| crosses --wz-fire-cm, then one "
+                             "--wz-pulse-s burst, then zero again. Straights come out "
+                             "almost perfectly straight and curves become a polygon. "
+                             "It only touches the output - SteeringController itself is "
+                             "untouched, and a run without this flag is bit-for-bit "
+                             "the old behaviour. Use connector --max-wz-accel 0 with "
+                             "it, or the slew limiter turns each pulse into a triangle")
+    parser.add_argument("--wz-fire-cm", type=float, default=3.0,
+                        help="|eff err| that starts a small pulse. Measured curve "
+                             "steady state is +5~6 cm and right-curve saturation "
+                             "-10~-17 cm, so 3 keeps a straight quiet")
+    parser.add_argument("--wz-fire-strong-cm", type=float, default=8.0,
+                        help="|eff err| that upgrades the pulse to --wz-step-hi")
+    parser.add_argument("--wz-step-lo", type=float, default=0.4,
+                        help="Small pulse amplitude, rad/s. 0.387 is what a curve "
+                             "needs at --vx 0.3, so 0.4 is one curve's worth")
+    parser.add_argument("--wz-step-hi", type=float, default=0.5,
+                        help="Large pulse amplitude, rad/s; at most --max-wz")
+    parser.add_argument("--wz-pulse-s", type=float, default=0.15,
+                        help="How long one pulse lasts, seconds. Counted in vision "
+                             "frames (16~29 Hz), so the real width is a whole number "
+                             "of frames - 0.15 s is 2~4 of them")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")
@@ -397,6 +424,14 @@ def parse_args():
         parser.error("need 0 < qr-min-edge-px < qr-max-edge-px")
     if not math.isfinite(args.start_gate_log_s) or args.start_gate_log_s <= 0:
         parser.error("start-gate-log-s must be positive")
+    if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_fire_strong_cm,
+                                           args.wz_step_lo, args.wz_step_hi,
+                                           args.wz_pulse_s))
+            and 0 < args.wz_fire_cm < args.wz_fire_strong_cm
+            and 0 < args.wz_step_lo <= args.wz_step_hi <= args.max_wz
+            and args.wz_pulse_s > 0):
+        parser.error("need 0 < wz-fire-cm < wz-fire-strong-cm, "
+                     "0 < wz-step-lo <= wz-step-hi <= max-wz, and wz-pulse-s > 0")
     return args
 
 
@@ -427,6 +462,14 @@ def main():
         single_line_gain=args.single_line_gain,
         center_dead_cm=args.center_dead_cm,
     )
+    # 离散模式只在外面包一层，只换发出去的 wz —— SteeringController 一个字不改，
+    # 关着这个开关时走的就是上面构造出来的那个对象本身。
+    if args.wz_mode == "discrete":
+        from discrete_steering import DiscreteSteeringController
+        controller = DiscreteSteeringController(
+            controller, fire_cm=args.wz_fire_cm, strong_cm=args.wz_fire_strong_cm,
+            step_lo=args.wz_step_lo, step_hi=args.wz_step_hi,
+            pulse_s=args.wz_pulse_s)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
     from line_detector_v1_warp import LineDetector
@@ -513,6 +556,7 @@ def main():
               f"line_pitch={'on' if args.line_pitch else 'off'}; "
               f"hold-still={'on' if args.hold_still else 'off'}; "
               f"gate={args.start_gate}; "
+              f"wz_mode={args.wz_mode}; "
               f"center_dead={args.center_dead_cm}cm; "
               f"bias={args.bias_straight_cm}->{args.bias_cm}"
               f"(dead {args.bias_dead_px}, full {args.bias_gate_px})", flush=True)
@@ -520,6 +564,18 @@ def main():
             print(f"Body attitude: udp://{args.attitude_bind}:{args.attitude_port}"
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
                   f" 会被机身俯仰实时修正", flush=True)
+        if args.wz_mode == "discrete":
+            print(f"[wz] 离散模式：wz 只会是 "
+                  f"{{0, ±{args.wz_step_lo}, ±{args.wz_step_hi}}}，"
+                  f"|eff| ≥ {args.wz_fire_cm}cm 打 {args.wz_step_lo}"
+                  f"、≥ {args.wz_fire_strong_cm}cm 打 {args.wz_step_hi}，"
+                  f"每次 {args.wz_pulse_s:.2f}s（约 {args.wz_pulse_s * 20:.0f} 帧）。"
+                  f"触发看日志里的 eff=；--center-dead-cm / "
+                  f"--steer-full-scale-cm / PID 增益在这个模式下不再影响输出。",
+                  flush=True)
+            print(f"[wz] ⚠️ A 那边要用 --max-wz-accel 0，否则脉冲会被它的斜率"
+                  f"限制削成三角形（默认 2.0 时 0→{args.wz_step_lo} 要爬 "
+                  f"{args.wz_step_lo / 2.0:.2f}s）", flush=True)
         if start_gate is not None:
             print(f"[start-gate] {args.start_gate}：站住不动，直到两个阀都过；"
                   f"期间机身按住直立（否则后仰 20°，几何闸会把每张卡都 "
