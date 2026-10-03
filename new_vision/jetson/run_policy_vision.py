@@ -23,7 +23,6 @@ import time
 import numpy as np
 
 from camera_config import load as load_camera
-from discrete_steering import MAX_TURN_S, MIN_GAP_S
 from policy_bridge import ConnectorClient, SteeringController
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
@@ -453,19 +452,16 @@ def parse_args():
         parser.error("need 0 < qr-min-edge-px < qr-max-edge-px")
     if not math.isfinite(args.start_gate_log_s) or args.start_gate_log_s <= 0:
         parser.error("start-gate-log-s must be positive")
+    # 四个数都可以自由调：只查"是不是个能用的数"，不设形状边界。
+    # 1.0 / 2.5 只是默认值，不是上限下限。
     if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_step,
                                            args.wz_turn_s, args.wz_gap_s))
             and 0 < args.wz_fire_cm
-            and 0 < args.wz_step <= args.max_wz):
-        parser.error("need 0 < wz-fire-cm and 0 < wz-step <= max-wz")
-    if args.wz_mode == "discrete":
-        # 形状是用户定的：转一下、滑一段。两个边界是硬约束不是建议。
-        if not 0.0 < args.wz_turn_s <= MAX_TURN_S:
-            parser.error(f"wz-turn-s must be in (0, {MAX_TURN_S}] - one turn is a "
-                         "burst, not a sustained turn")
-        if not args.wz_gap_s > MIN_GAP_S:
-            parser.error(f"wz-gap-s must exceed {MIN_GAP_S} - two turns have to "
-                         "be separated by a coast")
+            and 0 < args.wz_step <= args.max_wz
+            and args.wz_turn_s > 0.0
+            and args.wz_gap_s >= 0.0):
+        parser.error("need 0 < wz-fire-cm, 0 < wz-step <= max-wz, wz-turn-s > 0, "
+                     "and wz-gap-s >= 0 (0 = no forced coast)")
     return args
 
 
@@ -605,10 +601,12 @@ def main():
         if args.wz_mode == "discrete":
             levels = (f"{{0, ±{args.wz_step}}}" if args.wz_allow_right
                       else f"{{0, +{args.wz_step}}}")
+            coast = (f"转完强制空 {args.wz_gap_s:.2f}s 才允许下一段"
+                     if args.wz_gap_s > 0.0 else
+                     "转完不强制滑行（--wz-gap-s 0），err 还在阈值上就接着开")
             print(f"[wz] 离散模式：wz 只有 {levels} 两个状态。"
                   f"err ≥ {args.wz_fire_cm}cm 就开一段 {args.wz_turn_s:.2f}s 的转向，"
-                  f"转完强制空 {args.wz_gap_s:.2f}s 才允许下一段"
-                  f"（单段上限 {MAX_TURN_S}s、间隔下限 {MIN_GAP_S}s 是形状要求）。"
+                  f"{coast}。四个数都自由可调。"
                   f"{'两边都能转' if args.wz_allow_right else '只在车身偏右（err>0）时才左转，偏左不转'}"
                   f"；--center-dead-cm / --steer-full-scale-cm / --bias-cm / "
                   f"PID 增益在这个模式下不影响输出。", flush=True)

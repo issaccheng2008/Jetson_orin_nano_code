@@ -2581,14 +2581,26 @@ class DiscreteSteeringTests(unittest.TestCase):
         self.assertEqual(fired, [0.5, 0.5, 0.0, 0.0, 0.0, 0.0])
         self.assertEqual(self.step(controller, 1.0), 0.0)
 
-    def test_the_shape_limits_are_enforced(self):
-        """单段 ≤ 1s、间隔 > 2s 是形状要求，不是调参建议：越界直接拒。"""
-        for kw in ({"turn_s": 1.5}, {"turn_s": 0.0}, {"gap_s": 2.0},
-                   {"gap_s": 1.0}, {"turn_s": 1.05}, {"step": 0.0},
-                   {"step": 0.9}):
+    def test_the_four_numbers_are_free(self):
+        """1.0 / 2.5 只是默认值，不是上下限 —— 曾经把"单段 ≤1s、间隔 >2s"做成
+        硬约束，那是拿形状要求去锁调参。现在只查"是不是个能用的数"。"""
+        for kw in ({"turn_s": 1.5}, {"turn_s": 3.0}, {"gap_s": 2.0},
+                   {"gap_s": 0.5}, {"gap_s": 0.0}, {"step": 0.3}):
+            with self.subTest(**kw):
+                self.controller(**kw)
+        for kw in ({"turn_s": 0.0}, {"turn_s": -1.0}, {"gap_s": -0.5},
+                   {"step": 0.0}, {"step": 0.9}, {"fire_cm": 0.0},
+                   {"turn_s": float("nan")}):
             with self.subTest(**kw), self.assertRaises(ValueError):
                 self.controller(**kw)
-        self.controller(turn_s=1.0, gap_s=2.05)              # 边界上是合法的
+
+    def test_a_zero_gap_lets_the_next_turn_start_at_once(self):
+        """--wz-gap-s 0 = 不强制滑行：err 还在阈值上就接着开。放开限制之后这条
+        路径要能走通。收尾那一帧仍然是 0（那一段真的走完了，这一帧没有指令），
+        所以序列是 两帧 0.5 + 一帧 0 循环，不是连续不断。"""
+        controller = self.controller(turn_s=0.1, gap_s=0.0)
+        fired = [self.step(controller, 6.0) for _ in range(6)]
+        self.assertEqual(fired, [0.5, 0.5, 0.0, 0.5, 0.5, 0.0])
 
     def test_a_lost_frame_is_passed_through_and_fires_nothing(self):
         """丢线那一帧走内层自己的淡出，不脉冲 —— 它发出来的既不是 0 也不是离散
@@ -2655,7 +2667,8 @@ class DiscreteSteeringTests(unittest.TestCase):
         inner = SteeringController(**NO_TRIM)
         for kw in (dict(fire_cm=0.0), dict(fire_cm=float("nan")),
                    dict(step=0.0), dict(step=0.9), dict(turn_s=0.0),
-                   dict(gap_s=2.0), dict(turn_s=float("nan"))):
+                   dict(turn_s=-1.0), dict(gap_s=-0.5),
+                   dict(turn_s=float("nan"))):
             with self.subTest(kw=kw), self.assertRaises(ValueError):
                 DiscreteSteeringController(inner, **kw)
 

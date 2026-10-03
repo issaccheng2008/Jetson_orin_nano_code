@@ -37,12 +37,6 @@ import math
 
 from policy_bridge import clamp
 
-# 一段转向的上限、和两段之间的下限。这是形状要求，不是调参建议：转和滑分开，
-# 弯道上才是"转一下、滑一段"的多边形。
-MAX_TURN_S = 1.0
-MIN_GAP_S = 2.0
-
-
 class DiscreteSteeringController:
     def __init__(self, inner, fire_cm=5.0, turn_s=1.0, gap_s=2.5,
                  step=0.5, allow_right=False):
@@ -51,10 +45,10 @@ class DiscreteSteeringController:
             raise ValueError("discrete steering settings must be finite")
         if fire_cm <= 0.0:
             raise ValueError("fire-cm must be positive")
-        if not 0.0 < turn_s <= MAX_TURN_S:
-            raise ValueError(f"turn-s must be in (0, {MAX_TURN_S}]")
-        if gap_s <= MIN_GAP_S:
-            raise ValueError(f"gap-s must exceed {MIN_GAP_S}")
+        if turn_s <= 0.0:
+            raise ValueError("turn-s must be positive")
+        if gap_s < 0.0:
+            raise ValueError("gap-s must not be negative; 0 = no forced coast")
         if not 0.0 < step <= inner.max_wz:
             raise ValueError("need 0 < step <= max-wz")
         self.inner = inner
