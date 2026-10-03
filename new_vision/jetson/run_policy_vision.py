@@ -407,14 +407,16 @@ def parse_args():
                              "before anything is built on it")
     parser.add_argument("--lane-fit-near-cm", type=float, default=25.0,
                         help="Where to read the near point off the fitted centre line")
-    parser.add_argument("--lane-fit-far-cm", type=float, default=65.0,
+    parser.add_argument("--lane-fit-far-cm", type=float, default=55.0,
                         help="Where to read the far point. On the R=0.776 m arc, "
                              "with the robot centred and tangent, the lane centre "
                              "sits R-sqrt(R^2-z^2) to the side: 14 cm (55 px) at "
-                             "45 cm, 35 cm (120 px) at 65 cm. A straight gives 0, so "
-                             "the gap separates them by 3~8x the fit's measured "
-                             "5~11 px noise. Do not go past ~70 cm: the lane centre "
-                             "then leaves the 320 px wide birdseye")
+                             "45 cm, 23 cm (83 px) at 55 cm, against 4 cm (18 px) at "
+                             "25 cm, while a straight gives 0 at both. 55 is the "
+                             "ceiling: past ~59 cm the lane's outer line leaves the "
+                             "birdseye and the row can no longer be paired, so the "
+                             "fit stops there and reports nothing rather than "
+                             "extrapolating")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")

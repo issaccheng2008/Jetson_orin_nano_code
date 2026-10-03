@@ -1402,6 +1402,111 @@ class SingleLineTrackingTests(unittest.TestCase):
         self.assertGreaterEqual((1.0 - detector.smooth_alpha) * confidence, 0.15)
 
 
+class LaneFitTests(unittest.TestCase):
+    """--lane-fit 的几何：往合成鸟瞰图里画一条形状已知的车道。
+
+    这一层**不经过相机模型** —— _detect_lane_fit 吃进去的就是鸟瞰图，所以这里只
+    依赖纯几何 x(z) = R - sqrt(R^2 - z^2)（车在车道正中、朝向对准切线）。相机和
+    IPM 对不对是另一回事；这里问的是"逐段扫描 + 二次拟合"这一段本身能不能把弯道
+    读出来。
+    """
+
+    HALF_LANE_CM = 17.5
+    ARC_CM = 77.6          # 场地基线：中心线 R = 770 mm
+
+    @staticmethod
+    def _detector(top_cm=70.0, far_cm=55.0):
+        from line_detector_v1_warp import LineDetector
+        detector = LineDetector(1280, 720)
+        detector.red_detect_enable = False
+        detector.lane_fit_top_cm = top_cm
+        detector.lane_fit_far_cm = far_cm
+        return detector
+
+    @staticmethod
+    def _centre_px(detector, z_cm, radius_cm):
+        """左弯 -> 中心往左 -> 负偏移（和代码约定一致）。直道是 0。"""
+        if radius_cm is None:
+            return 0.0
+        off_cm = radius_cm - math.sqrt(radius_cm ** 2 - z_cm ** 2)
+        return -off_cm / detector.cm_per_px_at(detector._row_at_cm(z_cm))
+
+    def _birdseye(self, detector, radius_cm):
+        gray = np.zeros((detector.bird_h, detector.bird_w), np.uint8)
+        for y in range(detector.bird_h):
+            z_cm = detector.z_cm_at(y)
+            if radius_cm is not None and z_cm >= radius_cm:
+                continue      # 半径 R 的圆在前方 R 处已经转过 90°，再远没有点
+            cpp = detector.cm_per_px_at(y)
+            cx = detector.center_x + self._centre_px(detector, z_cm, radius_cm)
+            half = self.HALF_LANE_CM / cpp
+            line = max(1, int(round(2.0 / cpp)))
+            for edge in (-1.0, 1.0):
+                x0 = int(round(cx + edge * half - (line if edge < 0 else 0)))
+                gray[y, max(0, x0):max(0, x0 + line)] = 255
+        return gray
+
+    def _fit(self, detector, radius_cm):
+        gray = self._birdseye(detector, radius_cm)
+        z0 = detector.z_cm_at(detector.bird_h - 1)
+        hint_x = detector.center_x + self._centre_px(detector, z0, radius_cm)
+        hint_w = 2 * self.HALF_LANE_CM / detector.cm_per_px_at(detector.bird_h - 1)
+        return detector._detect_lane_fit(
+            gray, np.zeros((detector.bird_h, detector.bird_w, 3), np.uint8),
+            128, False, hint_x, hint_w)
+
+    def test_a_straight_reads_zero_at_both_ends(self):
+        detector = self._detector()
+        fit = self._fit(detector, None)
+        self.assertTrue(fit["fit_ok"])
+        self.assertAlmostEqual(fit["fit_near_px"], 0.0, delta=2.0)
+        self.assertAlmostEqual(fit["fit_far_px"], 0.0, delta=2.0)
+        self.assertAlmostEqual(fit["fit_curve_px"], 0.0, delta=2.0)
+
+    def test_the_arc_separation_survives_the_fit(self):
+        """分离度是拟合出来的，不是几何里算出来的：R=77.6 上前视 55cm 处车道中心
+        离切线 22.9cm、25cm 处只有 4.1cm，换成像素是 -82.8 和 -18.2，"远-近" 该有
+        -64.6px，而直道是 0。拟合要真能把这条弧读回来，这个数就得对得上。"""
+        detector = self._detector()
+        fit = self._fit(detector, self.ARC_CM)
+        truth_near = self._centre_px(detector, 25.0, self.ARC_CM)
+        truth_far = self._centre_px(detector, 55.0, self.ARC_CM)
+        self.assertTrue(fit["fit_ok"])
+        self.assertAlmostEqual(fit["fit_near_px"], truth_near, delta=3.0)
+        self.assertAlmostEqual(fit["fit_far_px"], truth_far, delta=3.0)
+        self.assertAlmostEqual(fit["fit_curve_px"], truth_far - truth_near, delta=5.0)
+        self.assertLess(fit["fit_curve_px"], -50.0)      # 直道那一侧是 0，不会混
+
+    def test_a_single_line_point_never_enters_the_fit(self):
+        """弯道远端外侧线跑出鸟瞰图之后只剩一条线，单线盲推（_infer_center_from_
+        single_run）是按画面正中判边再横挪半个车道得出来的，能差 130px —— 一个这样
+        的点就够把整条二次曲线拖歪。所以拟合只认成对的点，扫不到就停：top_cm 给到
+        70 也没用，它自己停在 56cm 左右（约 row 155）。
+
+        这一条是真退过货的：不过滤时同一帧 far=55 的误差是 +49.5px、far=65 是
+        +115px 而且符号反了。
+        """
+        detector = self._detector(top_cm=70.0)
+        fit = self._fit(detector, self.ARC_CM)
+        self.assertTrue(fit["fit_ok"])
+        self.assertLess(fit["fit_top_cm"], 58.0)
+        self.assertGreater(fit["fit_top_cm"], 50.0)
+        truth_far = self._centre_px(detector, 55.0, self.ARC_CM)
+        self.assertAlmostEqual(fit["fit_far_px"], truth_far, delta=5.0)
+
+    def test_the_arc_hides_its_outer_line_before_the_far_point_can_be_read(self):
+        """R=77.6 上车道外沿在 z≈59cm 处就够到鸟瞰图的 ±45cm 边界，再远的行只有
+        一条线。所以 65cm 这一点在这条赛道的最紧弯上根本读不到 —— 不是拟合不准，
+        是没有像素。阈值保持 55cm 的理由就是这个。"""
+        detector = self._detector(far_cm=65.0)
+        fit = self._fit(detector, self.ARC_CM)
+        self.assertNotIn("fit_far_px", fit)
+        self.assertFalse(fit.get("fit_ok", False))
+        # 同样一帧，55cm 读得到。
+        ok = self._fit(self._detector(far_cm=55.0), self.ARC_CM)
+        self.assertTrue(ok["fit_ok"])
+
+
 class LineDetectorStateTests(unittest.TestCase):
     """The detector's cross-frame memory is what keeps a bad lock alive: the scan
     hint feeds the next frame's search, and smoothed_err is a long EMA."""

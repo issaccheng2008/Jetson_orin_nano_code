@@ -259,9 +259,9 @@ class LineDetector:
         self.lane_fit_rows = 40          # 每一段最多采几行
         self.lane_fit_step = 6
         self.lane_fit_seg = 50           # 每段多少行（滑动窗口的高度）
-        self.lane_fit_top_cm = 70.0      # 高带最远扫到地面多少 cm
+        self.lane_fit_top_cm = 70.0      # 高带最远扫到地面多少 cm（成对的点扫不了那么远）
         self.lane_fit_near_cm = 25.0     # 读第一个点的地面距离
-        self.lane_fit_far_cm = 65.0      # 读第二个点的地面距离
+        self.lane_fit_far_cm = 55.0      # 读第二个点；65 在最紧的弯上读不到（见下）
         self.lane_fit_min_pts = 8        # 少于这个点数就不拟合
         self.curve_smooth_alpha = 0.85   # ~6-frame EMA, for telling a curve from jitter
         self.curve_angle_deg = 8.0       # fitted heading past which one band is a curve
@@ -858,7 +858,7 @@ class LineDetector:
         # 一开始写成"一条高带从远往近扫"，结果 30 帧里近端读出 +147px 这种
         # 不可能的值 —— 远端对比度低、先锁错，连续性闸再把错误一路带到近端。
         y_top = max(1, self._row_at_cm(self.lane_fit_top_cm))
-        ys_all, cx_all = [], []
+        ys_all, cx_all, modes_all = [], [], []
         center, width = hint_x, lane_width_hint
         y_hi = self.bird_h - 1
         while y_hi > y_top:
@@ -870,17 +870,29 @@ class LineDetector:
             if res is not None:
                 yl = res.get("ys_list", [])
                 cl = res.get("centers_list", [])
+                ml = res.get("modes_list", [])
                 if yl:
                     ys_all.extend(yl)
                     cx_all.extend(cl)
+                    modes_all.extend(ml if len(ml) == len(yl) else [1] * len(yl))
+                    # 种子仍用**全部**点（含单线盲推的）：它只负责把下一段的搜索窗
+                    # 领到大致位置，连续性闸会兜住。拟合才只认成对的点。
                     center = float(cl[0])          # 这一段最远那行 = 下一段的近端
                     width = float(res["lane_width_px"])
             y_hi = y_lo
         ys = np.asarray(ys_all, dtype=np.float64)
         cx = np.asarray(cx_all, dtype=np.float64)
+        keep = np.asarray(modes_all, dtype=np.int32) >= 2
+        # 只留"两条边界都真的看见"的行。单线盲推（_infer_center_from_single_run）
+        # 是按**画面正中**判边、再横挪半个车道得出来的，弯道远端外侧线跑出鸟瞰图
+        # 之后它能差 130px —— 一个这样的点就够把整条二次曲线拖歪：合成 R=77.6cm
+        # 的圆弧上，top_cm 从 60 放到 65（多收进 row 102~148 那批单线点），
+        # far=65cm 的读数从 −120px 变成 +115px，符号都反了。
+        ys, cx = ys[keep], cx[keep]
         # 扫到多远：真正要看的诊断量。上面那些行没出点时，这里会明显偏小。
         top_cm = float(self._lut_z_cm[int(ys.min())]) if len(ys) else None
-        out = {"fit_pts": int(len(ys)), "fit_top_cm": top_cm}
+        out = {"fit_pts": int(len(ys)), "fit_pair_pts": int(keep.sum()),
+               "fit_top_cm": top_cm}
         if len(ys) < self.lane_fit_min_pts or ys.max() - ys.min() < 40.0:
             return out
         coeff = np.polyfit(ys, cx, 2)
@@ -935,6 +947,7 @@ class LineDetector:
         lane_widths = []
         ys = []
         zs_cm = []
+        modes = []
         conf_sum = 0.0
         pair_rows = 0
         single_rows = 0
@@ -997,13 +1010,14 @@ class LineDetector:
                     y += row_step
                     continue
                 x_cm, z_cm = self._px_to_ground_cm(center_px, y)
+                mode = int(chosen.get("line_mode", 1))
                 centers_px.append(center_px)
                 centers_cm.append(x_cm)
                 lane_widths.append(lane_w)
                 ys.append(y)
                 zs_cm.append(z_cm)
+                modes.append(mode)
                 conf_sum += chosen["conf"]
-                mode = int(chosen.get("line_mode", 1))
                 if mode >= 2:
                     # Paired off the runs, or measured as two dips in the raw gray, so
                     # both boundaries were really seen.
@@ -1056,6 +1070,7 @@ class LineDetector:
             "black_block_ratio": black_block_rows / float(max(1, max_rows)),
             "ys_list": ys,
             "centers_list": centers_px,
+            "modes_list": modes,
             "left_seen": left_seen,
             "right_seen": right_seen,
             "single_side": ("left" if left_seen and not right_seen
