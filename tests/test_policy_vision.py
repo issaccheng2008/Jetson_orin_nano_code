@@ -684,6 +684,7 @@ class VisionEntryPointTests(unittest.TestCase):
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
                                "--card-vote-frames", "1",
+                               "--card-slow-vx", "0.2",
                                "--card-hold-ms", "5000", "--card-stop-ms", "3000"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
@@ -908,7 +909,10 @@ class VisionEntryPointTests(unittest.TestCase):
         固定压一个 wz —— 卡是个固定目标，对着它对准比跟着底下的线走更能停正。
         没卡的时候照旧走控制器。"""
         with patch("sys.argv", ["run_policy_vision.py"]):
-            self.assertAlmostEqual(run_policy_vision.parse_args().card_slow_wz, -0.2)
+            # 两个都默认关掉了（2026-10-03）：看见卡不再减速、也不再固定压一个转角。
+            # 要那套行为就把这两个值显式传回来。
+            self.assertEqual(run_policy_vision.parse_args().card_slow_wz, 0.0)
+            self.assertEqual(run_policy_vision.parse_args().card_slow_vx, 0.0)
 
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()

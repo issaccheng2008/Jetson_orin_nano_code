@@ -226,25 +226,32 @@ def parse_args():
                              "geometry (mount height, pitch, vfov); seeing a card "
                              "earlier only slows it down")
     parser.add_argument("--card-slow-vx", type=float,
-                        default=float(os.getenv("CARD_SLOW_VX", "0.2")),
+                        default=float(os.getenv("CARD_SLOW_VX", "0")),
                         help="Forward speed while a card is in view but not yet close "
-                             "enough to act on")
+                             "enough to act on, and the speed held for "
+                             "--card-resume-ms after the stop. 0 (default) disables "
+                             "both: the robot no longer creeps at a card and comes "
+                             "back up to --vx in one step, which the connector's slew "
+                             "still ramps. It used to be 0.2; at --vx 0.2 that was "
+                             "already a no-op, and it only did anything at higher "
+                             "speeds")
     parser.add_argument("--card-slow-wz", type=float,
-                        default=float(os.getenv("CARD_SLOW_WZ", "-0.2")),
+                        default=float(os.getenv("CARD_SLOW_WZ", "0")),
                         help="Fixed yaw rate, rad/s, held for as long as a card is in "
                              "view and the robot is creeping toward it - the same "
                              "stretch --card-slow-vx covers. It replaces the line "
                              "controller's steering there; negative turns right. The "
                              "card is a fixed target rather than a lane, so lining up "
                              "on it beats following the line underneath, and lining up "
-                             "is what keeps the stop square to the card. 0 leaves the "
-                             "controller alone")
+                             "is what keeps the stop square to the card. 0 (default) "
+                             "leaves the controller alone; it used to be -0.2")
     parser.add_argument("--card-resume-ms", type=float,
                         default=float(os.getenv("CARD_RESUME_MS", "500")),
                         help="On the stopped-to-walking edge, hold --card-slow-vx this "
                              "long before releasing to full speed, so the start mirrors "
                              "the stop's 0.4 -> 0.2 -> 0 shape. 0 releases on the first "
-                             "walking frame, leaving only the connector's slew")
+                             "walking frame, leaving only the connector's slew. Inert "
+                             "while --card-slow-vx is 0")
     parser.add_argument("--hold-upright", action="store_true",
                         help="Superseded by --card-tilt-ms and NOT used: this asks the "
                              "Nano to hold the legs straight through the stop, which "
@@ -1032,7 +1039,10 @@ def main():
                 # full speed straight past it - the one place the near band is fully
                 # covered by the card. Creep instead, so the classifier still has frames
                 # to work with before the card is behind the robot.
-                if card_flag or processed < resume_until:
+                # --card-slow-vx 0 = 整档关掉（看见卡不减速、停车后也不留缓冲段）。
+                # 默认就是 0：在 --vx 0.2 下减速本来等于没减，留着只会在以后提速时
+                # 突然生效。
+                if args.card_slow_vx > 0.0 and (card_flag or processed < resume_until):
                     vx = min(vx, args.card_slow_vx)
                 # 往卡走的那一段，转向不再跟线：卡是个固定目标，对着它对准比跟着底下
                 # 的线走更能停正。**只在还没为这张卡停下之前压** —— 停下之后（以及
