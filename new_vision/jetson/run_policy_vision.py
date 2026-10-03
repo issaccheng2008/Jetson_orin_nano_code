@@ -23,7 +23,7 @@ import time
 import numpy as np
 
 from camera_config import load as load_camera
-from discrete_steering import MAX_PULSE_S, MIN_GAP_S
+from discrete_steering import MAX_TURN_S, MIN_GAP_S
 from policy_bridge import ConnectorClient, SteeringController
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
@@ -322,15 +322,15 @@ def parse_args():
     parser.add_argument("--wz-mode", choices=("continuous", "discrete"),
                         default="discrete",
                         help="'discrete' (default since 2026-10-03, the mode the robot "
-                             "runs) replaces only the published "
-                             "wz with a short pulse from {0, +-step-lo, +-step-hi}: "
+                             "runs) replaces only the published wz with two states: "
                              "zero until |err| crosses --wz-fire-cm, then one "
-                             "--wz-pulse-s burst, then zero again. Straights come out "
-                             "almost perfectly straight and curves become a polygon. "
-                             "It only touches the output - SteeringController itself is "
-                             "untouched, and a run without this flag is bit-for-bit "
-                             "the old behaviour. Use connector --max-wz-accel 0 with "
-                             "it, or the slew limiter turns each pulse into a triangle")
+                             "--wz-turn-s burst at +--wz-step, then a forced "
+                             "--wz-gap-s coast. Straights come out straight and "
+                             "curves become a polygon. It only touches the output - "
+                             "SteeringController itself is untouched, and a run "
+                             "without this flag is bit-for-bit the old behaviour. "
+                             "Use connector --max-wz-accel 0 with it, or the slew "
+                             "limiter rounds the edges off each burst")
     parser.add_argument("--wz-fire-cm", type=float, default=5.0,
                         help="Dead band, cm: inside it the published wz is exactly "
                              "0 - no scaling, no half authority, straight. Below "
@@ -339,34 +339,34 @@ def parse_args():
                              "is 5 and not 3: the measured curve steady state is "
                              "+5~6 cm, so 3 had the robot pulsing almost "
                              "continuously even while it was basically on the line")
-    parser.add_argument("--wz-fire-strong-cm", type=float, default=8.0,
-                        help="|eff err| that upgrades the pulse to --wz-step-hi")
-    # 0.4 / 0.5 是**实车跑出来的好值**。不要拿去跟 vx/R 之类的算术比然后"修正"
-    # 它 —— 2026-10-03 试过一版按 vx/0.776 推的（--vx 0.2 下推成 0.258），
-    # 推出来的数在车上是错的。这两个就是常数。
-    parser.add_argument("--wz-step-lo", type=float, default=0.4,
-                        help="Small pulse amplitude, rad/s. Measured good on the "
-                             "robot; a fixed constant, not derived from --vx")
-    parser.add_argument("--wz-step-hi", type=float, default=0.5,
-                        help="Large pulse amplitude, rad/s; at most --max-wz")
-    parser.add_argument("--wz-pulse-s", type=float, default=0.15,
-                        help="How long one pulse lasts, seconds, at most 1.0. "
-                             "Counted in vision frames (16~29 Hz), so the real "
-                             "width is a whole number of frames - 0.15 s is 2~4 "
-                             "of them")
-    parser.add_argument("--wz-min-gap-s", type=float, default=2.5,
-                        help="Coast forced after every pulse, seconds, and it must "
-                             "exceed 2.0. Without it a pulse that ends with |err| "
+    # 0.4 / 0.5 是**实车跑出来的好值**，而且挑的是"大且稳"那一端：关节在小角度
+    # 上表现得比大角度还不稳，所以不能拿"刚好够用"的小量加精确时长去凑。
+    # 不要拿去跟 vx/R 之类的算术比然后"修正"它 —— 2026-10-03 试过一版按
+    # vx/0.776 推的（--vx 0.2 下推成 0.258），推出来的数在车上是错的。
+    parser.add_argument("--wz-step", type=float, default=0.5,
+                        help="How hard one turn is, rad/s, at most --max-wz. ONE "
+                             "value: there is no second gear keyed off how big the "
+                             "error is. Measured good on the robot; a fixed "
+                             "constant, not derived from --vx")
+    parser.add_argument("--wz-turn-s", type=float, default=1.0,
+                        help="How long one turn lasts, seconds, at most 1.0. It has "
+                             "to be long enough for the machine to actually carry "
+                             "it out: at the 3:8 step rate a 0.15 s command is two "
+                             "or three steps, over before the robot has acted on "
+                             "it, so the same command turns a different amount "
+                             "every time")
+    parser.add_argument("--wz-gap-s", type=float, default=2.5,
+                        help="Coast forced after every turn, seconds, and it must "
+                             "exceed 2.0. Without it a turn that ends with |err| "
                              "still over the threshold re-fires on the very next "
-                             "frame, the pulses run together and the curve is a "
-                             "continuous turn instead of the polygon. Turn then "
-                             "coast is the shape")
+                             "frame, the turns run together and the curve is a "
+                             "continuous turn instead of the polygon")
     parser.add_argument("--wz-allow-right", action="store_true",
                         help="Allow negative wz. Off by default: the track only turns "
-                             "left in the direction of travel, so a right pulse is "
+                             "left in the direction of travel, so a right turn is "
                              "always a correction that overshot, and it pushes the "
                              "robot out of the bend. With it off the published wz is "
-                             "either 0, +step-lo or +step-hi - three values, and only "
+                             "either 0 or +step, and only "
                              "while the body is right of the lane centre (err > 0). "
                              "Left of centre it coasts, which is what turns the "
                              "corrections into the pulse-then-coast the polygon wants")
@@ -457,21 +457,18 @@ def parse_args():
         parser.error("need 0 < qr-min-edge-px < qr-max-edge-px")
     if not math.isfinite(args.start_gate_log_s) or args.start_gate_log_s <= 0:
         parser.error("start-gate-log-s must be positive")
-    if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_fire_strong_cm,
-                                           args.wz_step_lo, args.wz_step_hi,
-                                           args.wz_pulse_s))
-            and 0 < args.wz_fire_cm < args.wz_fire_strong_cm
-            and 0 < args.wz_step_lo <= args.wz_step_hi <= args.max_wz
-            and args.wz_pulse_s > 0):
-        parser.error("need 0 < wz-fire-cm < wz-fire-strong-cm, "
-                     "0 < wz-step-lo <= wz-step-hi <= max-wz, and wz-pulse-s > 0")
+    if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_step,
+                                           args.wz_turn_s, args.wz_gap_s))
+            and 0 < args.wz_fire_cm
+            and 0 < args.wz_step <= args.max_wz):
+        parser.error("need 0 < wz-fire-cm and 0 < wz-step <= max-wz")
     if args.wz_mode == "discrete":
-        # 形状是用户定的：一下一下地转，不是连续转。
-        if not 0.0 < args.wz_pulse_s <= MAX_PULSE_S:
-            parser.error(f"wz-pulse-s must be in (0, {MAX_PULSE_S}] - one turn is a "
+        # 形状是用户定的：转一下、滑一段。两个边界是硬约束不是建议。
+        if not 0.0 < args.wz_turn_s <= MAX_TURN_S:
+            parser.error(f"wz-turn-s must be in (0, {MAX_TURN_S}] - one turn is a "
                          "burst, not a sustained turn")
-        if not args.wz_min_gap_s > MIN_GAP_S:
-            parser.error(f"wz-min-gap-s must exceed {MIN_GAP_S} - two turns have to "
+        if not args.wz_gap_s > MIN_GAP_S:
+            parser.error(f"wz-gap-s must exceed {MIN_GAP_S} - two turns have to "
                          "be separated by a coast")
     return args
 
@@ -508,10 +505,9 @@ def main():
     if args.wz_mode == "discrete":
         from discrete_steering import DiscreteSteeringController
         controller = DiscreteSteeringController(
-            controller, fire_cm=args.wz_fire_cm, strong_cm=args.wz_fire_strong_cm,
-            step_lo=args.wz_step_lo, step_hi=args.wz_step_hi,
-            min_gap_s=args.wz_min_gap_s,
-            pulse_s=args.wz_pulse_s, allow_right=args.wz_allow_right)
+            controller, fire_cm=args.wz_fire_cm, turn_s=args.wz_turn_s,
+            gap_s=args.wz_gap_s, step=args.wz_step,
+            allow_right=args.wz_allow_right)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
     from line_detector_v1_warp import LineDetector
@@ -611,26 +607,22 @@ def main():
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
                   f" 会被机身俯仰实时修正", flush=True)
         if args.wz_mode == "discrete":
-            levels = (f"{{0, ±{args.wz_step_lo}, ±{args.wz_step_hi}}}"
-                      if args.wz_allow_right else
-                      f"{{0, +{args.wz_step_lo}, +{args.wz_step_hi}}}")
-            print(f"[wz] 离散模式：wz 只会是 {levels}，"
-                  f"err ≥ {args.wz_fire_cm}cm 打 {args.wz_step_lo}"
-                  f"、≥ {args.wz_fire_strong_cm}cm 打 {args.wz_step_hi}，"
-                  f"每次 {args.wz_pulse_s:.2f}s（约 {args.wz_pulse_s * 20:.0f} 帧），"
-                  f"打完强制空 {args.wz_min_gap_s:.2f}s 才允许下一发"
-                  f"（间隔下限 {MIN_GAP_S}s，单发上限 {MAX_PULSE_S}s 是形状要求）。"
+            levels = (f"{{0, ±{args.wz_step}}}" if args.wz_allow_right
+                      else f"{{0, +{args.wz_step}}}")
+            print(f"[wz] 离散模式：wz 只有 {levels} 两个状态。"
+                  f"err ≥ {args.wz_fire_cm}cm 就开一段 {args.wz_turn_s:.2f}s 的转向，"
+                  f"转完强制空 {args.wz_gap_s:.2f}s 才允许下一段"
+                  f"（单段上限 {MAX_TURN_S}s、间隔下限 {MIN_GAP_S}s 是形状要求）。"
                   f"{'两边都能转' if args.wz_allow_right else '只在车身偏右（err>0）时才左转，偏左不转'}"
                   f"；--center-dead-cm / --steer-full-scale-cm / --bias-cm / "
                   f"PID 增益在这个模式下不影响输出。", flush=True)
-            print(f"[wz] ⚠️ A 那边要用 --max-wz-accel 0，否则脉冲会被它的斜率"
-                  f"限制削成三角形（默认 2.0 时 0→{args.wz_step_lo} 要爬 "
-                  f"{args.wz_step_lo / 2.0:.2f}s）", flush=True)
-            print(f"[wz] 幅度写死 {args.wz_step_lo}/{args.wz_step_hi}（实车量出来的，"
-                  f"不跟着 --vx 走）。参考：--vx {args.vx} 下跟住一个弯要 "
-                  f"{args.vx / LANE_RADIUS_M:.3f} rad/s。触发看原始 err=；"
-                  f"--bias-cm / --center-dead-cm / --steer-full-scale-cm / "
-                  f"--preview-gain 在这个模式下都不参与", flush=True)
+            print(f"[wz] ⚠️ A 那边要用 --max-wz-accel 0，否则一段转向会被它的斜率"
+                  f"限制削成三角形（默认 2.0 时 0→{args.wz_step} 要爬 "
+                  f"{args.wz_step / 2.0:.2f}s）", flush=True)
+            print(f"[wz] 幅度 {args.wz_step} 挑的是「大且稳」那一端：关节在小角度下"
+                  f"比大角度还不稳，所以不拿小量加精确时长去凑。"
+                  f"参考：--vx {args.vx} 下跟住一个弯要 {args.vx / LANE_RADIUS_M:.3f} "
+                  f"rad/s（只是参考，幅度不跟着它走）。触发看原始 err=", flush=True)
         if start_gate is not None:
             print(f"[start-gate] {args.start_gate}：站住不动，直到两个阀都过；"
                   f"期间机身按住直立（否则后仰 20°，几何闸会把每张卡都 "

@@ -2454,28 +2454,30 @@ class DiscreteSteeringTests(unittest.TestCase):
             with self.subTest(err=err):
                 self.assertEqual(self.step(controller, err), 0.0)
 
-    def test_the_two_thresholds_pick_the_two_steps(self):
-        self.assertEqual(self.step(self.controller(), 6.0), 0.4)
-        self.assertEqual(self.step(self.controller(), 12.0), 0.5)
+    def test_one_threshold_one_amplitude(self):
+        """只有一个幅度。曾经按 |err| 分两档（0.4 / 0.5），那是在一个不确定的底层上
+        多叠了一层判断；而且幅度挑的是「大且稳」那一端，不是「刚好够用」那一端。"""
+        self.assertEqual(self.step(self.controller(), 4.9), 0.0)
+        self.assertEqual(self.step(self.controller(), 6.0), 0.5)
+        self.assertEqual(self.step(self.controller(), 20.0), 0.5)   # 不会换档
         # 默认不发负的 wz：赛道按行进方向只有左弯，右转永远是转过头之后的过冲
         for err in (-6.0, -12.0):
             with self.subTest(err=err):
                 self.assertEqual(self.step(self.controller(), err), 0.0)
-        self.assertEqual(self.step(self.controller(allow_right=True), -6.0), -0.4)
-        self.assertEqual(self.step(self.controller(allow_right=True), -12.0), -0.5)
+        self.assertEqual(self.step(self.controller(allow_right=True), -6.0), -0.5)
 
     def test_only_a_body_right_of_centre_may_turn_left(self):
         """单边闸看的是 err 的符号（车在车道中心右边 = err > 0）。偏左就滑行 ——
-        正是这一条把"打一发脉冲"和"滑行"分开，折线靠它。"""
-        controller = self.controller(pulse_s=0.1, min_gap_s=2.05)
-        self.assertEqual(self.step(controller, 6.0), 0.4)     # 偏右，转
-        self.assertEqual(self.step(controller, -6.0), 0.4)    # 脉冲里不看 err
-        self.assertEqual(self.step(controller, -6.0), 0.0)    # 窗口用完
+        正是这一条把"转一段"和"滑行"分开，折线靠它。"""
+        controller = self.controller(turn_s=0.1, gap_s=2.05)
+        self.assertEqual(self.step(controller, 6.0), 0.5)     # 偏右，开转
+        self.assertEqual(self.step(controller, -6.0), 0.5)    # 转的期间不看 err
+        self.assertEqual(self.step(controller, -6.0), 0.0)    # 一段走完
         self.assertEqual(self.step(controller, -0.001), 0.0)  # 贴着中心也是 0
-        # 间隔期间 err 在右边也不打，打的是间隔不是 err
+        # 间隔期间 err 在右边也不开，管的是间隔不是 err
         coasted = 0
         for _ in range(60):
-            if self.step(controller, 6.0) == 0.4:
+            if self.step(controller, 6.0) == 0.5:
                 break
             coasted += 1
         self.assertEqual(coasted, 40)         # 加上上面那一步才是 2.05s / 0.05s = 41
@@ -2483,44 +2485,37 @@ class DiscreteSteeringTests(unittest.TestCase):
     def test_the_yaw_sign_is_applied(self):
         # yaw_sign 照旧乘上去（真车上是 +1）。单边闸看的是 err 的符号，所以
         # yaw_sign=-1 时同样是"车身偏右才动"，只是动的方向镜像过来。
-        self.assertEqual(self.step(self.controller(yaw_sign=-1), 6.0), -0.4)
+        self.assertEqual(self.step(self.controller(yaw_sign=-1), 6.0), -0.5)
         self.assertEqual(self.step(self.controller(yaw_sign=-1), -6.0), 0.0)
         both = self.controller(yaw_sign=-1, allow_right=True)
-        self.assertEqual(self.step(both, -12.0), 0.5)
+        self.assertEqual(self.step(both, -12.0), 0.5)   # yaw_sign 和 err 两个负号相消
 
-    def test_a_pulse_holds_then_lets_go(self):
-        """脉冲是一段定长的爆发：宽度就是 --wz-pulse-s，之后回 0。"""
-        controller = self.controller(pulse_s=0.2)
-        self.assertEqual(self.step(controller, 6.0), 0.4)      # 起脉冲
+    def test_a_turn_holds_for_its_whole_duration(self):
+        """一段转向是定长的：宽度就是 --wz-turn-s，之后回 0。
+        时长必须够长到机械真的做出来 —— 0.15s 在 3:8 的步频下只有两三步。"""
+        controller = self.controller(turn_s=0.2)
+        self.assertEqual(self.step(controller, 6.0), 0.5)      # 起转
         for _ in range(3):
-            self.assertEqual(self.step(controller, 6.0), 0.4)  # 0.15s，还在窗口里
-        self.assertEqual(self.step(controller, 0.0), 0.0)      # 0.20s，窗口用完
+            self.assertEqual(self.step(controller, 6.0), 0.5)  # 0.15s，还在这一段里
+        self.assertEqual(self.step(controller, 0.0), 0.0)      # 0.20s，这一段结束
         self.assertEqual(self.step(controller, 0.0), 0.0)
 
     def test_a_high_error_still_waits_out_the_gap(self):
-        """曾经是"脉冲跑完误差还在就立刻再打"——那出来的是**连续转弯**。
-        形状要求两发之间必须空 2 秒以上，弯道上才是"转一下、滑一段"的多边形。"""
-        controller = self.controller(pulse_s=0.1, min_gap_s=2.05)
+        """曾经是"一段跑完误差还在就立刻再开"——那出来的是**连续转弯**。
+        形状要求两段之间必须空 2 秒以上，弯道上才是"转一下、滑一段"的多边形。"""
+        controller = self.controller(turn_s=0.1, gap_s=2.05)
         fired = [self.step(controller, 6.0) for _ in range(6)]
-        self.assertEqual(fired, [0.4, 0.4, 0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(fired, [0.5, 0.5, 0.0, 0.0, 0.0, 0.0])
         self.assertEqual(self.step(controller, 1.0), 0.0)
 
-    def test_the_curve_upgrade_is_the_big_step(self):
-        controller = self.controller(pulse_s=0.1, min_gap_s=2.05)
-        self.assertEqual(self.step(controller, 6.0), 0.4)
-        self.assertEqual(self.step(controller, 20.0), 0.4)   # 还在脉冲里，不换档
-        self.step(controller, 20.0)                          # 窗口用完
-        for _ in range(41):                                  # 间隔走完
-            self.step(controller, 20.0)
-        self.assertEqual(self.step(controller, 20.0), 0.5)   # 下一发是大档
-
     def test_the_shape_limits_are_enforced(self):
-        """单次转弯 ≤ 1s、间隔 > 2s 是形状要求，不是调参建议：越界直接拒。"""
-        for kw in ({"pulse_s": 1.5}, {"pulse_s": 0.0}, {"min_gap_s": 2.0},
-                   {"min_gap_s": 1.0}, {"pulse_s": 1.05}):
+        """单段 ≤ 1s、间隔 > 2s 是形状要求，不是调参建议：越界直接拒。"""
+        for kw in ({"turn_s": 1.5}, {"turn_s": 0.0}, {"gap_s": 2.0},
+                   {"gap_s": 1.0}, {"turn_s": 1.05}, {"step": 0.0},
+                   {"step": 0.9}):
             with self.subTest(**kw), self.assertRaises(ValueError):
                 self.controller(**kw)
-        self.controller(pulse_s=1.0, min_gap_s=2.05)         # 边界上是合法的
+        self.controller(turn_s=1.0, gap_s=2.05)              # 边界上是合法的
 
     def test_a_lost_frame_is_passed_through_and_fires_nothing(self):
         """丢线那一帧走内层自己的淡出，不脉冲 —— 它发出来的既不是 0 也不是离散
@@ -2528,20 +2523,20 @@ class DiscreteSteeringTests(unittest.TestCase):
         from discrete_steering import DiscreteSteeringController
         inner = SteeringController(**NO_TRIM)
         controller = DiscreteSteeringController(inner)
-        self.assertEqual(self.step(controller, 6.0), 0.4)
+        self.assertEqual(self.step(controller, 6.0), 0.5)
         lost = dict(detection(error=4.0, lost=3))
         got = controller.command(lost, 0.8, 0.05)[1]
-        self.assertAlmostEqual(got, 0.4 * 0.75)
-        self.assertNotIn(round(got, 6), (0.0, 0.4, -0.4, 0.5, -0.5))
+        self.assertAlmostEqual(got, 0.5 * 0.75)
+        self.assertNotIn(round(got, 6), (0.0, 0.5, -0.5))
         for _ in range(5):                       # --lost-hold-s 用完就归零
             got = controller.command(lost, 0.8, 0.05)[1]
         self.assertEqual(got, 0.0)
 
     def test_a_non_finite_error_is_a_lost_frame_too(self):
         controller = self.controller()
-        self.assertEqual(self.step(controller, 6.0), 0.4)
+        self.assertEqual(self.step(controller, 6.0), 0.5)
         got = controller.command(dict(detection(error=float("nan"))), 0.8, 0.05)[1]
-        self.assertNotIn(round(got, 6), (0.0, 0.4, -0.4, 0.5, -0.5))
+        self.assertNotIn(round(got, 6), (0.0, 0.5, -0.5))
 
     def test_the_held_command_is_the_pulse_not_the_pid(self):
         """丢线淡出回放的是 hold，所以它必须是脉冲值。"""
@@ -2562,22 +2557,21 @@ class DiscreteSteeringTests(unittest.TestCase):
         controller = DiscreteSteeringController(inner)
         self.assertEqual(self.step(controller, 1.0), 0.0)      # err 小于阈值
         self.assertAlmostEqual(inner.last_err_eff, 11.0)        # 但 eff 早就过线了
-        self.assertEqual(self.step(controller, 6.0), 0.4)
+        self.assertEqual(self.step(controller, 6.0), 0.5)
 
-    def test_the_pulse_amplitudes_are_fixed_constants(self):
-        """0.4 / 0.5 是**实车量出来的好值**，不跟着 --vx 或任何推导走。
+    def test_the_amplitude_is_a_fixed_constant(self):
+        """0.5 是**实车量出来的好值**，而且挑的是「大且稳」那一端
+        （小角度下关节比大角度还不稳）。不跟着 --vx 或任何推导走 ——
         2026-10-03 出过一版按 ω = vx/R 推的（--vx 0.2 下推成 0.258），车上是错的。"""
         for vx in ("0.2", "0.3"):
             with self.subTest(vx=vx), patch("sys.argv",
                                             ["run_policy_vision.py", "--vx", vx]):
-                args = run_policy_vision.parse_args()
-                self.assertEqual(args.wz_step_lo, 0.4)
-                self.assertEqual(args.wz_step_hi, 0.5)
-        with patch("sys.argv", ["run_policy_vision.py", "--wz-step-lo", "0.3"]):
-            self.assertAlmostEqual(run_policy_vision.parse_args().wz_step_lo, 0.3)
+                self.assertEqual(run_policy_vision.parse_args().wz_step, 0.5)
+        with patch("sys.argv", ["run_policy_vision.py", "--wz-step", "0.3"]):
+            self.assertAlmostEqual(run_policy_vision.parse_args().wz_step, 0.3)
 
-    def test_reset_drops_a_running_pulse(self):
-        controller = self.controller(pulse_s=1.0)
+    def test_reset_drops_a_running_turn(self):
+        controller = self.controller(turn_s=1.0)
         self.assertEqual(self.step(controller, 9.0), 0.5)
         controller.reset()
         self.assertEqual(self.step(controller, 0.0), 0.0)
@@ -2586,10 +2580,9 @@ class DiscreteSteeringTests(unittest.TestCase):
     def test_the_settings_are_validated(self):
         from discrete_steering import DiscreteSteeringController
         inner = SteeringController(**NO_TRIM)
-        for kw in (dict(fire_cm=0.0), dict(fire_cm=9.0, strong_cm=3.0),
-                   dict(step_lo=0.0), dict(step_lo=0.6, step_hi=0.6),
-                   dict(step_hi=0.9), dict(pulse_s=0.0),
-                   dict(fire_cm=float("nan"))):
+        for kw in (dict(fire_cm=0.0), dict(fire_cm=float("nan")),
+                   dict(step=0.0), dict(step=0.9), dict(turn_s=0.0),
+                   dict(gap_s=2.0), dict(turn_s=float("nan"))):
             with self.subTest(kw=kw), self.assertRaises(ValueError):
                 DiscreteSteeringController(inner, **kw)
 
@@ -2625,7 +2618,7 @@ class DiscreteSteeringIntegrationTests(unittest.TestCase):
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless",
                                "--wz-mode", "discrete", "--shape-every", "4",
-                               "--wz-step-lo", "0.4", "--wz-step-hi", "0.5"]),
+                               "--wz-step", "0.5"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -2640,7 +2633,7 @@ class DiscreteSteeringIntegrationTests(unittest.TestCase):
         self.assertTrue(published)
         for wz in published:
             with self.subTest(wz=wz):
-                self.assertIn(round(wz, 6), (0.0, 0.4, -0.4, 0.5, -0.5))
+                self.assertIn(round(wz, 6), (0.0, 0.5, -0.5))
         # 直道那几帧（err=0.3）必须是 0
         self.assertEqual(published[0], 0.0)
         self.assertEqual(published[1], 0.0)
