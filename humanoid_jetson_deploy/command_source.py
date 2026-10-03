@@ -67,7 +67,7 @@ class ScriptedCommandSource:
     so the first call is the first walking tick.
     """
 
-    def __init__(self, legs) -> None:
+    def __init__(self, legs, loop: bool = False) -> None:
         if not legs:
             raise ValueError("a scripted timeline needs at least one leg")
         self._legs = []
@@ -78,6 +78,10 @@ class ScriptedCommandSource:
             self._legs.append((edge, edge + duration_s, clamp_command([vx, 0.0, wz])))
             edge += duration_s
         self.total_s = edge
+        # loop=True never falls through to zero: the pattern repeats until the
+        # process stops (`--max-seconds`). The caller owns the stop condition --
+        # without one the robot keeps walking.
+        self.loop = bool(loop)
         self._t0 = None
 
     def get(self) -> np.ndarray:
@@ -85,6 +89,8 @@ class ScriptedCommandSource:
         if self._t0 is None:
             self._t0 = now
         elapsed = now - self._t0
+        if self.loop:
+            elapsed %= self.total_s
         for start, end, command in self._legs:
             if elapsed < end:
                 return command.copy()
@@ -94,14 +100,21 @@ class ScriptedCommandSource:
         pass
 
 
-def curve_legs(straight_s: float, turn_s: float, vx: float, turn_wz: float):
-    """A stadium bulge as an open-loop timeline: straight, one 180 turn, straight.
+def curve_legs(straight_s: float, turn_s: float, vx: float, turn_wz: float,
+               loop: bool = False):
+    """The stadium's straight/curve alternation as an open-loop timeline.
 
     Defaults come straight off the track: centreline R = 0.776 m, so a semicircle
     is pi*R = 2.438 m and a straight is (6.140 - 2*2.438)/2 = 0.632 m. At
     vx = 0.2 that is 3.16 s of straight, and holding the arc needs
     omega = v/R = 0.258 rad/s for pi/0.258 = 12.19 s of turn.
+
+    One bulge is `straight, turn, straight`; the lap is that pattern's straights
+    shared, i.e. `straight, turn` repeated. Looping the three-leg form instead
+    would put two straights back to back, so loop=True returns the two-leg unit.
     """
+    if loop:
+        return [(straight_s, vx, 0.0), (turn_s, vx, turn_wz)]
     return [(straight_s, vx, 0.0),
             (turn_s, vx, turn_wz),
             (straight_s, vx, 0.0)]

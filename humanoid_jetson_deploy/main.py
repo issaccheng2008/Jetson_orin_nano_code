@@ -92,6 +92,12 @@ def parse_args() -> argparse.Namespace:
         help="curve mode: forward speed for all three legs, m/s",
     )
     parser.add_argument(
+        "--curve-loop", action="store_true",
+        help="curve mode: alternate straight/turn forever instead of walking one "
+             "bulge and stopping. Needs --max-seconds -- without it the robot "
+             "keeps walking until the process is killed",
+    )
+    parser.add_argument(
         "--scripted-legs",
         help="scripted mode only: 'seconds:vx:wz' legs separated by ; or , -- "
              "e.g. '3.2:0.2:0; 12.2:0.2:0.258; 3.2:0.2:0'. Open loop: no vision, "
@@ -246,8 +252,9 @@ def main() -> int:
         elif args.command_source == "curve":
             try:
                 legs = curve_legs(args.curve_straight_s, args.curve_turn_s,
-                                  args.curve_vx, args.curve_turn_wz)
-                ScriptedCommandSource(legs)
+                                  args.curve_vx, args.curve_turn_wz,
+                                  loop=args.curve_loop)
+                ScriptedCommandSource(legs, loop=args.curve_loop)
             except ValueError as exc:
                 raise SystemExit(str(exc)) from exc
             if not 0.0 <= args.curve_vx <= 1.0:
@@ -323,14 +330,18 @@ def main() -> int:
         elif args.command_source == "curve":
             command_source = ScriptedCommandSource(curve_legs(
                 args.curve_straight_s, args.curve_turn_s,
-                args.curve_vx, args.curve_turn_wz))
+                args.curve_vx, args.curve_turn_wz, loop=args.curve_loop),
+                loop=args.curve_loop)
+            turn_deg = math.degrees(args.curve_turn_wz * args.curve_turn_s)
+            shape = ("straight, turn, straight" if not args.curve_loop
+                     else f"straight/turn alternating every "
+                          f"{command_source.total_s:g}s, forever")
             command_source_description = (
-                f"CURVE open loop, {command_source.total_s:g}s: straight "
-                f"{args.curve_straight_s:g}s -> turn {args.curve_turn_s:g}s at "
-                f"wz={args.curve_turn_wz:+.3f} rad/s -> straight "
-                f"{args.curve_straight_s:g}s, all at vx={args.curve_vx:g} m/s "
-                f"({math.degrees(args.curve_turn_wz * args.curve_turn_s):+.0f} deg "
-                "if the yaw rate is achieved); vision disconnected, no feedback"
+                f"CURVE open loop, {'one bulge' if not args.curve_loop else 'LOOPING'}"
+                f" ({shape}): straight {args.curve_straight_s:g}s / turn "
+                f"{args.curve_turn_s:g}s at wz={args.curve_turn_wz:+.3f} rad/s, "
+                f"all at vx={args.curve_vx:g} m/s ({turn_deg:+.0f} deg per turn if "
+                "the yaw rate is achieved); vision disconnected, no feedback"
             )
         else:
             command_source = FixedCommandSource(args.vx, args.wz)

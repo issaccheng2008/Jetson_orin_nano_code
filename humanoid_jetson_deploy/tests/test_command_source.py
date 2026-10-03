@@ -48,6 +48,24 @@ class ScriptedCommandSourceTests(unittest.TestCase):
         source = ScriptedCommandSource(legs)
         self.assertAlmostEqual(source.total_s, 18.51, places=6)
 
+    def test_the_loop_unit_is_two_legs_so_straights_never_double_up(self) -> None:
+        """一圈 = 直道→半圆→直道→半圆。把三段式的 `直,转,直` 拿来循环会得到
+        `…直,直…`（连着走两段直道），所以 loop=True 必须换成两段式的 `直,转`。"""
+        self.assertEqual(len(curve_legs(3.16, 12.19, 0.2, 0.258, loop=True)), 2)
+        self.assertEqual(len(curve_legs(3.16, 12.19, 0.2, 0.258)), 3)
+        source = ScriptedCommandSource(
+            curve_legs(3.16, 12.19, 0.2, 0.258, loop=True), loop=True)
+        # 一圈两段：0~3.16 直行、3.16~15.35 转、15.35 之后回到直行
+        self.assertAlmostEqual(source.total_s, 15.35, places=6)
+
+    def test_loop_never_falls_through_to_zero(self) -> None:
+        source = ScriptedCommandSource([(0.05, 0.2, 0.0), (0.05, 0.2, 0.4)],
+                                       loop=True)
+        time.sleep(0.16)                     # 已经过了两轮
+        command = source.get()
+        self.assertAlmostEqual(float(command[0]), 0.2, places=6)   # 还在走，没归零
+        self.assertIn(round(float(command[2]), 3), (0.0, 0.4))
+
     def test_a_leg_needs_a_positive_length(self) -> None:
         for legs in ([], [(0.0, 0.2, 0.0)], [(-1.0, 0.2, 0.0)],
                      [(float("nan"), 0.2, 0.0)]):
