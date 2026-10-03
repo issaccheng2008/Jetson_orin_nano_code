@@ -2,5 +2,8 @@ __pycache__/
 *.py[cod]
 .venv/
 logs/
+# 板子上跑出来的一切记录都收在这里（日志/dump/CSV），不进版本库。
+# 见 new_vision/机器人上机命令与参数.md §0。
+records/
 /old_vision/
 /local_joint_angle_readback/

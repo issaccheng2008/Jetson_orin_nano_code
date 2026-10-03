@@ -154,8 +154,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-every", type=int, default=25, help="Print every N policy steps")
     parser.add_argument(
         "--position-log-dir",
-        default="logs/motor_positions",
-        help="Directory for per-run target/actual motor-position CSV logs",
+        default="records/motor_positions",
+        help="Directory for per-run target/actual motor-position CSV logs. "
+             "Everything a board run produces goes under records/ (see the "
+             "operating manual section 0) -- do not scatter it in the repo or "
+             "home root. Created if missing",
     )
     parser.add_argument(
         "--plot-history-seconds",
@@ -726,7 +729,13 @@ def main() -> int:
 
             # 10 Hz 就够：视觉那边用长时间常数低通，滤掉的正是步态摆动。
             if attitude is not None and step % 5 == 0:
-                attitude.publish(projected_gravity, elapsed_s)
+                tilt_event_id = card_tilt_event if card_tilt_active else 0
+                attitude.publish(
+                    projected_gravity, elapsed_s,
+                    card_tilt_event_id=tilt_event_id,
+                    card_tilt_done=(tilt_event_id != 0 and
+                                    link.get_action_status(tilt_event_id) == ACTION_DONE),
+                )
 
             if step % max(1, args.log_every) == 0:
                 print(
