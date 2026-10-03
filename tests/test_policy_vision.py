@@ -2358,26 +2358,26 @@ class DiscreteSteeringTests(unittest.TestCase):
 
     def test_a_small_error_is_left_alone(self):
         controller = self.controller()
-        for err in (0.0, 1.0, 2.9, -2.9):
+        for err in (0.0, 1.0, 2.9, 4.9, -4.9):
             with self.subTest(err=err):
                 self.assertEqual(self.step(controller, err), 0.0)
 
     def test_the_two_thresholds_pick_the_two_steps(self):
-        self.assertEqual(self.step(self.controller(), 4.0), 0.4)
-        self.assertEqual(self.step(self.controller(), 9.0), 0.5)
-        self.assertEqual(self.step(self.controller(), -4.0), -0.4)
-        self.assertEqual(self.step(self.controller(), -9.0), -0.5)
+        self.assertEqual(self.step(self.controller(), 6.0), 0.4)
+        self.assertEqual(self.step(self.controller(), 12.0), 0.5)
+        self.assertEqual(self.step(self.controller(), -6.0), -0.4)
+        self.assertEqual(self.step(self.controller(), -12.0), -0.5)
 
     def test_the_yaw_sign_is_applied(self):
-        self.assertEqual(self.step(self.controller(yaw_sign=-1), 4.0), -0.4)
-        self.assertEqual(self.step(self.controller(yaw_sign=-1), -9.0), 0.5)
+        self.assertEqual(self.step(self.controller(yaw_sign=-1), 6.0), -0.4)
+        self.assertEqual(self.step(self.controller(yaw_sign=-1), -12.0), 0.5)
 
     def test_a_pulse_holds_then_lets_go(self):
         """脉冲是一段定长的爆发：宽度就是 --wz-pulse-s，之后回 0。"""
         controller = self.controller(pulse_s=0.2)
-        self.assertEqual(self.step(controller, 4.0), 0.4)      # 起脉冲
+        self.assertEqual(self.step(controller, 6.0), 0.4)      # 起脉冲
         for _ in range(3):
-            self.assertEqual(self.step(controller, 4.0), 0.4)  # 0.15s，还在窗口里
+            self.assertEqual(self.step(controller, 6.0), 0.4)  # 0.15s，还在窗口里
         self.assertEqual(self.step(controller, 0.0), 0.0)      # 0.20s，窗口用完
         self.assertEqual(self.step(controller, 0.0), 0.0)
 
@@ -2391,7 +2391,7 @@ class DiscreteSteeringTests(unittest.TestCase):
 
     def test_the_curve_upgrade_is_the_big_step(self):
         controller = self.controller(pulse_s=0.1)
-        self.assertEqual(self.step(controller, 4.0), 0.4)
+        self.assertEqual(self.step(controller, 6.0), 0.4)
         self.assertEqual(self.step(controller, 20.0), 0.4)   # 还在脉冲里，不换档
         self.step(controller, 20.0)                          # 窗口用完
         self.assertEqual(self.step(controller, 20.0), 0.5)   # 下一发是大档
@@ -2402,7 +2402,7 @@ class DiscreteSteeringTests(unittest.TestCase):
         from discrete_steering import DiscreteSteeringController
         inner = SteeringController(**NO_TRIM)
         controller = DiscreteSteeringController(inner)
-        self.assertEqual(self.step(controller, 4.0), 0.4)
+        self.assertEqual(self.step(controller, 6.0), 0.4)
         lost = dict(detection(error=4.0, lost=3))
         got = controller.command(lost, 0.8, 0.05)[1]
         self.assertAlmostEqual(got, 0.4 * 0.75)
@@ -2413,7 +2413,7 @@ class DiscreteSteeringTests(unittest.TestCase):
 
     def test_a_non_finite_error_is_a_lost_frame_too(self):
         controller = self.controller()
-        self.assertEqual(self.step(controller, 4.0), 0.4)
+        self.assertEqual(self.step(controller, 6.0), 0.4)
         got = controller.command(dict(detection(error=float("nan"))), 0.8, 0.05)[1]
         self.assertNotIn(round(got, 6), (0.0, 0.4, -0.4, 0.5, -0.5))
 
@@ -2436,7 +2436,7 @@ class DiscreteSteeringTests(unittest.TestCase):
         controller = DiscreteSteeringController(inner)
         self.assertEqual(self.step(controller, 1.0), 0.0)      # err 小于阈值
         self.assertAlmostEqual(inner.last_err_eff, 11.0)        # 但 eff 早就过线了
-        self.assertEqual(self.step(controller, 4.0), 0.4)
+        self.assertEqual(self.step(controller, 6.0), 0.4)
 
     def test_the_pulse_amplitude_tracks_the_walking_speed(self):
         """幅度默认按 ω = vx / R 推。0.4 是照 --vx 0.3 算的（0.387）；速度降到

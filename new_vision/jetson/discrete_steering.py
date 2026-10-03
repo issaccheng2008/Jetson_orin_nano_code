@@ -30,7 +30,7 @@ from policy_bridge import clamp
 
 
 class DiscreteSteeringController:
-    def __init__(self, inner, fire_cm=3.0, strong_cm=8.0,
+    def __init__(self, inner, fire_cm=5.0, strong_cm=8.0,
                  step_lo=0.4, step_hi=0.5, pulse_s=0.15):
         values = (fire_cm, strong_cm, step_lo, step_hi, pulse_s)
         if not all(math.isfinite(v) for v in values):

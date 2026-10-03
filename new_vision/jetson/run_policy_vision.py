@@ -359,10 +359,14 @@ def parse_args():
                              "untouched, and a run without this flag is bit-for-bit "
                              "the old behaviour. Use connector --max-wz-accel 0 with "
                              "it, or the slew limiter turns each pulse into a triangle")
-    parser.add_argument("--wz-fire-cm", type=float, default=3.0,
-                        help="|eff err| that starts a small pulse. Measured curve "
-                             "steady state is +5~6 cm and right-curve saturation "
-                             "-10~-17 cm, so 3 keeps a straight quiet")
+    parser.add_argument("--wz-fire-cm", type=float, default=5.0,
+                        help="Dead band, cm: inside it the published wz is exactly "
+                             "0 - no scaling, no half authority, straight. Below "
+                             "this nothing happens at all. It is the one knob that "
+                             "decides how straight a straight is, and the reason it "
+                             "is 5 and not 3: the measured curve steady state is "
+                             "+5~6 cm, so 3 had the robot pulsing almost "
+                             "continuously even while it was basically on the line")
     parser.add_argument("--wz-fire-strong-cm", type=float, default=8.0,
                         help="|eff err| that upgrades the pulse to --wz-step-hi")
     parser.add_argument("--wz-step-lo", type=float, default=None,
