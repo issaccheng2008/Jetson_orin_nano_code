@@ -38,10 +38,8 @@ SHAPE_DUMP_RE = re.compile(r"^\d{4}_.+_cy[^_]*_g[01]\.(jpg|json)$")
 LOSS_DUMP_RE = re.compile(r"^\d{3}_\d{2}_pair.+_conf.+"
                           r"(_frame\.jpg|_vis\.jpg|\.json)$")
 
-# 赛道中线半径（m），文档 §3。它和 --vx 一起决定"跟住一个弯需要多少角速度"：
-# ω = vx / R。离散模式的脉冲幅度按这个推，就不必为每个速度手调。
-# 2026-10-03 之前是硬编码 0.4/0.5，那是按 --vx 0.3 推的（0.387）—— 换成
-# --vx 0.2 就高出弯道需求 55%，每个左弯都切内道，左腿压到左线。
+# 赛道中线半径（m），文档 §3。只用来在启动横幅里打一行参考："跟住一个弯需要
+# 多少角速度"（ω = vx / R）。**脉冲幅度不按它推** —— 0.4/0.5 是实车量出来的好值。
 LANE_RADIUS_M = 0.776
 
 
@@ -369,17 +367,14 @@ def parse_args():
                              "continuously even while it was basically on the line")
     parser.add_argument("--wz-fire-strong-cm", type=float, default=8.0,
                         help="|eff err| that upgrades the pulse to --wz-step-hi")
-    parser.add_argument("--wz-step-lo", type=float, default=None,
-                        help="Small pulse amplitude, rad/s. Unset derives it from "
-                             "--vx as vx / 0.776 (the track's centreline radius), so "
-                             "it is exactly one curve's worth at whatever speed is "
-                             "running: 0.258 at --vx 0.2, 0.387 at 0.3. Do not leave "
-                             "it pinned to one speed - a hardcoded 0.4 calibrated at "
-                             "0.3 is 55%% over the lane's requirement at 0.2, and the "
-                             "robot cuts inside every left curve")
-    parser.add_argument("--wz-step-hi", type=float, default=None,
-                        help="Large pulse amplitude, rad/s. Unset is 1.5x "
-                             "--wz-step-lo, capped at --max-wz")
+    # 0.4 / 0.5 是**实车跑出来的好值**。不要拿去跟 vx/R 之类的算术比然后"修正"
+    # 它 —— 2026-10-03 试过一版按 vx/0.776 推的（--vx 0.2 下推成 0.258），
+    # 推出来的数在车上是错的。这两个就是常数。
+    parser.add_argument("--wz-step-lo", type=float, default=0.4,
+                        help="Small pulse amplitude, rad/s. Measured good on the "
+                             "robot; a fixed constant, not derived from --vx")
+    parser.add_argument("--wz-step-hi", type=float, default=0.5,
+                        help="Large pulse amplitude, rad/s; at most --max-wz")
     parser.add_argument("--wz-pulse-s", type=float, default=0.15,
                         help="How long one pulse lasts, seconds. Counted in vision "
                              "frames (16~29 Hz), so the real width is a whole number "
@@ -447,12 +442,6 @@ def parse_args():
         parser.error("need 0 < qr-min-edge-px < qr-max-edge-px")
     if not math.isfinite(args.start_gate_log_s) or args.start_gate_log_s <= 0:
         parser.error("start-gate-log-s must be positive")
-    # 脉冲幅度按 --vx 推：跟住一个弯需要 ω = vx / R，那就是 0.4 那一档该给的量。
-    # 不显式指定就跟着 --vx 走，换速度不用重标。
-    if args.wz_step_lo is None:
-        args.wz_step_lo = min(args.max_wz, args.vx / LANE_RADIUS_M)
-    if args.wz_step_hi is None:
-        args.wz_step_hi = min(args.max_wz, args.wz_step_lo * 1.5)
     if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_fire_strong_cm,
                                            args.wz_step_lo, args.wz_step_hi,
                                            args.wz_pulse_s))
@@ -605,7 +594,8 @@ def main():
             print(f"[wz] ⚠️ A 那边要用 --max-wz-accel 0，否则脉冲会被它的斜率"
                   f"限制削成三角形（默认 2.0 时 0→{args.wz_step_lo} 要爬 "
                   f"{args.wz_step_lo / 2.0:.2f}s）", flush=True)
-            print(f"[wz] 幅度按 --vx {args.vx} 推：跟住一个弯要 "
+            print(f"[wz] 幅度写死 {args.wz_step_lo}/{args.wz_step_hi}（实车量出来的，"
+                  f"不跟着 --vx 走）。参考：--vx {args.vx} 下跟住一个弯要 "
                   f"{args.vx / LANE_RADIUS_M:.3f} rad/s。触发看原始 err=；"
                   f"--bias-cm / --center-dead-cm / --steer-full-scale-cm / "
                   f"--preview-gain 在这个模式下都不参与", flush=True)

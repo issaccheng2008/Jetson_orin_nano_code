@@ -2438,22 +2438,17 @@ class DiscreteSteeringTests(unittest.TestCase):
         self.assertAlmostEqual(inner.last_err_eff, 11.0)        # 但 eff 早就过线了
         self.assertEqual(self.step(controller, 6.0), 0.4)
 
-    def test_the_pulse_amplitude_tracks_the_walking_speed(self):
-        """幅度默认按 ω = vx / R 推。0.4 是照 --vx 0.3 算的（0.387）；速度降到
-        0.2 之后同一个 0.4 比弯道需求高 55%，每个左弯都切内道、左腿压到左线。"""
+    def test_the_pulse_amplitudes_are_fixed_constants(self):
+        """0.4 / 0.5 是**实车量出来的好值**，不跟着 --vx 或任何推导走。
+        2026-10-03 出过一版按 ω = vx/R 推的（--vx 0.2 下推成 0.258），车上是错的。"""
         for vx in ("0.2", "0.3"):
             with self.subTest(vx=vx), patch("sys.argv",
                                             ["run_policy_vision.py", "--vx", vx]):
                 args = run_policy_vision.parse_args()
-                want = float(vx) / run_policy_vision.LANE_RADIUS_M
-                self.assertAlmostEqual(args.wz_step_lo, want)
-                self.assertAlmostEqual(args.wz_step_hi, min(args.max_wz, want * 1.5))
-        # 显式给就听显式的
-        with patch("sys.argv", ["run_policy_vision.py", "--wz-step-lo", "0.4"]):
-            self.assertAlmostEqual(run_policy_vision.parse_args().wz_step_lo, 0.4)
-        # 推到超过 --max-wz 就夹住，不能因此报错
-        with patch("sys.argv", ["run_policy_vision.py", "--vx", "0.5"]):
-            self.assertAlmostEqual(run_policy_vision.parse_args().wz_step_lo, 0.5)
+                self.assertEqual(args.wz_step_lo, 0.4)
+                self.assertEqual(args.wz_step_hi, 0.5)
+        with patch("sys.argv", ["run_policy_vision.py", "--wz-step-lo", "0.3"]):
+            self.assertAlmostEqual(run_policy_vision.parse_args().wz_step_lo, 0.3)
 
     def test_reset_drops_a_running_pulse(self):
         controller = self.controller(pulse_s=1.0)
