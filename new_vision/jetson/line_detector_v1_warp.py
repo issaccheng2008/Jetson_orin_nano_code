@@ -251,6 +251,18 @@ class LineDetector:
         # 前瞻/曲率/航向/左弯外推四项之和，最多是近带读数的这个倍数。近带是唯一
         # 直接测量，其余是推断 —— 推断不能反号把测量翻掉。0 = 关。见融合那段。
         self.anticipation_clip = 0.5
+        # ── 整条车道拟合（实验，默认关，只出诊断量）──
+        # 现在只扫两条 50 行的带（地面 20~35cm），而相机能看到约 105cm。
+        # 打开后多扫一整条高带、对中心点做二次拟合，读出两个固定距离处的中心。
+        # **不接进控制** —— 先量"远端−近端"在圆弧和直道上分不分得开。
+        self.lane_fit_enable = False
+        self.lane_fit_rows = 40          # 每一段最多采几行
+        self.lane_fit_step = 6
+        self.lane_fit_seg = 50           # 每段多少行（滑动窗口的高度）
+        self.lane_fit_top_cm = 70.0      # 高带最远扫到地面多少 cm
+        self.lane_fit_near_cm = 25.0     # 读第一个点的地面距离
+        self.lane_fit_far_cm = 65.0      # 读第二个点的地面距离
+        self.lane_fit_min_pts = 8        # 少于这个点数就不拟合
         self.curve_smooth_alpha = 0.85   # ~6-frame EMA, for telling a curve from jitter
         self.curve_angle_deg = 8.0       # fitted heading past which one band is a curve
         # 车偏得这么远就强制进弯道模式：这是**转向策略**的门槛，不是"锁可不可信"
@@ -827,6 +839,65 @@ class LineDetector:
     # Band scanning (on birdseye)
     # ═══════════════════════════════════════════════════════════
 
+    def _row_at_cm(self, z_cm):
+        """地面距离 z_cm 落在哪一行。_lut_z_cm 是按行给的真实地面距离（非线性）。"""
+        return int(clamp(np.searchsorted(-self._lut_z_cm, -float(z_cm)),
+                         0, self.bird_h - 1))
+
+    def _detect_lane_fit(self, gray, bgr, black_th, track_is_dark,
+                         hint_x, lane_width_hint, gray_raw=None):
+        """扫一整条高带（近端到远端），拟合中心线，从曲线上读两个固定距离的点。
+
+        **只产诊断量，不改任何控制输出。** 要回答一个问题：把视野从 20~35cm
+        拉到 20~70cm 之后，"远端中心 − 近端中心"这个量，在圆弧上和在直道上分
+        得开吗？分得开就能拿它判直道/弯道，把转弯的基础转速做成已知的常数 v/R
+        （0.2 m/s 下 0.258 rad/s），而不是每帧去估 —— 这才是"已知赛道形状"
+        真正能给的东西。
+        """
+        # 一段一段往上扫，**每段用上一段最远那一行的中心当种子**（滑动窗口）。
+        # 一开始写成"一条高带从远往近扫"，结果 30 帧里近端读出 +147px 这种
+        # 不可能的值 —— 远端对比度低、先锁错，连续性闸再把错误一路带到近端。
+        y_top = max(1, self._row_at_cm(self.lane_fit_top_cm))
+        ys_all, cx_all = [], []
+        center, width = hint_x, lane_width_hint
+        y_hi = self.bird_h - 1
+        while y_hi > y_top:
+            y_lo = max(y_top, y_hi - self.lane_fit_seg)
+            res = self._scan_band_midline(
+                gray, bgr, black_th, track_is_dark, center, width,
+                y_lo / float(self.bird_h), y_hi / float(self.bird_h),
+                self.lane_fit_rows, self.lane_fit_step, gray_raw=gray_raw)
+            if res is not None:
+                yl = res.get("ys_list", [])
+                cl = res.get("centers_list", [])
+                if yl:
+                    ys_all.extend(yl)
+                    cx_all.extend(cl)
+                    center = float(cl[0])          # 这一段最远那行 = 下一段的近端
+                    width = float(res["lane_width_px"])
+            y_hi = y_lo
+        ys = np.asarray(ys_all, dtype=np.float64)
+        cx = np.asarray(cx_all, dtype=np.float64)
+        # 扫到多远：真正要看的诊断量。上面那些行没出点时，这里会明显偏小。
+        top_cm = float(self._lut_z_cm[int(ys.min())]) if len(ys) else None
+        out = {"fit_pts": int(len(ys)), "fit_top_cm": top_cm}
+        if len(ys) < self.lane_fit_min_pts or ys.max() - ys.min() < 40.0:
+            return out
+        coeff = np.polyfit(ys, cx, 2)
+        row_near = self._row_at_cm(self.lane_fit_near_cm)
+        row_far = self._row_at_cm(self.lane_fit_far_cm)
+        # 只在拟合数据**覆盖到**的那一段里取值。2026-10-03 第一版没加这个：
+        # 某帧 row 240 以上一个点都没有，却在 row 102（65cm）处求值 —— 拿
+        # 240~399 行的数据外推 138 行，二次曲线飞出 +210px 这种不可能的中心。
+        if row_near <= ys.max():
+            out["fit_near_px"] = float(np.polyval(coeff, row_near)) - self.center_x
+        if row_far >= ys.min():
+            out["fit_far_px"] = float(np.polyval(coeff, row_far)) - self.center_x
+        if "fit_near_px" in out and "fit_far_px" in out:
+            out["fit_curve_px"] = out["fit_far_px"] - out["fit_near_px"]
+            out["fit_ok"] = True
+        return out
+
     def _clip_anticipation(self, near_term, anticipation):
         """把推断项夹在近带读数的 anticipation_clip 倍以内。
 
@@ -1303,6 +1374,13 @@ class LineDetector:
             if res is not None and res["conf"] >= conf_min_dyn:
                 roi_results.append(res)
 
+        # ── 整条车道拟合（--lane-fit，只出诊断量）──
+        lane_fit = {}
+        if self.lane_fit_enable:
+            lane_fit = self._detect_lane_fit(
+                gray_detect, bgr_bird, black_th, track_is_dark,
+                scan_hint_center, scan_hint_width, gray_raw=gray)
+
         # ── Initialize outputs ──
         base_err_px = 0.0
         base_err_cm = 0.0
@@ -1769,6 +1847,8 @@ class LineDetector:
             "diff_rms_px": state["diff_rms_px"],
             "shake_active_frames": state["shake_active_frames"],
             "n_roi_results": len(roi_results),
+            # 整条车道拟合的诊断量（--lane-fit）。只读，不参与任何控制。
+            **lane_fit,
             "near_err_px": near_err_px_pre_lock,
             "far_err_px": far_err_px_saved,
             "curve_px": curve_px,

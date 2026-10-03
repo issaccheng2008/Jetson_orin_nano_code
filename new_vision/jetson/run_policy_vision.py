@@ -397,6 +397,20 @@ def parse_args():
                              "the rest are inference and may add to it but not "
                              "outvote it. 0.5 by default. 0 disables the cap and "
                              "restores the old fusion exactly")
+    parser.add_argument("--lane-fit", action="store_true",
+                        help="EXPERIMENTAL, and it changes nothing on its own: also "
+                             "scan one tall band (20~70 cm instead of the two "
+                             "50-row slices at 20~35) and fit a curve to the lane "
+                             "centre, then read the centre at --lane-fit-near-cm and "
+                             "--lane-fit-far-cm. Only adds fields to the log, so the "
+                             "'far minus near' separation can be measured on dumps "
+                             "before anything is built on it")
+    parser.add_argument("--lane-fit-near-cm", type=float, default=25.0,
+                        help="Where to read the near point off the fitted centre line")
+    parser.add_argument("--lane-fit-far-cm", type=float, default=65.0,
+                        help="Where to read the far point; the gap between it and "
+                             "the near point is what separates a 0.776 m arc (about "
+                             "10 cm of lane bend) from a straight (about 0)")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")
@@ -583,6 +597,9 @@ def main():
         if args.no_red_detect:
             detector.red_detect_enable = False
         detector.anticipation_clip = args.anticipation_clip
+        detector.lane_fit_enable = args.lane_fit
+        detector.lane_fit_near_cm = args.lane_fit_near_cm
+        detector.lane_fit_far_cm = args.lane_fit_far_cm
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
               f"{args.connector_host}:{args.connector_port}; vx={args.vx} m/s; "
               f"max_wz={args.max_wz} rad/s "
@@ -1178,6 +1195,18 @@ def main():
                 last_log = processed
                 last_log_at = processed
                 log_frames = 0
+                if args.lane_fit:
+                    # 只读诊断：整条车道拟合读出来的两点中心（px，相对画面中心）。
+                    # "远 − 近"在圆弧上约 30px（10cm 的车道弯曲），直道上约 0 ——
+                    # 这一列就是判断能不能拿它分直道/弯道的唯一依据。
+                    if debug.get("fit_ok"):
+                        print(f"[lane-fit] pts={debug.get('fit_pts')} "
+                              f"near={debug.get('fit_near_px'):+.0f}px "
+                              f"far={debug.get('fit_far_px'):+.0f}px "
+                              f"远-近={debug.get('fit_curve_px'):+.0f}px", flush=True)
+                    else:
+                        print(f"[lane-fit] 拟合不出（pts={debug.get('fit_pts', 0)}）",
+                              flush=True)
             if not args.headless:
                 cv2.putText(frame, f"vx={vx:+.3f} wz={wz:+.3f} Q=quit", (10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
