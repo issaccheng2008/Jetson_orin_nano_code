@@ -399,9 +399,18 @@ def main() -> int:
         print(f"Step: vx x {step_distance_per_mps:.4f} m per m/s "
               f"(vx arrives over UDP); give --step-cm to set the length directly")
     else:
+        # 每个源有自己的 vx：curve 用 --curve-vx，不是 --vx。用错那个的话
+        # 这一行会在 --curve-vx != --vx 时报一个错的步长。
+        if args.command_source == "curve":
+            banner_vx, which = args.curve_vx, "--curve-vx"
+        elif args.command_source == "scripted":
+            banner_vx, which = (max(leg[1] for leg in parse_legs(args.scripted_legs)),
+                                "the fastest --scripted-legs leg")
+        else:
+            banner_vx, which = args.vx, "--vx"
         print(f"Step: vx x {step_distance_per_mps:.4f} = "
-              f"{args.vx * step_distance_per_mps * 100:.2f} cm at vx={args.vx:g}; "
-              f"give --step-cm to set the length directly instead")
+              f"{banner_vx * step_distance_per_mps * 100:.2f} cm at {which}="
+              f"{banner_vx:g}; give --step-cm to set the length directly instead")
     print(f"Body attitude broadcast: "
           + (f"udp://{args.attitude_bind}:{args.attitude_port} at 10 Hz"
              if attitude is not None else "off"))
