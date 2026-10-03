@@ -89,8 +89,10 @@ class HumanoidPolicy:
             config.STEP_DISTANCE_PER_MPS if step_distance_per_mps is None
             else float(step_distance_per_mps)
         )
-        # 直接给步长时用它，不再乘 vx。步频 = vx / 步长，所以这样能让速度和步长
-        # 各自独立地拧，也就是独立地拧步频。
+        # 直接给步长时用它，不再乘 vx —— 速度和步长因此可以各自独立地拧。
+        # ⚠️ 但步频**不是** vx/步长：它是策略自己的，会跟着 vx 和 step_distance
+        # 动（2026-10-03 实测：vx 从 0.3 降到 0.2 反而让步频变快）。所以这里给的
+        # 是"要求策略走的步幅"，不是"结果速度"。
         self.step_distance_m = None if step_distance_m is None else float(step_distance_m)
         self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         if len(self.session.get_inputs()) != 1 or len(self.session.get_outputs()) != 1:

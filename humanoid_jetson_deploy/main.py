@@ -140,10 +140,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--step-cm", type=float, default=None,
-        help="Step length in cm, used AS IS whatever vx is. Given this, speed and "
-             "step are independent knobs and the step frequency is vx / step -- so "
-             "this is the way to set the frequency directly. Without it the step "
-             "follows the --max-vx/--max-step-cm ratio",
+        help="Step length in cm, used AS IS whatever vx is, so speed and step "
+             "become independently settable. NOTE: the cadence is the policy's own "
+             "and is NOT vx/step -- it moves with vx and step_distance (measured "
+             "2026-10-03: lowering vx made the stepping visibly faster). So this "
+             "sets the stride the policy is asked for, not the resulting speed. "
+             "Without it the step follows the --max-vx/--max-step-cm ratio",
     )
     parser.add_argument("--kp-scale", type=float, default=1.0)
     parser.add_argument("--kd-scale", type=float, default=1.0)
@@ -388,10 +390,11 @@ def main() -> int:
             print(f"Shape one-foot ONNX input={card_policy.input_name!r}, "
                   f"output={card_policy.output_name!r}")
     print(f"Policy command source: {command_source_description}")
-    # 步长和速度都要看得见。给定 --step-cm 时两者独立，步频 = vx / 步长。
+    # 步长和速度都要看得见。步频不在这里算 —— 它是策略自己的，会随 vx 和
+    # 步长变（实测：vx 调小反而步频变快），不是 vx/步长。
     if step_distance_m is not None:
         print(f"Step: {step_distance_m * 100:.2f} cm, FIXED by --step-cm "
-              f"(speed and step independent; step frequency = vx / step)")
+              f"(independent of vx; the cadence is the policy's own)")
     elif args.command_source == "vision":
         print(f"Step: vx x {step_distance_per_mps:.4f} m per m/s "
               f"(vx arrives over UDP); give --step-cm to set the length directly")
