@@ -1,0 +1,6 @@
+# 交接包自带 SHA-256 清单（manifest_sha256.json），
+# phase_clock_adapter.load_crossing_controller() 逐文件按**字节**比对。
+# git 的 autocrlf 会把 CRLF 规范成 LF，清单在 Linux 检出上就永远对不上 ——
+# 2026-10-03 在板子上就是这么炸的（12 个文本文件，Windows 上看不出来，
+# 因为工作区还是 CRLF）。这一包必须原样存。
+humanoid_jetson_deploy/models/phase_clock_model_850/** -text
