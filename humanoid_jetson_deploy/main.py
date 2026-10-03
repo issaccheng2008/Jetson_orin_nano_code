@@ -136,7 +136,14 @@ def parse_args() -> argparse.Namespace:
         help="Step distance at --max-vx, cm. Every slower command gets a "
              "proportionally shorter step at the same step frequency, so the two "
              "move together instead of the step jumping to full length at any "
-             "nonzero vx",
+             "nonzero vx. Ignored when --step-cm is given",
+    )
+    parser.add_argument(
+        "--step-cm", type=float, default=None,
+        help="Step length in cm, used AS IS whatever vx is. Given this, speed and "
+             "step are independent knobs and the step frequency is vx / step -- so "
+             "this is the way to set the frequency directly. Without it the step "
+             "follows the --max-vx/--max-step-cm ratio",
     )
     parser.add_argument("--kp-scale", type=float, default=1.0)
     parser.add_argument("--kd-scale", type=float, default=1.0)
@@ -229,6 +236,11 @@ def main() -> int:
     if not np.isfinite(args.max_step_cm) or args.max_step_cm <= 0.0:
         raise SystemExit("max-step-cm must be finite and positive")
     step_distance_per_mps = (args.max_step_cm / 100.0) / args.max_vx
+    step_distance_m = None
+    if args.step_cm is not None:
+        if not np.isfinite(args.step_cm) or args.step_cm <= 0.0:
+            raise SystemExit("step-cm must be finite and positive")
+        step_distance_m = args.step_cm / 100.0
     if not args.fixed_policy and args.policy == "walking":
         if args.command_source == "vision":
             if not 1 <= args.udp_command_port <= 65535:
@@ -306,7 +318,8 @@ def main() -> int:
             "vision disconnected; no velocity, step-distance, or crossing observations"
         )
     else:
-        policy = HumanoidPolicy(args.model, step_distance_per_mps)
+        policy = HumanoidPolicy(args.model, step_distance_per_mps,
+                                step_distance_m=step_distance_m)
         if args.command_source == "vision":
             if args.one_foot_model:
                 card_policy = OneFootPolicy(args.one_foot_model)
@@ -375,6 +388,17 @@ def main() -> int:
             print(f"Shape one-foot ONNX input={card_policy.input_name!r}, "
                   f"output={card_policy.output_name!r}")
     print(f"Policy command source: {command_source_description}")
+    # 步长和速度都要看得见。给定 --step-cm 时两者独立，步频 = vx / 步长。
+    if step_distance_m is not None:
+        print(f"Step: {step_distance_m * 100:.2f} cm, FIXED by --step-cm "
+              f"(speed and step independent; step frequency = vx / step)")
+    elif args.command_source == "vision":
+        print(f"Step: vx x {step_distance_per_mps:.4f} m per m/s "
+              f"(vx arrives over UDP); give --step-cm to set the length directly")
+    else:
+        print(f"Step: vx x {step_distance_per_mps:.4f} = "
+              f"{args.vx * step_distance_per_mps * 100:.2f} cm at vx={args.vx:g}; "
+              f"give --step-cm to set the length directly instead")
     print(f"Body attitude broadcast: "
           + (f"udp://{args.attitude_bind}:{args.attitude_port} at 10 Hz"
              if attitude is not None else "off"))

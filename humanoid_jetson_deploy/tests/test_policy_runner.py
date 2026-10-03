@@ -11,7 +11,8 @@ from policy_runner import HumanoidPolicy
 
 
 class PolicyInterfaceTests(unittest.TestCase):
-    def make_policy(self, width=49, batch=1, step_distance_per_mps=None):
+    def make_policy(self, width=49, batch=1, step_distance_per_mps=None,
+                    step_distance_m=None):
         with patch("policy_runner.ort.InferenceSession") as factory:
             session = factory.return_value
             session.get_inputs.return_value = [
@@ -19,7 +20,8 @@ class PolicyInterfaceTests(unittest.TestCase):
             ]
             session.get_outputs.return_value = [SimpleNamespace(name="actions")]
             session.run.return_value = [np.arange(12, dtype=np.float32).reshape(1, 12)]
-            return HumanoidPolicy("test.onnx", step_distance_per_mps), session
+            return HumanoidPolicy("test.onnx", step_distance_per_mps,
+                                  step_distance_m=step_distance_m), session
 
     def test_exact_training_layout_and_action_history(self):
         policy, session = self.make_policy()
@@ -86,6 +88,24 @@ class PolicyInterfaceTests(unittest.TestCase):
                 obs = policy.build_observation(
                     velocity_command=np.array([vx, 0, 0]), **values)
                 self.assertAlmostEqual(float(obs[11]), expected, places=6)
+
+    def test_a_given_step_length_ignores_vx(self):
+        """--step-cm 直接给步长。这样速度和步长是两个独立的旋钮，而
+        步频 = vx / 步长 —— 想调频率就调这两个数。"""
+        policy, _ = self.make_policy(step_distance_m=0.05)
+        values = dict(
+            accel_m_s2=np.array([0, 0, 9.81]),
+            gyro_rad_s=np.zeros(3),
+            projected_gravity=np.array([0, 0, -1]),
+            joint_position_policy=config.Q_DEFAULT,
+            joint_velocity_policy=np.zeros(12),
+        )
+        for vx in (0.05, 0.2, 0.4):
+            with self.subTest(vx=vx):
+                obs = policy.build_observation(
+                    velocity_command=np.array([vx, 0, 0]), **values)
+                self.assertAlmostEqual(float(obs[11]), 0.05, places=6)   # 不随 vx 变
+                self.assertAlmostEqual(float(obs[9]), vx, places=6)
 
     def test_the_speed_and_the_step_calibration_are_separate_knobs(self):
         """SPEED and the step pair must not share a constant. They did until

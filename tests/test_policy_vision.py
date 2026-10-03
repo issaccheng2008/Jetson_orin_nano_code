@@ -2263,6 +2263,7 @@ class UdpIntegrationTests(unittest.TestCase):
             policy = object.__new__(HumanoidPolicy)
             policy.last_action = np.zeros(12, dtype=np.float32)
             policy.step_distance_per_mps = config.STEP_DISTANCE_PER_MPS
+            policy.step_distance_m = None      # 没给 --step-cm，走比例那条路
             def observation():
                 return policy.build_observation(
                     accel_m_s2=np.array([0, 0, 9.81]), gyro_rad_s=np.zeros(3),
