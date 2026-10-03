@@ -256,6 +256,12 @@ class ShapeDetector:
             "cue_ring_max": 20.0,      # 环厚（面积/周长）上限，拒实心粗笔画
             "cue_core_gray_min": 100.0,  # 亮孔灰度下限
             "cue_contrast_min": 4.0,   # 亮孔 − 环 灰度下限
+            # 出口分数闸（2026-10-03 定值）：结构对了还不够，分数得像一张真卡。
+            # 白地板 + 黑线 + 反光同样满足"细环 + 亮孔"：实车一帧 cue=0.077 就把车
+            # 停在一张不存在的卡前面（抠出来的框里只有地板，见 shape_dump）。
+            # 量出来的分界：地板/反光 ≤0.78，真卡（运动模糊、走着看）4.2~8.5。
+            # 夹在中间取 2.0。
+            "cue_score_min": 2.0,      # 亮孔占比 × (亮孔 − 环) 灰度，下限
             # 时间累积：抖动是步态频率的周期运动，单帧判定必然断续。
             # 近 N 帧里出现 M 次算"卡在前面"；再看最近 R 帧里至少有一次命中，
             # 把尾随段压到 R-1 帧，不然卡走了 presence 还挂着就是假阳性。
@@ -524,7 +530,9 @@ class ShapeDetector:
             # 找框全线为 0，才退到"细环 + 亮纸面"的存在信号兜底（省几毫秒，
             # 也避免两条通道给出不一致的框）。命中进时间窗，累积够了才认。
             box, cue_score = self._presence_cue(gray)
-            hit = box is not None
+            # 结构命中还要过出口分数闸才算"看到卡"。不过闸的也进不了时间窗
+            # （_cue_hist），所以地板那种低分位永远不会攒出 presence。
+            hit = box is not None and cue_score >= self.cfg["cue_score_min"]
             self._cue_hist.append(1 if hit else 0)
             if hit:
                 bx, by, bw, bh_ = box
@@ -546,10 +554,10 @@ class ShapeDetector:
             # stationary robot's cy walked 0.51 -> 0.78. The caller gates on cy, so
             # only a hit may supply one. presence itself stays windowed, or a single
             # missed call would drop the card while walking.
-            if hit:
-                # 分数任何一次命中都写。它只是诊断，没有东西拿它当判据，而以前
-                # 只在"确认命中"时写，会把「没命中」和「命中但时间窗还没攒够」
-                # 混成同一个 0 —— 拿 `[shape]` 行的 cue= 列去拟合门槛会漏掉一半
+            if box is not None:
+                # 分数任何一次结构命中都写（含没过分数闸的）。它只是诊断，但出口
+                # 门槛就是从这一列拟合的：只在过关时写会把「没命中」和「命中但
+                # 分低」混成同一个 0 —— 拿 `[shape]` 行的 cue= 列拟合会漏掉一半
                 # 样本，拟合出来的数偏小。
                 dbg["presence_cue"] = cue_score
             if hit and dbg["presence"] and self._cue_box is not None:

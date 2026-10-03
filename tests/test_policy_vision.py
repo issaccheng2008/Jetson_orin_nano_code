@@ -1861,6 +1861,24 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         self.assertFalse(detector.armed)
         self.assertTrue(dbg.get("presence"))
 
+    def test_a_low_score_cue_is_not_a_card(self):
+        """2026-10-03 实车：白地板 + 黑线 + 反光也满足"细环 + 亮孔"，_presence_cue
+        给了一帧 cue=0.077 的结构命中，时间窗攒满就把车停在了一张不存在的卡前面
+        （shape_dump 抠出来的框里只有地板）。量出来的分界：地板/反光 ≤0.78，
+        真卡（运动模糊、走着看）4.2~8.5 —— 所以出口分数要单独一道闸。"""
+        detector = ShapeDetector()
+        blank = np.zeros((720, 1280, 3), np.uint8)
+        detector._presence_cue = lambda _gray: ((40, 300, 120, 90), 0.4)
+        for _ in range(6):                      # 连续命中，时间窗早该攒满
+            _, dbg = detector.update(blank)
+        self.assertFalse(dbg.get("presence"))
+        self.assertIsNone(dbg.get("presence_cy_frac"))   # 没有 cy 可以喂停车闸
+        self.assertEqual(dbg.get("presence_cue"), 0.4)   # 诊断列照旧写
+        detector._presence_cue = lambda _gray: ((40, 300, 120, 90), 4.0)
+        for _ in range(6):
+            _, dbg = detector.update(blank)
+        self.assertTrue(dbg.get("presence"))
+
     def test_the_line_only_sees_the_pitch_while_the_robot_is_not_driving(self):
         """--line-pitch 默认关：巡线的几何完全不动（老行为）。
 
