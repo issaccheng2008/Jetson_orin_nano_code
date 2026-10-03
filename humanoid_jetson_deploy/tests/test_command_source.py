@@ -7,7 +7,47 @@ import unittest
 
 import numpy as np
 
-from command_source import UdpCommandSource, clamp_command
+from command_source import (ScriptedCommandSource, UdpCommandSource, clamp_command,
+                            parse_legs)
+
+
+class ScriptedCommandSourceTests(unittest.TestCase):
+    """开环时序：直行 -> 转一个整弯 -> 直行。没有反馈，所以时序本身要能钉住。"""
+
+    def test_legs_parse_with_either_separator(self) -> None:
+        for spec in ("3.16:0.2:0; 12.19:0.2:0.258; 3.16:0.2:0",
+                     "3.16:0.2:0, 12.19:0.2:0.258, 3.16:0.2:0"):
+            self.assertEqual(parse_legs(spec),
+                             [(3.16, 0.2, 0.0), (12.19, 0.2, 0.258), (3.16, 0.2, 0.0)])
+        for bad in ("", "  ", "3.16:0.2", "a:b:c", "1:2:3:4"):
+            with self.subTest(spec=bad), self.assertRaises(ValueError):
+                parse_legs(bad)
+
+    def test_each_leg_holds_and_zero_follows_the_last(self) -> None:
+        source = ScriptedCommandSource([(0.05, 0.2, 0.0), (0.05, 0.2, 0.4)])
+        self.assertAlmostEqual(source.total_s, 0.1, places=6)
+        np.testing.assert_allclose(source.get(), [0.2, 0.0, 0.0])   # 第一腿
+        time.sleep(0.07)
+        np.testing.assert_allclose(source.get(), [0.2, 0.0, 0.4])   # 第二腿
+        time.sleep(0.06)
+        np.testing.assert_allclose(source.get(), [0.0, 0.0, 0.0])   # 走完发零
+
+    def test_the_clock_starts_on_the_first_tick_not_on_construction(self) -> None:
+        """main.py 构造完指令源之后还要开串口、等 STM32 的状态包，那段可能要好几秒。
+        从构造起算的话第一腿会在这段时间里被吃掉 —— 实测见过 7 秒的启动间隔。"""
+        source = ScriptedCommandSource([(0.4, 0.2, 0.0), (0.4, 0.2, 0.4)])
+        time.sleep(0.5)                     # 模拟"建好源之后还没开始走"
+        np.testing.assert_allclose(source.get(), [0.2, 0.0, 0.0])
+
+    def test_a_leg_needs_a_positive_length(self) -> None:
+        for legs in ([], [(0.0, 0.2, 0.0)], [(-1.0, 0.2, 0.0)],
+                     [(float("nan"), 0.2, 0.0)]):
+            with self.subTest(legs=legs), self.assertRaises(ValueError):
+                ScriptedCommandSource(legs)
+
+    def test_commands_are_clamped_like_every_other_source(self) -> None:
+        source = ScriptedCommandSource([(0.1, 9.9, 9.9)])
+        np.testing.assert_allclose(source.get(), [1.0, 0.0, 1.0])   # MAX_WZ = 1.0
 
 
 class CommandSourceTests(unittest.TestCase):

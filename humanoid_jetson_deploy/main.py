@@ -11,7 +11,8 @@ import numpy as np
 
 import config
 from attitude_broadcast import AttitudeBroadcaster
-from command_source import MAX_WZ, FixedCommandSource, UdpCommandSource
+from command_source import (MAX_WZ, FixedCommandSource, ScriptedCommandSource,
+                            UdpCommandSource, parse_legs)
 from fixed_joint_policy import FixedJointPolicy
 from imu_filter import (
     projected_gravity_from_quaternion,
@@ -64,9 +65,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument(
         "--command-source",
-        choices=("fixed", "vision"),
+        choices=("fixed", "scripted", "vision"),
         default="fixed",
-        help="Walking: fixed test command or new_vision/connector UDP commands",
+        help="Walking: fixed test command, a --scripted-legs timeline, or "
+             "new_vision/connector UDP commands",
+    )
+    parser.add_argument(
+        "--scripted-legs",
+        help="scripted mode only: 'seconds:vx:wz' legs separated by ; or , -- "
+             "e.g. '3.2:0.2:0; 12.2:0.2:0.258; 3.2:0.2:0'. Open loop: no vision, "
+             "no feedback. The clock starts on the first walking tick, not at "
+             "process start",
     )
     parser.add_argument("--udp-command-bind", default="127.0.0.1")
     parser.add_argument("--udp-command-port", type=int, default=5005)
@@ -199,6 +208,20 @@ def main() -> int:
                 raise SystemExit("udp-command-port must be between 1 and 65535")
             if not np.isfinite(args.command_timeout) or args.command_timeout <= 0:
                 raise SystemExit("command-timeout must be finite and positive")
+        elif args.command_source == "scripted":
+            if not args.scripted_legs:
+                raise SystemExit("scripted mode needs --scripted-legs")
+            try:
+                legs = parse_legs(args.scripted_legs)
+                ScriptedCommandSource(legs)
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
+            for duration_s, vx, wz in legs:
+                if not 0.0 <= vx <= 1.0:
+                    raise SystemExit(f"leg vx must be in [0, 1], got {vx}")
+                if not -MAX_WZ <= wz <= MAX_WZ:
+                    raise SystemExit(
+                        f"leg wz must be in [{-MAX_WZ}, {MAX_WZ}], got {wz}")
         else:
             # vx=0 is allowed and means "let the policy stand": the robot holds its
             # own stopped pose instead of the all-zero joint frame --fixed-policy
@@ -257,6 +280,13 @@ def main() -> int:
                 f"new_vision/connector on udp://{args.udp_command_bind}:"
                 f"{args.udp_command_port}; timeout={args.command_timeout:.3f}s; "
                 "live vx/wz, vy=0; fixed-command timer disabled"
+            )
+        elif args.command_source == "scripted":
+            command_source = ScriptedCommandSource(parse_legs(args.scripted_legs))
+            command_source_description = (
+                f"SCRIPTED open loop, {len(parse_legs(args.scripted_legs))} legs, "
+                f"{command_source.total_s:g}s total: {args.scripted_legs}; "
+                "vision disconnected, no feedback"
             )
         else:
             command_source = FixedCommandSource(args.vx, args.wz)

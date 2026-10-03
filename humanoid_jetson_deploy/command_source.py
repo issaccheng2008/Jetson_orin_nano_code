@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 import socket
 import threading
 import time
@@ -52,6 +53,65 @@ class FixedCommandSource:
 
     def close(self) -> None:
         pass
+
+
+class ScriptedCommandSource:
+    """A fixed open-loop timeline: (duration_s, vx, wz) legs, zero after the last.
+
+    FixedCommandSource holds one command forever; this one is for "straight, then
+    turn a whole curve, then straight again". The clock starts on the **first
+    get()** rather than on construction or process start, because main.py builds
+    the source and then has to open the serial link and wait for state packets --
+    counting from construction would eat the first leg while the robot is still
+    standing. main.py ticks get() at 50 Hz from the moment it is ready to walk,
+    so the first call is the first walking tick.
+    """
+
+    def __init__(self, legs) -> None:
+        if not legs:
+            raise ValueError("a scripted timeline needs at least one leg")
+        self._legs = []
+        edge = 0.0
+        for duration_s, vx, wz in legs:
+            if not math.isfinite(duration_s) or duration_s <= 0.0:
+                raise ValueError("leg durations must be finite and positive")
+            self._legs.append((edge, edge + duration_s, clamp_command([vx, 0.0, wz])))
+            edge += duration_s
+        self.total_s = edge
+        self._t0 = None
+
+    def get(self) -> np.ndarray:
+        now = time.monotonic()
+        if self._t0 is None:
+            self._t0 = now
+        elapsed = now - self._t0
+        for start, end, command in self._legs:
+            if elapsed < end:
+                return command.copy()
+        return clamp_command([0.0, 0.0, 0.0])
+
+    def close(self) -> None:
+        pass
+
+
+def parse_legs(spec: str):
+    """`3.2:0.2:0; 12.2:0.2:0.258; 3.2:0.2:0` -> [(3.2, 0.2, 0.0), ...].
+
+    Seconds, m/s, rad/s. Semicolons or commas between legs so both a shell-quoted
+    string and a bare one work.
+    """
+    legs = []
+    for chunk in spec.replace(",", ";").split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        parts = chunk.split(":")
+        if len(parts) != 3:
+            raise ValueError(f"leg {chunk!r} is not seconds:vx:wz")
+        legs.append(tuple(float(p) for p in parts))
+    if not legs:
+        raise ValueError("no legs in the timeline")
+    return legs
 
 
 class UdpCommandSource:
