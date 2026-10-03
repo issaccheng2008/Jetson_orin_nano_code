@@ -19,8 +19,8 @@ ACCEL_OBS_SCALE = 0.1
 # proportionally shorter step at the same step frequency, so speed and step length
 # move together and the full step lands at MAX_COMMAND_VX rather than at any
 # nonzero vx. Override the pair with main.py's --max-vx / --max-step-cm.
-MAX_COMMAND_VX = 0.3  # m/s, the speed the vision commands with a valid detection
-MAX_STEP_DISTANCE = 0.08  # metres, signed longitudinal target at MAX_COMMAND_VX
+MAX_COMMAND_VX = 0.2  # m/s, the speed the vision commands with a valid detection
+MAX_STEP_DISTANCE = 0.04  # metres, signed longitudinal target at MAX_COMMAND_VX
 STEP_DISTANCE_PER_MPS = MAX_STEP_DISTANCE / MAX_COMMAND_VX
 CROSSING_COMMAND = 0.0  # normal walking only
 

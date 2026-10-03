@@ -81,7 +81,7 @@ def parse_args():
                         help="Low-pass on the incoming pitch; the gait swing is a "
                              "zero-mean 1.7 Hz oscillation and only the slow lean is "
                              "wanted. 0.4 s leaves 23%% of it (+/-8 deg), 1.2 s 7.8%%")
-    parser.add_argument("--vx", type=float, default=0.3,
+    parser.add_argument("--vx", type=float, default=0.2,
                         help="Forward speed with valid detection, m/s")
     parser.add_argument("--max-wz", type=float, default=0.5,
                         help="Yaw-rate limit, rad/s (0..0.5)")
@@ -229,33 +229,6 @@ def parse_args():
                              "closer. Converted to a frame height by the camera "
                              "geometry (mount height, pitch, vfov); seeing a card "
                              "earlier only slows it down")
-    parser.add_argument("--card-slow-vx", type=float,
-                        default=float(os.getenv("CARD_SLOW_VX", "0")),
-                        help="Forward speed while a card is in view but not yet close "
-                             "enough to act on, and the speed held for "
-                             "--card-resume-ms after the stop. 0 (default) disables "
-                             "both: the robot no longer creeps at a card and comes "
-                             "back up to --vx in one step, which the connector's slew "
-                             "still ramps. It used to be 0.2; at --vx 0.2 that was "
-                             "already a no-op, and it only did anything at higher "
-                             "speeds")
-    parser.add_argument("--card-slow-wz", type=float,
-                        default=float(os.getenv("CARD_SLOW_WZ", "0")),
-                        help="Fixed yaw rate, rad/s, held for as long as a card is in "
-                             "view and the robot is creeping toward it - the same "
-                             "stretch --card-slow-vx covers. It replaces the line "
-                             "controller's steering there; negative turns right. The "
-                             "card is a fixed target rather than a lane, so lining up "
-                             "on it beats following the line underneath, and lining up "
-                             "is what keeps the stop square to the card. 0 (default) "
-                             "leaves the controller alone; it used to be -0.2")
-    parser.add_argument("--card-resume-ms", type=float,
-                        default=float(os.getenv("CARD_RESUME_MS", "500")),
-                        help="On the stopped-to-walking edge, hold --card-slow-vx this "
-                             "long before releasing to full speed, so the start mirrors "
-                             "the stop's 0.4 -> 0.2 -> 0 shape. 0 releases on the first "
-                             "walking frame, leaving only the connector's slew. Inert "
-                             "while --card-slow-vx is 0")
     parser.add_argument("--hold-upright", action="store_true",
                         help="Superseded by --card-tilt-ms and NOT used: this asks the "
                              "Nano to hold the legs straight through the stop, which "
@@ -434,18 +407,12 @@ def parse_args():
         parser.error("card-hold-ms must be finite and nonnegative")
     if not math.isfinite(args.card_stop_ms) or args.card_stop_ms < 0:
         parser.error("card-stop-ms must be finite and nonnegative")
-    if not math.isfinite(args.card_slow_vx) or not 0 <= args.card_slow_vx <= 1:
-        parser.error("card-slow-vx must be in [0, 1]")
-    if not math.isfinite(args.card_slow_wz) or abs(args.card_slow_wz) > args.max_wz:
-        parser.error("card-slow-wz must be finite and within +/-max-wz")
     if not math.isfinite(args.center_dead_cm) or args.center_dead_cm < 0:
         parser.error("center-dead-cm must be finite and nonnegative")
     if args.max_wz_right is not None and not (
             math.isfinite(args.max_wz_right)
             and 0 < args.max_wz_right <= args.max_wz):
         parser.error("max-wz-right must be in (0, max-wz] when set")
-    if not math.isfinite(args.card_resume_ms) or args.card_resume_ms < 0:
-        parser.error("card-resume-ms must be finite and nonnegative")
     if args.card_trigger_frac is not None and not (
             math.isfinite(args.card_trigger_frac) and 0 < args.card_trigger_frac <= 1):
         parser.error("card-trigger-frac must be in (0, 1]")
@@ -662,7 +629,6 @@ def main():
         card_event_id = 0
         card_until = 0.0
         stop_until = 0.0
-        resume_until = 0.0
         line_pitch_until = 0.0       # 窗口关掉之后，还要继续喂巡线俯角到什么时候
         last_cmd_vx = 0.0            # 上一帧发出去的速度，判"车在不在走"
         tilt_until = 0.0
@@ -678,7 +644,7 @@ def main():
         lateral_warned = None    # None until the lateral bound first trips
         card_window_open = False
         # 门控的"上一帧"状态。闸门关着时 window_open 为真，于是窗口关闭那套交接
-        # （drop_held_command / resume_until / line_pitch_until）被原样复用，
+        # （drop_held_command / line_pitch_until）被原样复用，
         # 释放的那一帧走的就是停车窗口关闭走过的同一条路。
         gate_window_open = start_gate is not None
         gate_released = False
@@ -743,21 +709,13 @@ def main():
                 if args.card_cold_start:
                     controller.reset(clear_hold=True)
                     detector.reset_state()
-                # The start mirrors the stop, which is 0.4 -> 0.2 -> 0: hold the slow
-                # speed one more stage before releasing, so the robot builds speed in
-                # two steps instead of the connector's single 0.4 s slew.
-                resume_until = processed + args.card_resume_ms / 1000.0
                 # 机身从重摆姿态走回站姿要 ~2s，这段巡线也得跟着俯角走，
                 # 否则恢复以后那几秒的几何是错的（--line-pitch）。
                 line_pitch_until = processed + args.line_pitch_hold_s
                 print(f"[vision] {'start gate released' if gate_released else 'card window closed'}; "
                       f"{'cold start' if args.card_cold_start else 'resuming frozen'} "
                       f"(hold={controller.hold[0]:+.2f},{controller.hold[1]:+.2f} "
-                      f"lost_s={controller.lost_s:.2f}) "
-                      + (f"vx<={args.card_slow_vx:+.2f} for "
-                         f"{args.card_resume_ms:.0f}ms"
-                         if args.card_slow_vx > 0.0 else
-                         "vx 不压（--card-slow-vx 0），直接回 --vx"),
+                      f"lost_s={controller.lost_s:.2f})",
                       flush=True)
                 gate_released = False   # 一次性：用掉了就清，别让后面的卡窗口顶着这句话
             card_window_open = window_open
@@ -1097,22 +1055,6 @@ def main():
                     lateral_warned = True
                 else:
                     lateral_warned = False
-                # card_flag alone, not "and not card_triggered": a card that never got
-                # classified lets --card-stop-ms expire, and the robot used to resume at
-                # full speed straight past it - the one place the near band is fully
-                # covered by the card. Creep instead, so the classifier still has frames
-                # to work with before the card is behind the robot.
-                # --card-slow-vx 0 = 整档关掉（看见卡不减速、停车后也不留缓冲段）。
-                # 默认就是 0：在 --vx 0.2 下减速本来等于没减，留着只会在以后提速时
-                # 突然生效。
-                if args.card_slow_vx > 0.0 and (card_flag or processed < resume_until):
-                    vx = min(vx, args.card_slow_vx)
-                # 往卡走的那一段，转向不再跟线：卡是个固定目标，对着它对准比跟着底下
-                # 的线走更能停正。**只在还没为这张卡停下之前压** —— 停下之后（以及
-                # 起步那段，resume_until）卡往往还在画面里，那时候再压就是刚起步往
-                # 一边偏了。card_triggered 落地时清零，所以换一张卡会重新压上。
-                if card_flag and not card_triggered and args.card_slow_wz != 0.0:
-                    wz = args.card_slow_wz
             previous = processed
             visible_qr = card_action if recognized_this_frame else -1
             event = ({"event_id": card_event_id, "event_action": card_action}
@@ -1133,7 +1075,7 @@ def main():
             in_card_window = processed < stop_until or processed < card_until
             # --hold-still：只观测不驱动。台架测"机身姿态对读数的影响"时要开
             # C（姿态是 C 从 STM32 读了广播的），但 C 一使能电机、B 这边一发
-            # vx=0.3 车就走了。这里把命令压成 0 —— 检测、日志、图卡那套逻辑
+            # vx=0.2 车就走了。这里把命令压成 0 —— 检测、日志、图卡那套逻辑
             # 全都照跑，只有"发出去的 vx/wz"是零，于是策略原地站着（也就是
             # 那个后仰的站姿），读数还能正常观察。
             if args.hold_still:

@@ -54,7 +54,7 @@ class SteeringTests(unittest.TestCase):
         controller = SteeringController(**NO_TRIM, straight_gains=(1, 0, 0),
                                         steer_full_scale_cm=50, yaw_sign=-1,
                                         preview_gain=4, center_dead_cm=0.0)
-        np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.3, -0.1])
+        np.testing.assert_allclose(controller.command(detection(), 0.8, 0.02), [0.2, -0.1])
         self.assertGreater(controller.command(detection(-10), 0.8, 0.02)[1], 0)
         # Saturated negative is a right turn. The two sides are symmetric unless a
         # caller asks for a separate right limit.
@@ -216,7 +216,7 @@ class SteeringTests(unittest.TestCase):
         that at full authority for the whole window is what carries the robot off."""
         controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=50)
         held = controller.command(detection(), 0.8, 0.02)
-        self.assertEqual(held[0], 0.3)
+        self.assertEqual(held[0], 0.2)
         # Inside the default 0.2 s window: 0.05 s steps give 0.75, 0.50, 0.25, 0.
         for expected in (0.75, 0.50, 0.25, 0.0):
             got = controller.command(detection(lost=1), 0.8, 0.05)
@@ -244,7 +244,7 @@ class SteeringTests(unittest.TestCase):
         self.assertIsNone(controller.rejected_lateral)
         # Past the lane half-width it is loss: fade the last command out, then stop.
         held = controller.command(detection(), 0.8, 0.02)
-        self.assertEqual(held[0], 0.3)
+        self.assertEqual(held[0], 0.2)
         first = controller.command(detection(lateral=-35.9), 0.8, 0.05)
         self.assertAlmostEqual(first[0], held[0] * 0.75)
         self.assertAlmostEqual(first[1], held[1] * 0.75)
@@ -272,7 +272,7 @@ class SteeringTests(unittest.TestCase):
         pre-stop command - the replay that was already tried and rejected."""
         controller = SteeringController(straight_gains=(1, 0, 0), steer_full_scale_cm=10)
         moving = controller.command(detection(20.0), 0.9, 0.05)   # a curve command
-        self.assertEqual(moving, (0.3, 0.5))
+        self.assertEqual(moving, (0.2, 0.5))
         # Idle through the stop; clear_hold is what run_policy_vision passes.
         for _ in range(5):
             controller.reset(clear_hold=True)
@@ -284,7 +284,7 @@ class SteeringTests(unittest.TestCase):
         kept.command(detection(20.0), 0.9, 0.05)
         kept.reset()
         got = kept.command(detection(lost=1), 0.9, 0.05)
-        self.assertAlmostEqual(got[0], 0.225)
+        self.assertAlmostEqual(got[0], 0.15)
         self.assertAlmostEqual(got[1], 0.375)
 
     def test_invalid_settings_are_rejected(self):
@@ -494,7 +494,7 @@ class VisionEntryPointTests(unittest.TestCase):
             self.assertEqual(run_policy_vision.main(), 0)
             calls = client_cls.return_value.publish.call_args_list
             self.assertEqual(len(calls), 4)
-            self.assertEqual(calls[2].args[0], 0.3)
+            self.assertEqual(calls[2].args[0], 0.2)
             self.assertNotEqual(calls[2].args[1], 0.0)  # steering published after median warmup
             self.assertEqual(calls[3].args, (0.0, 0.0, -1))
             client_cls.return_value.close.assert_called_once()
@@ -687,7 +687,6 @@ class VisionEntryPointTests(unittest.TestCase):
             patch("sys.argv", ["run_policy_vision.py", "--headless",
                                "--wz-mode", "continuous",
                                "--shape-every", "1", "--card-vote-frames", "1",
-                               "--card-slow-vx", "0.2",
                                "--card-hold-ms", "5000", "--card-stop-ms", "3000"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
@@ -738,22 +737,14 @@ class VisionEntryPointTests(unittest.TestCase):
         # the card-corrupted frames survived: command() was never called while stopped.
         fresh = SteeringController().command(detection(), 0.8, 0.1)
         self.assertAlmostEqual(published[resumed].args[1], fresh[1], delta=1e-3)
-        # The start mirrors the stop's 0.4 -> 0.2 -> 0 in reverse: --card-resume-ms of
-        # --card-slow-vx before the controller's own speed is released. 500 ms at 10 Hz
-        # is five frames; the sixth is where the boundary lands, so allow either.
-        ramp = []
-        for call in published[resumed:]:
-            if call.args[0] <= 0.0:      # the camera-read failure that ends the run
-                break
-            ramp.append(call.args[0])
-        self.assertEqual(ramp[:5], [0.2] * 5)
-        held = next(i for i, value in enumerate(ramp) if value != 0.2)
-        self.assertIn(held, (5, 6))
-        self.assertTrue(all(value == fresh[0] for value in ramp[held:]))
+        # 起步不再有缓冲段：--card-slow-vx / --card-resume-ms 已经拿掉了，所以
+        # 释放的那一帧就是全速。
+        self.assertAlmostEqual(published[resumed].args[0], fresh[0])
 
-    def test_a_distant_card_only_slows_down_and_a_flicker_does_not_re_trigger(self):
+    def test_a_distant_card_does_not_stop_and_a_flicker_does_not_re_trigger(self):
         """The cue drops out while walking. One absent call used to re-arm the stop,
-        so the robot crept forward and stopped again, then sat there for good."""
+        so the robot crept forward and stopped again, then sat there for good.
+        卡还在远处时速度一动不动（--card-slow-vx 已经拿掉，全程就是 --vx）。"""
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
         camera.isOpened.return_value = True
@@ -785,7 +776,7 @@ class VisionEntryPointTests(unittest.TestCase):
         out = io.StringIO()
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
-                               "--card-slow-vx", "0.2", "--card-trigger-frac", "0.75",
+                               "--card-trigger-frac", "0.75",
                                "--card-clear-calls", "4"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
@@ -798,9 +789,9 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         published = client_cls.return_value.publish.call_args_list
-        self.assertAlmostEqual(published[0].args[0], 0.3)      # read 1: no card, full speed
-        self.assertAlmostEqual(published[1].args[0], 0.2)      # read 2: card seen, slows
-        self.assertAlmostEqual(published[4].args[0], 0.2)      # read 5: still slow after the blip
+        self.assertAlmostEqual(published[0].args[0], 0.2)      # read 1: no card
+        self.assertAlmostEqual(published[1].args[0], 0.2)      # read 2: card seen, 不减速
+        self.assertAlmostEqual(published[4].args[0], 0.2)      # read 5: 闪断之后照样走
         self.assertAlmostEqual(published[6].args[0], 0.2)      # read 7: centroid still high
         self.assertAlmostEqual(published[7].args[0], 0.0)      # read 8: centroid low -> stops
         self.assertEqual(out.getvalue().count("stand still"), 1)  # triggered exactly once
@@ -852,7 +843,7 @@ class VisionEntryPointTests(unittest.TestCase):
             if call.args[0] <= 0.0:      # 收尾那个相机读失败的零包
                 break
             with self.subTest(publish=index):
-                self.assertAlmostEqual(call.args[0], 0.3)     # 不再减速
+                self.assertAlmostEqual(call.args[0], 0.2)     # 不再减速
         self.assertNotAlmostEqual(published[1].args[1], -0.2)  # 不再固定转角
 
     def test_the_card_is_decided_by_voting_after_the_stop(self):
@@ -952,62 +943,6 @@ class VisionEntryPointTests(unittest.TestCase):
         # 第 1/2/4 帧 —— 三票。不清 card_dbg 的话第 3/5 帧会拿第 2/4 帧的结果
         # 再投一次，报的是五票。
         self.assertIn("票 3 张", out.getvalue())
-
-    def test_the_card_approach_steers_by_a_fixed_bias(self):
-        """看得见卡的那一段（就是 --card-slow-vx 减速的那一段）转向不再跟线，
-        固定压一个 wz —— 卡是个固定目标，对着它对准比跟着底下的线走更能停正。
-        没卡的时候照旧走控制器。"""
-        with patch("sys.argv", ["run_policy_vision.py"]):
-            # 两个都默认关掉了（2026-10-03）：看见卡不再减速、也不再固定压一个转角。
-            # 要那套行为就把这两个值显式传回来。
-            self.assertEqual(run_policy_vision.parse_args().card_slow_wz, 0.0)
-            self.assertEqual(run_policy_vision.parse_args().card_slow_vx, 0.0)
-
-        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
-        camera = Mock()
-        camera.isOpened.return_value = True
-        camera.get.side_effect = [1280, 720]
-        detector = Mock()
-        detector.process.return_value = (0, 0, 0.8, None, detection())
-        plan = {2: 0.40, 3: 0.40, 5: 0.40, 6: 0.40, 7: 0.40, 8: 0.90, 9: 0.90}
-        shape = Mock()
-        shape.action_map = {"square": 3}
-        shape.update.side_effect = lambda *a, **k: (
-            (None, {"presence": True, "card_found": True,
-                    "presence_cy_frac": plan[reads[0]]})
-            if reads[0] in plan
-            else (None, {"presence": False, "card_found": False,
-                         "presence_cy_frac": None}))
-        clock = [0.0]
-        reads = [0]
-
-        def read():
-            reads[0] += 1
-            clock[0] += 0.1
-            if reads[0] > 30:
-                run_policy_vision.signal.signal.call_args.args[1](None, None)
-                return False, frame
-            return True, frame
-
-        camera.read.side_effect = read
-        with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
-                               "--card-slow-vx", "0.2", "--card-trigger-frac", "0.75",
-                               "--card-clear-calls", "4", "--card-slow-wz", "-0.33"]),
-            patch.object(run_policy_vision.signal, "signal"),
-            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
-            patch("utils.open_camera", return_value=camera),
-            patch("line_detector_v1_warp.LineDetector", return_value=detector),
-            patch("shape_detector.ShapeDetector", return_value=shape),
-            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
-            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
-            contextlib.redirect_stdout(io.StringIO()),
-        ):
-            self.assertEqual(run_policy_vision.main(), 0)
-        published = client_cls.return_value.publish.call_args_list
-        self.assertNotAlmostEqual(published[0].args[1], -0.33)   # 没卡：控制器说了算
-        self.assertAlmostEqual(published[1].args[1], -0.33)      # 看到卡：固定压住
-        self.assertAlmostEqual(published[6].args[1], -0.33)      # 还在往近处挪，没松
 
     def test_the_box_width_decides_the_stop_when_there_is_a_box(self):
         """cy is an angle, so the body pitching moves it without the card moving at
@@ -1961,7 +1896,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         off = run([], 45.0)
         self.assertEqual(off.set_camera_pitch_deg.call_count, 0)
 
-        # 走起来（没开 --hold-still，控制器发 vx=0.3）：回静态安装角。
+        # 走起来（没开 --hold-still，控制器发 vx=0.2）：回静态安装角。
         # 只看最后一帧 —— 第一帧还没有"上一帧发了多少"，按停着算。
         driving = run(["--line-pitch"], 45.0)
         self.assertGreater(driving.set_camera_pitch_deg.call_count, 0)
@@ -1974,7 +1909,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
 
     def test_hold_still_publishes_zeros_whatever_the_controller_decides(self):
         """台架测机身姿态时得开 C（姿态从它来），但 C 一使能电机、B 一发
-        vx=0.3 车就走了。这个开关把发出去的 vx/wz 压成 0，检测和日志照跑。"""
+        vx=0.2 车就走了。这个开关把发出去的 vx/wz 压成 0，检测和日志照跑。"""
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         detector = Mock()
         detector.process.return_value = (0, 0, 0.9, None, detection(error=9.0))
@@ -2291,7 +2226,7 @@ class UdpIntegrationTests(unittest.TestCase):
         client = ConnectorClient(port=vision_port)
         controller = SteeringController(**NO_TRIM, straight_gains=(1, 0, 0),
                                         steer_full_scale_cm=50, yaw_sign=-1)
-        expected = [0.3, 0.0, -0.1]
+        expected = [0.2, 0.0, -0.1]
 
         def wait_for(target, publish=False):
             deadline = time.monotonic() + 2
@@ -2317,7 +2252,7 @@ class UdpIntegrationTests(unittest.TestCase):
                     joint_position_policy=config.Q_DEFAULT, joint_velocity_policy=np.zeros(12))
             np.testing.assert_allclose(
                 observation()[9:13],
-                [0.3, -0.1, 0.3 * config.STEP_DISTANCE_PER_MPS, 0], rtol=1e-5)
+                [0.2, -0.1, 0.2 * config.STEP_DISTANCE_PER_MPS, 0], rtol=1e-5)
             # A confirmed event crosses both UDP hops even when qr has returned to -1.
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline:
