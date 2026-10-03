@@ -806,6 +806,52 @@ class VisionEntryPointTests(unittest.TestCase):
         _, _, confidence, _, debug = detector.process(np.full((720, 1280, 3), 255, np.uint8))
         self.assertEqual(SteeringController().command(debug, confidence, 0.03), (0, 0))
 
+    def test_the_default_no_longer_slows_down_or_steers_for_a_card(self):
+        """--card-slow-vx / --card-slow-wz 默认都是 0 = 关。0 要是照样进
+        `min(vx, 0)`，车会直接停在卡片前面 —— 这是把默认值改成 0 时最容易踩的坑。"""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.8, None, detection())
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        # 卡一直在视野里，但质心在高处（还远），够不着 0.75 那条停车线
+        shape.update.return_value = (None, {"presence": True, "card_found": True,
+                                            "presence_cy_frac": 0.40})
+        clock, reads = [0.0], [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] += 0.1
+            if reads[0] > 8:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        camera.read.side_effect = read
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--shape-every", "1", "--card-trigger-frac", "0.75"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        published = client_cls.return_value.publish.call_args_list
+        for index, call in enumerate(published):
+            if call.args[0] <= 0.0:      # 收尾那个相机读失败的零包
+                break
+            with self.subTest(publish=index):
+                self.assertAlmostEqual(call.args[0], 0.3)     # 不再减速
+        self.assertNotAlmostEqual(published[1].args[1], -0.2)  # 不再固定转角
+
     def test_the_card_is_decided_by_voting_after_the_stop(self):
         """停下之后按票数定案：哪一类票多就是哪一类。不是看哪一帧先"确认" ——
         单帧靠不住（模糊、步态抖动、半张卡出画面），多数票才靠得住。"""
@@ -2381,6 +2427,34 @@ class DiscreteSteeringTests(unittest.TestCase):
         self.assertEqual(inner.hold[1], 0.5)
         self.assertNotEqual(inner.last_steer, 0.0)   # PID 的意见还留着，日志要用
 
+    def test_the_bias_does_not_move_the_trigger(self):
+        """触发看原始 err，不看加过 --bias-cm 的 eff。默认 bias 3.0 而 --wz-fire-cm
+        也是 3.0 —— 拿 eff 当触发变量的话，弯道上车正对着中心也会一直打脉冲。"""
+        from discrete_steering import DiscreteSteeringController
+        inner = SteeringController(bias_cm=10.0, bias_straight_cm=10.0,
+                                   bias_dead_px=0.0, bias_gate_px=12.0)
+        controller = DiscreteSteeringController(inner)
+        self.assertEqual(self.step(controller, 1.0), 0.0)      # err 小于阈值
+        self.assertAlmostEqual(inner.last_err_eff, 11.0)        # 但 eff 早就过线了
+        self.assertEqual(self.step(controller, 4.0), 0.4)
+
+    def test_the_pulse_amplitude_tracks_the_walking_speed(self):
+        """幅度默认按 ω = vx / R 推。0.4 是照 --vx 0.3 算的（0.387）；速度降到
+        0.2 之后同一个 0.4 比弯道需求高 55%，每个左弯都切内道、左腿压到左线。"""
+        for vx in ("0.2", "0.3"):
+            with self.subTest(vx=vx), patch("sys.argv",
+                                            ["run_policy_vision.py", "--vx", vx]):
+                args = run_policy_vision.parse_args()
+                want = float(vx) / run_policy_vision.LANE_RADIUS_M
+                self.assertAlmostEqual(args.wz_step_lo, want)
+                self.assertAlmostEqual(args.wz_step_hi, min(args.max_wz, want * 1.5))
+        # 显式给就听显式的
+        with patch("sys.argv", ["run_policy_vision.py", "--wz-step-lo", "0.4"]):
+            self.assertAlmostEqual(run_policy_vision.parse_args().wz_step_lo, 0.4)
+        # 推到超过 --max-wz 就夹住，不能因此报错
+        with patch("sys.argv", ["run_policy_vision.py", "--vx", "0.5"]):
+            self.assertAlmostEqual(run_policy_vision.parse_args().wz_step_lo, 0.5)
+
     def test_reset_drops_a_running_pulse(self):
         controller = self.controller(pulse_s=1.0)
         self.assertEqual(self.step(controller, 9.0), 0.5)
@@ -2429,7 +2503,8 @@ class DiscreteSteeringIntegrationTests(unittest.TestCase):
         camera.read.side_effect = read
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless",
-                               "--wz-mode", "discrete", "--shape-every", "4"]),
+                               "--wz-mode", "discrete", "--shape-every", "4",
+                               "--wz-step-lo", "0.4", "--wz-step-hi", "0.5"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),

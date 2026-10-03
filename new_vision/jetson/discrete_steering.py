@@ -10,13 +10,16 @@
 
 两个约定，改之前先读：
 
-* **触发看 `last_err_eff`**（加过 `--bias-*` / `--single-line-gain` 的那个），
-  也就是日志里的 `eff=`。这样现场按日志调阈值不会调错；`--bias-straight-cm 0`
-  保证直道上它等于原始 `fused_err_cm`。代价是 `--center-dead-cm`、
-  `--steer-full-scale-cm` 和三项 PID 增益在离散模式下不再影响输出 ——
-  阈值带本身就是死区。
+* **触发看原始的 `fused_err_cm`**，也就是日志里的 `err=`。一开始用的是加过
+  `--bias-*` 的 `last_err_eff`（日志里的 `eff=`），但默认 `--bias-cm` 是 3.0、
+  而 `--wz-fire-cm` 也是 3.0 —— **bias 自己就把阈值顶穿了**，弯道上车正对着
+  中心（`err=0`）也会一直打脉冲。偏置的来历是补连续 PID 的稳态内偏，而离散模式
+  的阈值带本身就是那个机制，两个叠在一起只会双算。所以偏置在这里不参与。
 * **`hold` 写回内层**。它是丢线淡出的唯一来源（`policy_bridge.py:196`），
   不写回的话丢线那 `--lost-hold-s` 秒回放的是连续的 PID 值，两条路不一致。
+
+`--center-dead-cm`、`--steer-full-scale-cm`、`--preview-gain` 和三项 PID 增益
+同样不参与 —— 它们都是往 `steer` 里加的，而 `steer` 在这里被整个丢掉。
 """
 
 from __future__ import annotations
@@ -93,7 +96,11 @@ class DiscreteSteeringController:
         # 这一帧刚判过无效。
         if self.inner.lost_s > 0.0:
             return (vx, wz_pid)
-        wz = self._pulse(self.inner.last_err_eff, dt)
+        try:
+            err = float(debug["fused_err_cm"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return (vx, wz_pid)
+        wz = self._pulse(err, dt)
         self.inner.hold = (vx, wz)
         return (vx, wz)
 
