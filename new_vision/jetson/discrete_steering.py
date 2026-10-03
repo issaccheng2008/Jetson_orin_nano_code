@@ -9,15 +9,20 @@
 **够长**，长到机械真的做出来，而且幅度要用**大且稳**的那一档（0.4/0.5 就是
 这个原因 —— 小角度下它更不稳）。
 
-**一串转向只有四个数**（曾经有六个：两档幅度 + 强阈值 + 时长的两套名字）：
+**一串转向只有五个数**（曾经有六个：两档幅度 + 强阈值 + 时长的两套名字）：
 
     --wz-fire-cm   什么时候开
-    --wz-turn-s    转多久（≤ 1.0）
-    --wz-gap-s     转完空多久（> 2.0）
+    --wz-stop-cm   什么时候提前收：err 回到这个带里 = 这一转不再被需要
+    --wz-turn-s    最多转多久（是**上限**，不是定长）
+    --wz-gap-s     收手后空多久
     --wz-step      转多猛（一个数，不分档）
 
-开的时候只看 err 过没过阈值，开了之后就不再看 err —— 中间不改幅度、不提前收、
-不换档。四个数之外没有别的判断。
+开的时候只看 err 过没过阈值；开了之后只看一件事：err 有没有回到 `stop_cm` 以内，
+回了就提前收手（收手照旧进 gap）。幅度不改、档不换。
+
+定长是 2026-10-03 实车改掉的：出弯进直道那一下打出一段 2.5s 的转向，err 已经回中
+也没有任何东西能打断它 —— 0.5×2.5 = 72° 的左转指令全落在只有 3 秒长的直道上。
+直道需要的转向是 0，而当时控制器能给出的最小值就是"一整段"。
 
 两个约定，改之前先读：
 
@@ -38,13 +43,15 @@ import math
 from policy_bridge import clamp
 
 class DiscreteSteeringController:
-    def __init__(self, inner, fire_cm=5.0, turn_s=1.0, gap_s=2.5,
+    def __init__(self, inner, fire_cm=5.0, stop_cm=2.0, turn_s=1.0, gap_s=2.5,
                  step=0.5, allow_right=False):
-        values = (fire_cm, turn_s, gap_s, step)
+        values = (fire_cm, stop_cm, turn_s, gap_s, step)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("discrete steering settings must be finite")
         if fire_cm <= 0.0:
             raise ValueError("fire-cm must be positive")
+        if not 0.0 <= stop_cm <= fire_cm:
+            raise ValueError("need 0 <= stop-cm <= fire-cm")
         if turn_s <= 0.0:
             raise ValueError("turn-s must be positive")
         if gap_s < 0.0:
@@ -53,6 +60,7 @@ class DiscreteSteeringController:
             raise ValueError("need 0 < step <= max-wz")
         self.inner = inner
         self.fire_cm = fire_cm
+        self.stop_cm = stop_cm
         self.turn_s = turn_s
         self.gap_s = gap_s
         self.step = step
@@ -120,6 +128,14 @@ class DiscreteSteeringController:
     def _steer(self, err, dt):
         step = clamp(dt, 0.01, 0.2)
         if self.turn_left > 0.0:
+            # 这一转还被需要吗：err 回到 stop_cm 以内（含反向）就提前收手。
+            # 定长时代这里不看 err，出弯那一下的 2.5s 转向没人能打断 —— 直道杀手。
+            demand = err if self.turn_wz > 0.0 else -err
+            if demand < self.stop_cm:
+                self.turn_left = 0.0
+                self.turn_wz = 0.0
+                self.gap_left = self.gap_s
+                return 0.0
             # 先扣再判：扣到 0 的那一帧这一段就结束了。
             # round 到 ns 是必须的：0.05 累减会留下 1.7e-17 的浮点尘。
             self.turn_left = round(max(0.0, self.turn_left - step), 9)

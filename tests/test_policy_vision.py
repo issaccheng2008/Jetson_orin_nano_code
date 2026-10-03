@@ -2543,8 +2543,8 @@ class DiscreteSteeringTests(unittest.TestCase):
         正是这一条把"转一段"和"滑行"分开，折线靠它。"""
         controller = self.controller(turn_s=0.1, gap_s=2.05)
         self.assertEqual(self.step(controller, 6.0), 0.5)     # 偏右，开转
-        self.assertEqual(self.step(controller, -6.0), 0.5)    # 转的期间不看 err
-        self.assertEqual(self.step(controller, -6.0), 0.0)    # 一段走完
+        self.assertEqual(self.step(controller, -6.0), 0.0)    # 转的途中偏左 → 提前收手
+        self.assertEqual(self.step(controller, -6.0), 0.0)    # 收手之后进强制滑行
         self.assertEqual(self.step(controller, -0.001), 0.0)  # 贴着中心也是 0
         # 间隔期间 err 在右边也不开，管的是间隔不是 err
         coasted = 0
@@ -2552,7 +2552,7 @@ class DiscreteSteeringTests(unittest.TestCase):
             if self.step(controller, 6.0) == 0.5:
                 break
             coasted += 1
-        self.assertEqual(coasted, 40)         # 加上上面那一步才是 2.05s / 0.05s = 41
+        self.assertEqual(coasted, 39)         # 加上上面那一步才是 2.05s / 0.05s = 41
 
     def test_the_yaw_sign_is_applied(self):
         # yaw_sign 照旧乘上去（真车上是 +1）。单边闸看的是 err 的符号，所以
@@ -2563,14 +2563,33 @@ class DiscreteSteeringTests(unittest.TestCase):
         self.assertEqual(self.step(both, -12.0), 0.5)   # yaw_sign 和 err 两个负号相消
 
     def test_a_turn_holds_for_its_whole_duration(self):
-        """一段转向是定长的：宽度就是 --wz-turn-s，之后回 0。
-        时长必须够长到机械真的做出来 —— 0.15s 在 3:8 的步频下只有两三步。"""
+        """err 一直在带外时，--wz-turn-s 仍然是那段转向的宽度，之后回 0。
+        时长必须够长到机械真的做出来 —— 0.15s 在 3:8 的步频下只有两三步。
+        （它是上限，不是定长：err 回到 --wz-stop-cm 以内会提前收手，另一条测。）"""
         controller = self.controller(turn_s=0.2)
         self.assertEqual(self.step(controller, 6.0), 0.5)      # 起转
         for _ in range(3):
             self.assertEqual(self.step(controller, 6.0), 0.5)  # 0.15s，还在这一段里
         self.assertEqual(self.step(controller, 0.0), 0.0)      # 0.20s，这一段结束
         self.assertEqual(self.step(controller, 0.0), 0.0)
+
+    def test_a_turn_stops_early_when_the_error_comes_back(self):
+        """2026-10-03 实车：出弯进直道那一下 err 已经回中，一段 2.5s 的定长转向
+        却谁也叫不停 —— 0.5×2.5 = 72° 的左转指令全落在只有 3 秒长的直道上。
+        现在开了之后每帧看一次：err 回到 --wz-stop-cm 以内就提前收手，
+        --wz-turn-s 从"每次转满"变成"最多转这么久"。"""
+        controller = self.controller(turn_s=2.5, gap_s=1.0, stop_cm=2.0)
+        self.assertEqual(self.step(controller, 6.0), 0.5)      # 起转
+        for _ in range(10):
+            self.assertEqual(self.step(controller, 4.6), 0.5)  # 还在带外，一直转
+        self.assertEqual(self.step(controller, 2.0), 0.5)      # 正好在 stop 上，不算回来
+        self.assertEqual(self.step(controller, 1.9), 0.0)      # 回到带内 → 提前收手
+        self.assertEqual(self.step(controller, 9.0), 0.0)      # 收手后照旧强制空
+        # --wz-stop-cm 0 = 只在 err 反了向时才收手（弯道行为和定长时代一模一样）
+        linear = self.controller(turn_s=2.5, gap_s=1.0, stop_cm=0.0)
+        self.assertEqual(self.step(linear, 6.0), 0.5)
+        self.assertEqual(self.step(linear, 0.5), 0.5)
+        self.assertEqual(self.step(linear, -0.1), 0.0)
 
     def test_a_high_error_still_waits_out_the_gap(self):
         """曾经是"一段跑完误差还在就立刻再开"——那出来的是**连续转弯**。
@@ -2580,16 +2599,18 @@ class DiscreteSteeringTests(unittest.TestCase):
         self.assertEqual(fired, [0.5, 0.5, 0.0, 0.0, 0.0, 0.0])
         self.assertEqual(self.step(controller, 1.0), 0.0)
 
-    def test_the_four_numbers_are_free(self):
+    def test_the_five_numbers_are_free(self):
         """1.0 / 2.5 只是默认值，不是上下限 —— 曾经把"单段 ≤1s、间隔 >2s"做成
         硬约束，那是拿形状要求去锁调参。现在只查"是不是个能用的数"。"""
         for kw in ({"turn_s": 1.5}, {"turn_s": 3.0}, {"gap_s": 2.0},
-                   {"gap_s": 0.5}, {"gap_s": 0.0}, {"step": 0.3}):
+                   {"gap_s": 0.5}, {"gap_s": 0.0}, {"step": 0.3},
+                   {"stop_cm": 0.0}, {"stop_cm": 5.0}):
             with self.subTest(**kw):
                 self.controller(**kw)
         for kw in ({"turn_s": 0.0}, {"turn_s": -1.0}, {"gap_s": -0.5},
                    {"step": 0.0}, {"step": 0.9}, {"fire_cm": 0.0},
-                   {"turn_s": float("nan")}):
+                   {"turn_s": float("nan")}, {"stop_cm": -0.1},
+                   {"stop_cm": 5.1}, {"stop_cm": float("nan")}):
             with self.subTest(**kw), self.assertRaises(ValueError):
                 self.controller(**kw)
 
@@ -2654,6 +2675,18 @@ class DiscreteSteeringTests(unittest.TestCase):
         with patch("sys.argv", ["run_policy_vision.py", "--wz-step", "0.3"]):
             self.assertAlmostEqual(run_policy_vision.parse_args().wz_step, 0.3)
 
+    def test_the_cli_stop_band_must_be_inside_the_fire_band(self):
+        """stop > fire 会说"每帧都回到带内" —— 转向一帧都开不出来，静默失效。
+        所以这个组合在 argparse 里就拒掉。"""
+        for extra in (["--wz-stop-cm", "-0.1"], ["--wz-stop-cm", "5.1"],
+                      ["--wz-stop-cm", "nan"]):
+            with self.subTest(extra=extra), \
+                    patch("sys.argv", ["run_policy_vision.py", *extra]), \
+                    self.assertRaises(SystemExit):
+                run_policy_vision.parse_args()
+        with patch("sys.argv", ["run_policy_vision.py", "--wz-stop-cm", "0"]):
+            self.assertAlmostEqual(run_policy_vision.parse_args().wz_stop_cm, 0.0)
+
     def test_reset_drops_a_running_turn(self):
         controller = self.controller(turn_s=1.0)
         self.assertEqual(self.step(controller, 9.0), 0.5)
@@ -2667,6 +2700,7 @@ class DiscreteSteeringTests(unittest.TestCase):
         for kw in (dict(fire_cm=0.0), dict(fire_cm=float("nan")),
                    dict(step=0.0), dict(step=0.9), dict(turn_s=0.0),
                    dict(turn_s=-1.0), dict(gap_s=-0.5),
+                   dict(stop_cm=-0.1), dict(stop_cm=5.1),
                    dict(turn_s=float("nan"))):
             with self.subTest(kw=kw), self.assertRaises(ValueError):
                 DiscreteSteeringController(inner, **kw)

@@ -317,7 +317,8 @@ def parse_args():
                         help="'discrete' (default since 2026-10-03, the mode the robot "
                              "runs) replaces only the published wz with two states: "
                              "zero until |err| crosses --wz-fire-cm, then one "
-                             "--wz-turn-s burst at +--wz-step, then a forced "
+                             "--wz-turn-s burst at +--wz-step, cut short once err "
+                             "is back inside --wz-stop-cm, then a forced "
                              "--wz-gap-s coast. Straights come out straight and "
                              "curves become a polygon. It only touches the output - "
                              "SteeringController itself is untouched, and a run "
@@ -332,6 +333,16 @@ def parse_args():
                              "is 5 and not 3: the measured curve steady state is "
                              "+5~6 cm, so 3 had the robot pulsing almost "
                              "continuously even while it was basically on the line")
+    parser.add_argument("--wz-stop-cm", type=float, default=2.0,
+                        help="End a running turn early, cm: if err falls back inside "
+                             "this band the demand that started the burst is gone, "
+                             "so it stops (the --wz-gap-s coast still follows). This "
+                             "makes --wz-turn-s a cap instead of a length. 0 = only "
+                             "stop when err reverses. Added 2026-10-03: a full 2.5 s "
+                             "burst fired as the robot left the bend onto the "
+                             "straight, err went back to centre and nothing could "
+                             "cut it, so 72 deg of left turn landed on a straight "
+                             "that is three seconds long end to end")
     # 0.4 / 0.5 是**实车跑出来的好值**，而且挑的是"大且稳"那一端：关节在小角度
     # 上表现得比大角度还不稳，所以不能拿"刚好够用"的小量加精确时长去凑。
     # 不要拿去跟 vx/R 之类的算术比然后"修正"它 —— 2026-10-03 试过一版按
@@ -342,18 +353,18 @@ def parse_args():
                              "error is. Measured good on the robot; a fixed "
                              "constant, not derived from --vx")
     parser.add_argument("--wz-turn-s", type=float, default=1.0,
-                        help="How long one turn lasts, seconds, at most 1.0. It has "
-                             "to be long enough for the machine to actually carry "
-                             "it out: at the 3:8 step rate a 0.15 s command is two "
-                             "or three steps, over before the robot has acted on "
-                             "it, so the same command turns a different amount "
-                             "every time")
+                        help="How long one turn lasts at most, seconds: a cap, not "
+                             "a length (--wz-stop-cm can end it early). It has to be "
+                             "long enough for the machine to actually carry it out: "
+                             "at the 3:8 step rate a 0.15 s command is two or three "
+                             "steps, over before the robot has acted on it, so the "
+                             "same command turns a different amount every time")
     parser.add_argument("--wz-gap-s", type=float, default=2.5,
-                        help="Coast forced after every turn, seconds, and it must "
-                             "exceed 2.0. Without it a turn that ends with |err| "
-                             "still over the threshold re-fires on the very next "
-                             "frame, the turns run together and the curve is a "
-                             "continuous turn instead of the polygon")
+                        help="Coast forced after every turn, seconds. Without it a "
+                             "turn that ends with |err| still over the threshold "
+                             "re-fires on the very next frame, the turns run "
+                             "together and the curve is a continuous turn instead "
+                             "of the polygon")
     parser.add_argument("--wz-allow-right", action="store_true",
                         help="Allow negative wz. Off by default: the track only turns "
                              "left in the direction of travel, so a right turn is "
@@ -452,15 +463,18 @@ def parse_args():
         parser.error("need 0 < qr-min-edge-px < qr-max-edge-px")
     if not math.isfinite(args.start_gate_log_s) or args.start_gate_log_s <= 0:
         parser.error("start-gate-log-s must be positive")
-    # 四个数都可以自由调：只查"是不是个能用的数"，不设形状边界。
+    # 五个数都可以自由调：只查"是不是个能用的数"，不设形状边界。
     # 1.0 / 2.5 只是默认值，不是上限下限。
-    if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_step,
-                                           args.wz_turn_s, args.wz_gap_s))
+    if not (all(math.isfinite(v) for v in (args.wz_fire_cm, args.wz_stop_cm,
+                                           args.wz_step, args.wz_turn_s,
+                                           args.wz_gap_s))
             and 0 < args.wz_fire_cm
+            and 0 <= args.wz_stop_cm <= args.wz_fire_cm
             and 0 < args.wz_step <= args.max_wz
             and args.wz_turn_s > 0.0
             and args.wz_gap_s >= 0.0):
-        parser.error("need 0 < wz-fire-cm, 0 < wz-step <= max-wz, wz-turn-s > 0, "
+        parser.error("need 0 < wz-fire-cm, 0 <= wz-stop-cm <= wz-fire-cm, "
+                     "0 < wz-step <= max-wz, wz-turn-s > 0, "
                      "and wz-gap-s >= 0 (0 = no forced coast)")
     return args
 
@@ -497,8 +511,8 @@ def main():
     if args.wz_mode == "discrete":
         from discrete_steering import DiscreteSteeringController
         controller = DiscreteSteeringController(
-            controller, fire_cm=args.wz_fire_cm, turn_s=args.wz_turn_s,
-            gap_s=args.wz_gap_s, step=args.wz_step,
+            controller, fire_cm=args.wz_fire_cm, stop_cm=args.wz_stop_cm,
+            turn_s=args.wz_turn_s, gap_s=args.wz_gap_s, step=args.wz_step,
             allow_right=args.wz_allow_right)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
@@ -605,8 +619,10 @@ def main():
                      if args.wz_gap_s > 0.0 else
                      "转完不强制滑行（--wz-gap-s 0），err 还在阈值上就接着开")
             print(f"[wz] 离散模式：wz 只有 {levels} 两个状态。"
-                  f"err ≥ {args.wz_fire_cm}cm 就开一段 {args.wz_turn_s:.2f}s 的转向，"
-                  f"{coast}。四个数都自由可调。"
+                  f"err ≥ {args.wz_fire_cm}cm 就开一段转向，err 回到 "
+                  f"{args.wz_stop_cm}cm 以内就提前收手，最多 "
+                  f"{args.wz_turn_s:.2f}s（--wz-turn-s 是上限，不是定长）；"
+                  f"{coast}。五个数都自由可调。"
                   f"{'两边都能转' if args.wz_allow_right else '只在车身偏右（err>0）时才左转，偏左不转'}"
                   f"；--center-dead-cm / --steer-full-scale-cm / --bias-cm / "
                   f"PID 增益在这个模式下不影响输出。", flush=True)
