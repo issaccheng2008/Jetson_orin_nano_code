@@ -199,8 +199,12 @@ def main() -> int:
             if not np.isfinite(args.command_timeout) or args.command_timeout <= 0:
                 raise SystemExit("command-timeout must be finite and positive")
         else:
-            if not np.isfinite(args.vx) or not 0.0 < args.vx <= 1.0:
-                raise SystemExit("vx must be finite and in (0, 1] for constant forward walking")
+            # vx=0 is allowed and means "let the policy stand": the robot holds its
+            # own stopped pose instead of the all-zero joint frame --fixed-policy
+            # plays, which is the only way to watch that pose without vision in the
+            # loop. It is also the polite way to check a policy before driving it.
+            if not np.isfinite(args.vx) or not 0.0 <= args.vx <= 1.0:
+                raise SystemExit("vx must be finite and in [0, 1]")
             if not np.isfinite(args.wz) or not -MAX_WZ <= args.wz <= MAX_WZ:
                 raise SystemExit(f"wz must be finite and in [{-MAX_WZ}, {MAX_WZ}]")
             if not np.isfinite(args.walk_seconds) or args.walk_seconds < 0:

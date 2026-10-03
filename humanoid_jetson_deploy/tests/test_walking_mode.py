@@ -38,11 +38,18 @@ class WalkingModeTests(unittest.TestCase):
         # 视觉那条路的行为不变：它自己先夹到 --max-wz（默认 0.5）
         self.assertAlmostEqual(float(clamp_command([0.2, 0.0, 0.5])[2]), 0.5)
 
-    def test_rejects_stop_and_invalid_forward_commands(self):
-        for vx in ("0", "-0.1", "nan", "inf", "1.1"):
+    def test_rejects_only_out_of_range_forward_commands(self):
+        """vx=0 is legal: the policy stands on a zero command. It used to be
+        rejected as a misconfiguration, but that pose is the thing to look at
+        when a policy is new, and --fixed-policy's all-zero frame is a different
+        pose (straight legs) that cannot show it."""
+        for vx in ("-0.1", "nan", "inf", "1.1"):
             with self.subTest(vx=vx), patch.object(main, "parse_args", return_value=self.args("--vx", vx)):
                 with self.assertRaisesRegex(SystemExit, "vx must"):
                     main.main()
+        from command_source import clamp_command
+        self.assertEqual(float(clamp_command([0.0, 0.0, 0.0])[0]), 0.0)
+        self.assertEqual(self.args("--vx", "0").vx, 0.0)
 
     def test_runtime_keeps_walking_without_vision_and_disables_on_state_fault(self):
         state = SimpleNamespace(
