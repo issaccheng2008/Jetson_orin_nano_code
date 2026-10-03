@@ -2334,8 +2334,7 @@ class UdpIntegrationTests(unittest.TestCase):
             # Use the actual observation builder without loading an ONNX model.
             policy = object.__new__(HumanoidPolicy)
             policy.last_action = np.zeros(12, dtype=np.float32)
-            policy.step_distance_per_mps = config.STEP_DISTANCE_PER_MPS
-            policy.step_distance_m = None      # 没给 --step-cm，走比例那条路
+            policy.step_distance_m = config.STEP_LENGTH_CM / 100.0
             def observation():
                 return policy.build_observation(
                     accel_m_s2=np.array([0, 0, 9.81]), gyro_rad_s=np.zeros(3),
@@ -2343,7 +2342,7 @@ class UdpIntegrationTests(unittest.TestCase):
                     joint_position_policy=config.Q_DEFAULT, joint_velocity_policy=np.zeros(12))
             np.testing.assert_allclose(
                 observation()[9:13],
-                [0.2, -0.1, 0.2 * config.STEP_DISTANCE_PER_MPS, 0], rtol=1e-5)
+                [0.2, -0.1, config.STEP_LENGTH_CM / 100.0, 0], rtol=1e-5)
             # A confirmed event crosses both UDP hops even when qr has returned to -1.
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline:

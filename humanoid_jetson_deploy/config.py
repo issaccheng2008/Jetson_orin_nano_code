@@ -15,21 +15,12 @@ ACCEL_OBS_SCALE = 0.1
 
 # Humanoid_Robot_RSL_RL main at 4eb3d5b4d72a792c610ad46f0a8c65b931ed3b22.
 #
-# The gait is calibrated at one step/speed pair. A slower command gets a
-# proportionally shorter step at the same step frequency, so speed and step length
-# move together and the full step lands at STEP_REFERENCE_VX rather than at any
-# nonzero vx. Override the pair with main.py's --max-vx / --max-step-cm.
-#
-# STEP_REFERENCE_VX and MAX_COMMAND_VX are deliberately separate. They used to be
-# one constant, and changing the speed then silently rescaled the step too: the
-# step the policy is asked to take is vx * (MAX_STEP_DISTANCE / that constant), so
-# 2026-10-03's speed change 0.3 -> 0.2 also cut the stride by 25% on every command
-# that did not pass --max-vx / --max-step-cm. The speed is a knob; the pair is a
-# calibration.
-MAX_COMMAND_VX = 0.2      # m/s, the speed the vision commands with a valid detection
-STEP_REFERENCE_VX = 0.3   # m/s, the speed the step-distance pair is calibrated at
-MAX_STEP_DISTANCE = 0.08  # metres, signed longitudinal target at STEP_REFERENCE_VX
-STEP_DISTANCE_PER_MPS = MAX_STEP_DISTANCE / STEP_REFERENCE_VX
+# 速度和步长各是一个数，就这两个。以前它们是"一对比例"（--max-vx / --max-step-cm
+# 定出"每 m/s 给多大步距"，实际步距 = vx × 那个比例），结果是改速度就顺手改了
+# 步长 —— 2026-10-03 把速度 0.3 改成 0.2 时，所有不显式写那两个参数的跑法步幅
+# 都短了 25%，而且没人看得出来。现在步长直接给，不随 vx 变。
+MAX_COMMAND_VX = 0.2    # m/s, the speed the vision commands with a valid detection
+STEP_LENGTH_CM = 5.0    # cm, the step the policy is asked for, whatever vx is
 CROSSING_COMMAND = 0.0  # normal walking only
 
 JOINT_NAMES = (

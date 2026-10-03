@@ -125,27 +125,13 @@ def parse_args() -> argparse.Namespace:
         help="Fixed mode only: yaw-rate command in rad/s, within [-0.5, 0.5]",
     )
     parser.add_argument(
-        "--max-vx", type=float, default=config.STEP_REFERENCE_VX,
-        help="The speed --max-step-cm is calibrated at, m/s. NOT the speed the robot "
-             "walks - it only sets the step-distance scaling. Leave it alone unless "
-             "you are re-calibrating the gait; changing it rescales the stride at "
-             "every speed",
-    )
-    parser.add_argument(
-        "--max-step-cm", type=float, default=config.MAX_STEP_DISTANCE * 100.0,
-        help="Step distance at --max-vx, cm. Every slower command gets a "
-             "proportionally shorter step at the same step frequency, so the two "
-             "move together instead of the step jumping to full length at any "
-             "nonzero vx. Ignored when --step-cm is given",
-    )
-    parser.add_argument(
-        "--step-cm", type=float, default=None,
-        help="Step length in cm, used AS IS whatever vx is, so speed and step "
-             "become independently settable. NOTE: the cadence is the policy's own "
-             "and is NOT vx/step -- it moves with vx and step_distance (measured "
-             "2026-10-03: lowering vx made the stepping visibly faster). So this "
-             "sets the stride the policy is asked for, not the resulting speed. "
-             "Without it the step follows the --max-vx/--max-step-cm ratio",
+        "--step-cm", type=float, default=config.STEP_LENGTH_CM,
+        help="Step length in cm, the ONE step number. Used as is whatever vx is, "
+             "so it does not move when the speed moves. NOTE: the cadence is the "
+             "policy's own and is NOT vx/step -- it moves with vx and step_distance "
+             "(measured 2026-10-03: lowering vx made the stepping visibly faster). "
+             "So this sets the stride the policy is asked for, not the resulting "
+             "speed",
     )
     parser.add_argument("--kp-scale", type=float, default=1.0)
     parser.add_argument("--kd-scale", type=float, default=1.0)
@@ -236,16 +222,9 @@ def main() -> int:
         raise SystemExit("plot-every must be at least 1")
     if args.plot_history_seconds <= 0.0:
         raise SystemExit("plot-history-seconds must be positive")
-    if not np.isfinite(args.max_vx) or args.max_vx <= 0.0:
-        raise SystemExit("max-vx must be finite and positive")
-    if not np.isfinite(args.max_step_cm) or args.max_step_cm <= 0.0:
-        raise SystemExit("max-step-cm must be finite and positive")
-    step_distance_per_mps = (args.max_step_cm / 100.0) / args.max_vx
-    step_distance_m = None
-    if args.step_cm is not None:
-        if not np.isfinite(args.step_cm) or args.step_cm <= 0.0:
-            raise SystemExit("step-cm must be finite and positive")
-        step_distance_m = args.step_cm / 100.0
+    if not np.isfinite(args.step_cm) or args.step_cm <= 0.0:
+        raise SystemExit("step-cm must be finite and positive")
+    step_distance_m = args.step_cm / 100.0
     if not args.fixed_policy and args.policy == "walking":
         if args.command_source == "vision":
             if not 1 <= args.udp_command_port <= 65535:
@@ -323,8 +302,7 @@ def main() -> int:
             "vision disconnected; no velocity, step-distance, or crossing observations"
         )
     else:
-        policy = HumanoidPolicy(args.model, step_distance_per_mps,
-                                step_distance_m=step_distance_m)
+        policy = HumanoidPolicy(args.model, step_distance_m)
         if args.command_source == "vision":
             if args.one_foot_model:
                 card_policy = OneFootPolicy(args.one_foot_model)
@@ -393,27 +371,10 @@ def main() -> int:
             print(f"Shape one-foot ONNX input={card_policy.input_name!r}, "
                   f"output={card_policy.output_name!r}")
     print(f"Policy command source: {command_source_description}")
-    # 步长和速度都要看得见。步频不在这里算 —— 它是策略自己的，会随 vx 和
-    # 步长变（实测：vx 调小反而步频变快），不是 vx/步长。
-    if step_distance_m is not None:
-        print(f"Step: {step_distance_m * 100:.2f} cm, FIXED by --step-cm "
-              f"(independent of vx; the cadence is the policy's own)")
-    elif args.command_source == "vision":
-        print(f"Step: vx x {step_distance_per_mps:.4f} m per m/s "
-              f"(vx arrives over UDP); give --step-cm to set the length directly")
-    else:
-        # 每个源有自己的 vx：curve 用 --curve-vx，不是 --vx。用错那个的话
-        # 这一行会在 --curve-vx != --vx 时报一个错的步长。
-        if args.command_source == "curve":
-            banner_vx, which = args.curve_vx, "--curve-vx"
-        elif args.command_source == "scripted":
-            banner_vx, which = (max(leg[1] for leg in parse_legs(args.scripted_legs)),
-                                "the fastest --scripted-legs leg")
-        else:
-            banner_vx, which = args.vx, "--vx"
-        print(f"Step: vx x {step_distance_per_mps:.4f} = "
-              f"{banner_vx * step_distance_per_mps * 100:.2f} cm at {which}="
-              f"{banner_vx:g}; give --step-cm to set the length directly instead")
+    # 步长就是一个数，不随 vx 变。步频不在这里算 —— 它是策略自己的，会随 vx
+    # 和步长变（实测：vx 调小反而步频变快），不是 vx/步长。
+    print(f"Step: {step_distance_m * 100:.2f} cm (--step-cm), independent of vx; "
+          f"the cadence is the policy's own")
     print(f"Body attitude broadcast: "
           + (f"udp://{args.attitude_bind}:{args.attitude_port} at 10 Hz"
              if attitude is not None else "off"))

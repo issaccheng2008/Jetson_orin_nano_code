@@ -11,8 +11,7 @@ from policy_runner import HumanoidPolicy
 
 
 class PolicyInterfaceTests(unittest.TestCase):
-    def make_policy(self, width=49, batch=1, step_distance_per_mps=None,
-                    step_distance_m=None):
+    def make_policy(self, width=49, batch=1, step_distance_m=None):
         with patch("policy_runner.ort.InferenceSession") as factory:
             session = factory.return_value
             session.get_inputs.return_value = [
@@ -20,8 +19,7 @@ class PolicyInterfaceTests(unittest.TestCase):
             ]
             session.get_outputs.return_value = [SimpleNamespace(name="actions")]
             session.run.return_value = [np.arange(12, dtype=np.float32).reshape(1, 12)]
-            return HumanoidPolicy("test.onnx", step_distance_per_mps,
-                                  step_distance_m=step_distance_m), session
+            return HumanoidPolicy("test.onnx", step_distance_m), session
 
     def test_exact_training_layout_and_action_history(self):
         policy, session = self.make_policy()
@@ -35,7 +33,7 @@ class PolicyInterfaceTests(unittest.TestCase):
         )
         expected = np.concatenate([
             [0.1, 0.2, 0.981, 4, 5, 6, 0, 0, -1, 0.4, 0,
-             0.4 * config.STEP_DISTANCE_PER_MPS, 0],
+             config.STEP_LENGTH_CM / 100.0, 0],
             np.arange(12) / 100, np.arange(12) + 20, np.zeros(12),
         ]).astype(np.float32)
         target, action, obs, _ = policy.step(**values)
@@ -45,54 +43,17 @@ class PolicyInterfaceTests(unittest.TestCase):
         next_obs = policy.build_observation(**values)
         np.testing.assert_array_equal(next_obs[37:49], action)
         np.testing.assert_allclose(
-            next_obs[9:13], [0.4, 0, 0.4 * config.STEP_DISTANCE_PER_MPS, 0], rtol=1e-6)
+            next_obs[9:13], [0.4, 0, config.STEP_LENGTH_CM / 100.0, 0], rtol=1e-6)
         policy.reset()
         np.testing.assert_array_equal(policy.build_observation(**values)[37:], np.zeros(12))
 
-    def test_step_distance_tracks_the_commanded_speed(self):
-        """The touchdown target scales with speed instead of being a fixed switch.
+    def test_the_step_does_not_move_when_the_speed_moves(self):
+        """步长和速度是两个独立的数：步长就是个常数，不随 vx 变。
 
-        It used to be 0.08 for any nonzero vx, so the first connector tick after a
-        card stop asked for 0.08 m steps at 0.02 m/s - a pairing the policy had no
-        reason to have seen in training.
-        """
+        以前步长是"每 m/s 给多大步距"的比例（--max-vx / --max-step-cm），
+        实际步距 = vx × 比例。结果是 2026-10-03 把速度 0.3 改成 0.2 的时候，
+        所有没显式写那两个参数的跑法步幅都短了 25%，而启动横幅上完全看不出来。"""
         policy, _ = self.make_policy()
-        values = dict(
-            accel_m_s2=np.array([0, 0, 9.81]),
-            gyro_rad_s=np.zeros(3),
-            projected_gravity=np.array([0, 0, -1]),
-            joint_position_policy=config.Q_DEFAULT,
-            joint_velocity_policy=np.zeros(12),
-        )
-        max_vx, max_step = config.STEP_REFERENCE_VX, config.MAX_STEP_DISTANCE
-        for vx, expected in ((max_vx, max_step), (max_vx / 2, max_step / 2),
-                             (max_vx / 10, max_step / 10), (0.0, 0.0)):
-            with self.subTest(vx=vx):
-                obs = policy.build_observation(
-                    velocity_command=np.array([vx, 0, 0]), **values)
-                self.assertAlmostEqual(float(obs[11]), expected, places=6)
-
-    def test_the_step_calibration_pair_moves_the_full_step(self):
-        """--max-vx / --max-step-cm say where the full step lands, so dropping the
-        running speed does not silently shorten the gait."""
-        policy, _ = self.make_policy(step_distance_per_mps=0.08 / 0.4)
-        values = dict(
-            accel_m_s2=np.array([0, 0, 9.81]),
-            gyro_rad_s=np.zeros(3),
-            projected_gravity=np.array([0, 0, -1]),
-            joint_position_policy=config.Q_DEFAULT,
-            joint_velocity_policy=np.zeros(12),
-        )
-        for vx, expected in ((0.4, 0.08), (0.2, 0.04)):
-            with self.subTest(vx=vx):
-                obs = policy.build_observation(
-                    velocity_command=np.array([vx, 0, 0]), **values)
-                self.assertAlmostEqual(float(obs[11]), expected, places=6)
-
-    def test_a_given_step_length_ignores_vx(self):
-        """--step-cm 直接给步长。这样速度和步长是两个独立的旋钮，而
-        步频 = vx / 步长 —— 想调频率就调这两个数。"""
-        policy, _ = self.make_policy(step_distance_m=0.05)
         values = dict(
             accel_m_s2=np.array([0, 0, 9.81]),
             gyro_rad_s=np.zeros(3),
@@ -104,21 +65,31 @@ class PolicyInterfaceTests(unittest.TestCase):
             with self.subTest(vx=vx):
                 obs = policy.build_observation(
                     velocity_command=np.array([vx, 0, 0]), **values)
-                self.assertAlmostEqual(float(obs[11]), 0.05, places=6)   # 不随 vx 变
-                self.assertAlmostEqual(float(obs[9]), vx, places=6)
+                self.assertAlmostEqual(float(obs[11]), config.STEP_LENGTH_CM / 100.0,
+                                       places=6)          # 不随 vx 变
+                self.assertAlmostEqual(float(obs[9]), vx, places=6)   # vx 照旧进观测
+        # 唯一的例外：停下来时步长必须是 0，否则策略会迈原地步（真漂移）。
+        stopped = policy.build_observation(
+            velocity_command=np.array([0.0, 0, 0]), **values)
+        self.assertEqual(float(stopped[11]), 0.0)
 
-    def test_the_speed_and_the_step_calibration_are_separate_knobs(self):
-        """SPEED and the step pair must not share a constant. They did until
-        2026-10-03: MAX_COMMAND_VX was both main.py's --vx default and the
-        --max-vx reference, so dropping the speed 0.3 -> 0.2 also rescaled the
-        stride by 25% on every command that did not pass --max-vx/--max-step-cm.
-        The stride the policy is asked for at the running speed is what has to
-        stay put, so pin it here rather than pinning either constant."""
-        self.assertAlmostEqual(config.STEP_DISTANCE_PER_MPS, 0.08 / 0.3, places=6)
-        self.assertAlmostEqual(config.MAX_COMMAND_VX * config.STEP_DISTANCE_PER_MPS,
-                               0.2 * 0.08 / 0.3, places=6)   # 5.33 cm at vx 0.2
-        self.assertNotEqual(config.MAX_COMMAND_VX, config.STEP_REFERENCE_VX,
-                            "a single constant here is the bug this test exists for")
+    def test_a_given_step_length_overrides_the_default(self):
+        """给定值就盖过默认。"""
+        for cm in (3.0, 5.0, 8.0):
+            with self.subTest(cm=cm):
+                policy, _ = self.make_policy(step_distance_m=cm / 100.0)
+                obs = policy.build_observation(
+                    accel_m_s2=np.array([0, 0, 9.81]), gyro_rad_s=np.zeros(3),
+                    projected_gravity=np.array([0, 0, -1]),
+                    velocity_command=np.array([0.2, 0, 0]),
+                    joint_position_policy=config.Q_DEFAULT,
+                    joint_velocity_policy=np.zeros(12))
+                self.assertAlmostEqual(float(obs[11]), cm / 100.0, places=6)
+
+    def test_the_two_numbers_are_pinned(self):
+        """速度和步长各一个数，就这两个 —— 钉住，免得再被"顺手改速度"带偏。"""
+        self.assertAlmostEqual(config.MAX_COMMAND_VX, 0.2, places=6)
+        self.assertAlmostEqual(config.STEP_LENGTH_CM, 5.0, places=6)
 
     def test_rejects_legacy_models_before_inference(self):
         for width in (47, 48):

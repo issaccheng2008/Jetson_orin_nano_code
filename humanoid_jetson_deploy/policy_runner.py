@@ -83,17 +83,15 @@ class HumanoidPolicy:
     obs_dim = config.OBS_DIM
     model_description = "current walking/stepping policy; legacy walking-test models are incompatible"
 
-    def __init__(self, model_path: str, step_distance_per_mps: float | None = None,
-                 step_distance_m: float | None = None) -> None:
-        self.step_distance_per_mps = (
-            config.STEP_DISTANCE_PER_MPS if step_distance_per_mps is None
-            else float(step_distance_per_mps)
-        )
-        # 直接给步长时用它，不再乘 vx —— 速度和步长因此可以各自独立地拧。
+    def __init__(self, model_path: str, step_distance_m: float | None = None) -> None:
+        # 步长是一个数，直接给，不随 vx 变（main.py --step-cm）。
         # ⚠️ 但步频**不是** vx/步长：它是策略自己的，会跟着 vx 和 step_distance
         # 动（2026-10-03 实测：vx 从 0.3 降到 0.2 反而让步频变快）。所以这里给的
         # 是"要求策略走的步幅"，不是"结果速度"。
-        self.step_distance_m = None if step_distance_m is None else float(step_distance_m)
+        self.step_distance_m = (
+            config.STEP_LENGTH_CM / 100.0 if step_distance_m is None
+            else float(step_distance_m)
+        )
         self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         if len(self.session.get_inputs()) != 1 or len(self.session.get_outputs()) != 1:
             raise RuntimeError("Expected an ONNX policy with one input and one output")
@@ -152,8 +150,12 @@ class HumanoidPolicy:
                 policy_velocity_command,
                 np.array(
                     [
-                        (self.step_distance_m if self.step_distance_m is not None
-                         else float(velocity_command[0]) * self.step_distance_per_mps),
+                        # 在走就是步长那个数；停下（vx=0）必须是 0。
+                        # 恒定的 5cm 直接发下去会让策略在停车时迈原地步（真漂移）
+                        # —— 那正是当初把步长做成比例的原因（vx=0 时比例给 0）。
+                        # 训练是 vx=0.20 固定、step_distance 在 0.02~0.12 之间随机的，
+                        # 所以"在走"的那一档落在分布里，vx=0 配 5cm 不在。
+                        (self.step_distance_m if velocity_command[0] > 0.0 else 0.0),
                         config.CROSSING_COMMAND,
                     ],
                     dtype=np.float32,

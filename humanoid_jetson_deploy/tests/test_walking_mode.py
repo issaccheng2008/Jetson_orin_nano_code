@@ -80,9 +80,9 @@ class WalkingModeTests(unittest.TestCase):
                 np.testing.assert_allclose(call.kwargs["velocity_command"], [0.2, 0, 0])
             self.assertEqual(link.send_command.call_args.args[-1], 0)
             link.close.assert_called_once()
-            # --max-vx / --max-step-cm reach the observation builder as one ratio.
+            # 步长以米为一个数直达观测构造器（--step-cm），不再是一对比例。
             self.assertAlmostEqual(policy_cls.call_args.args[1],
-                                   config.MAX_STEP_DISTANCE / config.STEP_REFERENCE_VX)
+                                   config.STEP_LENGTH_CM / 100.0)
 
 
     def test_live_vision_commands_are_not_overridden_after_five_seconds(self):
