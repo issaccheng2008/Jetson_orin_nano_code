@@ -28,27 +28,39 @@ import math
 
 from policy_bridge import clamp
 
+# 单次转弯的上限和两次转弯之间的下限。用户定的形状要求：转弯是一下一下的
+# （弯道上近似多边形），不是连续转。所以一发不能长过 1 秒，两发之间要空出
+# 2 秒以上。以前打完只要 |err| 还在阈值上就立刻再打，间隔是 0 —— 那出来的是
+# 连续转弯，不是多边形。
+MAX_PULSE_S = 1.0
+MIN_GAP_S = 2.0
+
 
 class DiscreteSteeringController:
     def __init__(self, inner, fire_cm=5.0, strong_cm=8.0,
-                 step_lo=0.4, step_hi=0.5, pulse_s=0.15, allow_right=False):
-        values = (fire_cm, strong_cm, step_lo, step_hi, pulse_s)
+                 step_lo=0.4, step_hi=0.5, pulse_s=0.15,
+                 min_gap_s=2.5, allow_right=False):
+        values = (fire_cm, strong_cm, step_lo, step_hi, pulse_s, min_gap_s)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("discrete steering settings must be finite")
         if not 0.0 < fire_cm < strong_cm:
             raise ValueError("need 0 < fire-cm < fire-strong-cm")
         if not 0.0 < step_lo <= step_hi <= inner.max_wz:
             raise ValueError("need 0 < step-lo <= step-hi <= max-wz")
-        if pulse_s <= 0.0:
-            raise ValueError("pulse-s must be positive")
+        if not 0.0 < pulse_s <= MAX_PULSE_S:
+            raise ValueError(f"pulse-s must be in (0, {MAX_PULSE_S}]")
+        if min_gap_s <= MIN_GAP_S:
+            raise ValueError(f"min-gap-s must exceed {MIN_GAP_S}")
         self.inner = inner
         self.fire_cm = fire_cm
         self.strong_cm = strong_cm
         self.step_lo = step_lo
         self.step_hi = step_hi
         self.pulse_s = pulse_s
+        self.min_gap_s = min_gap_s
         self.allow_right = bool(allow_right)
         self.pulse_left = 0.0
+        self.gap_left = 0.0
         self.pulse_wz = 0.0
 
     # 只读转发：run_policy_vision 读的就是这几个（日志、停车交接打印）。
@@ -83,11 +95,13 @@ class DiscreteSteeringController:
     def reset(self, clear_hold=False):
         self.inner.reset(clear_hold)
         self.pulse_left = 0.0
+        self.gap_left = 0.0
         self.pulse_wz = 0.0
 
     def drop_held_command(self):
         self.inner.drop_held_command()
         self.pulse_left = 0.0
+        self.gap_left = 0.0
         self.pulse_wz = 0.0
 
     def command(self, debug, confidence, dt):
@@ -106,18 +120,26 @@ class DiscreteSteeringController:
         return (vx, wz)
 
     def _pulse(self, err, dt):
+        step = clamp(dt, 0.01, 0.2)
         if self.pulse_left > 0.0:
-            # 先扣再判：扣到 0 的那一帧就该回到阈值判断，否则每次脉冲都会多挂
-            # 一帧（dt=0.05、pulse_s=0.2 时是 5 帧而不是 4 帧）。
+            # 先扣再判：扣到 0 的那一帧这一发就结束了，间隔从这一帧起算。
             # round 到 ns 是必须的：0.05 累减四次会留下 1.7e-17 的浮点尘，
             # 不加这一下脉冲就永远多一帧。
-            self.pulse_left = round(
-                max(0.0, self.pulse_left - clamp(dt, 0.01, 0.2)), 9)
+            self.pulse_left = round(max(0.0, self.pulse_left - step), 9)
             if self.pulse_left > 0.0:
                 return self.pulse_wz
+            self.pulse_wz = 0.0
+            self.gap_left = self.min_gap_s
+            return 0.0
+        # 强制间隔：这一发打完之后，不管 err 还有多大都要空出 min_gap_s。
+        # 没有这一段，|err| 停在阈值上时发出去的是一串连着的脉冲 —— 那是连续
+        # 转弯，不是"转一下、滑一段"的多边形。
+        if self.gap_left > 0.0:
+            self.gap_left = round(max(0.0, self.gap_left - step), 9)
+            self.pulse_wz = 0.0
+            return 0.0
         # 单边：只有车身偏右（err > 0）才允许左转。偏左一律不转 —— 发一个负的
-        # wz 去纠，在只有左弯的赛道上等于把自己往弯外推；而且删掉右转之后，
-        # "打一发 → 滑行到 err 重新变正 → 再打一发"本身就是那个折线。
+        # wz 去纠，在只有左弯的赛道上等于把自己往弯外推。
         # err <= 0 时是精确的 0，不是"很小"。
         if err <= 0.0 and not self.allow_right:
             self.pulse_wz = 0.0

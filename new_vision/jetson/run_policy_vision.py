@@ -23,6 +23,7 @@ import time
 import numpy as np
 
 from camera_config import load as load_camera
+from discrete_steering import MAX_PULSE_S, MIN_GAP_S
 from policy_bridge import ConnectorClient, SteeringController
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
@@ -349,9 +350,17 @@ def parse_args():
     parser.add_argument("--wz-step-hi", type=float, default=0.5,
                         help="Large pulse amplitude, rad/s; at most --max-wz")
     parser.add_argument("--wz-pulse-s", type=float, default=0.15,
-                        help="How long one pulse lasts, seconds. Counted in vision "
-                             "frames (16~29 Hz), so the real width is a whole number "
-                             "of frames - 0.15 s is 2~4 of them")
+                        help="How long one pulse lasts, seconds, at most 1.0. "
+                             "Counted in vision frames (16~29 Hz), so the real "
+                             "width is a whole number of frames - 0.15 s is 2~4 "
+                             "of them")
+    parser.add_argument("--wz-min-gap-s", type=float, default=2.5,
+                        help="Coast forced after every pulse, seconds, and it must "
+                             "exceed 2.0. Without it a pulse that ends with |err| "
+                             "still over the threshold re-fires on the very next "
+                             "frame, the pulses run together and the curve is a "
+                             "continuous turn instead of the polygon. Turn then "
+                             "coast is the shape")
     parser.add_argument("--wz-allow-right", action="store_true",
                         help="Allow negative wz. Off by default: the track only turns "
                              "left in the direction of travel, so a right pulse is "
@@ -456,6 +465,14 @@ def parse_args():
             and args.wz_pulse_s > 0):
         parser.error("need 0 < wz-fire-cm < wz-fire-strong-cm, "
                      "0 < wz-step-lo <= wz-step-hi <= max-wz, and wz-pulse-s > 0")
+    if args.wz_mode == "discrete":
+        # 形状是用户定的：一下一下地转，不是连续转。
+        if not 0.0 < args.wz_pulse_s <= MAX_PULSE_S:
+            parser.error(f"wz-pulse-s must be in (0, {MAX_PULSE_S}] - one turn is a "
+                         "burst, not a sustained turn")
+        if not args.wz_min_gap_s > MIN_GAP_S:
+            parser.error(f"wz-min-gap-s must exceed {MIN_GAP_S} - two turns have to "
+                         "be separated by a coast")
     return args
 
 
@@ -493,6 +510,7 @@ def main():
         controller = DiscreteSteeringController(
             controller, fire_cm=args.wz_fire_cm, strong_cm=args.wz_fire_strong_cm,
             step_lo=args.wz_step_lo, step_hi=args.wz_step_hi,
+            min_gap_s=args.wz_min_gap_s,
             pulse_s=args.wz_pulse_s, allow_right=args.wz_allow_right)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
@@ -599,7 +617,9 @@ def main():
             print(f"[wz] 离散模式：wz 只会是 {levels}，"
                   f"err ≥ {args.wz_fire_cm}cm 打 {args.wz_step_lo}"
                   f"、≥ {args.wz_fire_strong_cm}cm 打 {args.wz_step_hi}，"
-                  f"每次 {args.wz_pulse_s:.2f}s（约 {args.wz_pulse_s * 20:.0f} 帧）。"
+                  f"每次 {args.wz_pulse_s:.2f}s（约 {args.wz_pulse_s * 20:.0f} 帧），"
+                  f"打完强制空 {args.wz_min_gap_s:.2f}s 才允许下一发"
+                  f"（间隔下限 {MIN_GAP_S}s，单发上限 {MAX_PULSE_S}s 是形状要求）。"
                   f"{'两边都能转' if args.wz_allow_right else '只在车身偏右（err>0）时才左转，偏左不转'}"
                   f"；--center-dead-cm / --steer-full-scale-cm / --bias-cm / "
                   f"PID 增益在这个模式下不影响输出。", flush=True)

@@ -495,7 +495,9 @@ class VisionEntryPointTests(unittest.TestCase):
             calls = client_cls.return_value.publish.call_args_list
             self.assertEqual(len(calls), 4)
             self.assertEqual(calls[2].args[0], 0.2)
-            self.assertNotEqual(calls[2].args[1], 0.0)  # steering published after median warmup
+            # 转向在热启动之后发出来了。两发之间强制空 2 秒以上，所以这 4 帧里
+            # 只有真打脉冲的那一帧非零 —— 不能再假设"每帧都在纠正"。
+            self.assertTrue(any(c.args[1] != 0.0 for c in calls[:3]), [c.args for c in calls])
             self.assertEqual(calls[3].args, (0.0, 0.0, -1))
             client_cls.return_value.close.assert_called_once()
             camera.release.assert_called_once()
@@ -2465,13 +2467,18 @@ class DiscreteSteeringTests(unittest.TestCase):
     def test_only_a_body_right_of_centre_may_turn_left(self):
         """单边闸看的是 err 的符号（车在车道中心右边 = err > 0）。偏左就滑行 ——
         正是这一条把"打一发脉冲"和"滑行"分开，折线靠它。"""
-        controller = self.controller(pulse_s=0.1)
+        controller = self.controller(pulse_s=0.1, min_gap_s=2.05)
         self.assertEqual(self.step(controller, 6.0), 0.4)     # 偏右，转
         self.assertEqual(self.step(controller, -6.0), 0.4)    # 脉冲里不看 err
-        self.step(controller, -6.0)                           # 窗口用完
-        self.assertEqual(self.step(controller, -6.0), 0.0)    # 偏左，不转
+        self.assertEqual(self.step(controller, -6.0), 0.0)    # 窗口用完
         self.assertEqual(self.step(controller, -0.001), 0.0)  # 贴着中心也是 0
-        self.assertEqual(self.step(controller, 6.0), 0.4)     # 回到右边，又转
+        # 间隔期间 err 在右边也不打，打的是间隔不是 err
+        coasted = 0
+        for _ in range(60):
+            if self.step(controller, 6.0) == 0.4:
+                break
+            coasted += 1
+        self.assertEqual(coasted, 40)         # 加上上面那一步才是 2.05s / 0.05s = 41
 
     def test_the_yaw_sign_is_applied(self):
         # yaw_sign 照旧乘上去（真车上是 +1）。单边闸看的是 err 的符号，所以
@@ -2490,20 +2497,30 @@ class DiscreteSteeringTests(unittest.TestCase):
         self.assertEqual(self.step(controller, 0.0), 0.0)      # 0.20s，窗口用完
         self.assertEqual(self.step(controller, 0.0), 0.0)
 
-    def test_an_error_that_stays_high_fires_again(self):
-        """弯道靠这个：脉冲跑完误差还在，就再打一发。误差掉下去才停。"""
-        controller = self.controller(pulse_s=0.1)
+    def test_a_high_error_still_waits_out_the_gap(self):
+        """曾经是"脉冲跑完误差还在就立刻再打"——那出来的是**连续转弯**。
+        形状要求两发之间必须空 2 秒以上，弯道上才是"转一下、滑一段"的多边形。"""
+        controller = self.controller(pulse_s=0.1, min_gap_s=2.05)
         fired = [self.step(controller, 6.0) for _ in range(6)]
-        self.assertEqual(fired, [0.4] * 6)
-        self.assertEqual(self.step(controller, 1.0), 0.0)
+        self.assertEqual(fired, [0.4, 0.4, 0.0, 0.0, 0.0, 0.0])
         self.assertEqual(self.step(controller, 1.0), 0.0)
 
     def test_the_curve_upgrade_is_the_big_step(self):
-        controller = self.controller(pulse_s=0.1)
+        controller = self.controller(pulse_s=0.1, min_gap_s=2.05)
         self.assertEqual(self.step(controller, 6.0), 0.4)
         self.assertEqual(self.step(controller, 20.0), 0.4)   # 还在脉冲里，不换档
         self.step(controller, 20.0)                          # 窗口用完
+        for _ in range(41):                                  # 间隔走完
+            self.step(controller, 20.0)
         self.assertEqual(self.step(controller, 20.0), 0.5)   # 下一发是大档
+
+    def test_the_shape_limits_are_enforced(self):
+        """单次转弯 ≤ 1s、间隔 > 2s 是形状要求，不是调参建议：越界直接拒。"""
+        for kw in ({"pulse_s": 1.5}, {"pulse_s": 0.0}, {"min_gap_s": 2.0},
+                   {"min_gap_s": 1.0}, {"pulse_s": 1.05}):
+            with self.subTest(**kw), self.assertRaises(ValueError):
+                self.controller(**kw)
+        self.controller(pulse_s=1.0, min_gap_s=2.05)         # 边界上是合法的
 
     def test_a_lost_frame_is_passed_through_and_fires_nothing(self):
         """丢线那一帧走内层自己的淡出，不脉冲 —— 它发出来的既不是 0 也不是离散
