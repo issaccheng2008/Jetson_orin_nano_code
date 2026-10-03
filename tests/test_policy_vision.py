@@ -1350,7 +1350,7 @@ class LaneFitTests(unittest.TestCase):
     ARC_CM = 77.6          # 场地基线：中心线 R = 770 mm
 
     @staticmethod
-    def _detector(top_cm=70.0, far_cm=55.0):
+    def _detector(top_cm=70.0, far_cm=50.0):
         from line_detector_v1_warp import LineDetector
         detector = LineDetector(1280, 720)
         detector.red_detect_enable = False
@@ -1367,7 +1367,15 @@ class LaneFitTests(unittest.TestCase):
         return -off_cm / detector.cm_per_px_at(detector._row_at_cm(z_cm))
 
     def _birdseye(self, detector, radius_cm):
-        gray = np.zeros((detector.bird_h, detector.bird_w), np.uint8)
+        """两张图，和 process() 喂给 _detect_lane_fit 的那两张对应：
+
+        detect 是黑帽+阈值之后的（亮线压在黑底上），_scan_band_midline 读的是它；
+        raw 是**没处理过的**鸟瞰灰度（亮地板上的暗线），配对失败时质心兜底
+        （_centroid_pair_center）找的是它的凹陷。只画一张会让合成夹具走不到真帧
+        走的那条路 —— 真帧一直是两张都传的。
+        """
+        detect = np.zeros((detector.bird_h, detector.bird_w), np.uint8)
+        raw = np.full((detector.bird_h, detector.bird_w), 200, np.uint8)
         for y in range(detector.bird_h):
             z_cm = detector.z_cm_at(y)
             if radius_cm is not None and z_cm >= radius_cm:
@@ -1378,17 +1386,25 @@ class LaneFitTests(unittest.TestCase):
             line = max(1, int(round(2.0 / cpp)))
             for edge in (-1.0, 1.0):
                 x0 = int(round(cx + edge * half - (line if edge < 0 else 0)))
-                gray[y, max(0, x0):max(0, x0 + line)] = 255
-        return gray
+                # **两端都要钳**。只钳起点会造出一条假线：线整个跑出鸟瞰图时，
+                # 起点被拉到 0 而长度没变，于是画面边上留了一条完整的 7px 亮段 ——
+                # 真帧里那条线是彻底消失的（_collect_track_runs_on_row 连
+                # min_line_width 都够不到）。R=77.6 的弯上远端外侧线就是这个下场。
+                a, b = max(0, x0), min(detector.bird_w, x0 + line)
+                if b <= a:
+                    continue
+                detect[y, a:b] = 255
+                raw[y, a:b] = 60
+        return detect, raw
 
     def _fit(self, detector, radius_cm):
-        gray = self._birdseye(detector, radius_cm)
+        gray, raw = self._birdseye(detector, radius_cm)
         z0 = detector.z_cm_at(detector.bird_h - 1)
         hint_x = detector.center_x + self._centre_px(detector, z0, radius_cm)
         hint_w = 2 * self.HALF_LANE_CM / detector.cm_per_px_at(detector.bird_h - 1)
         return detector._detect_lane_fit(
             gray, np.zeros((detector.bird_h, detector.bird_w, 3), np.uint8),
-            128, False, hint_x, hint_w)
+            128, False, hint_x, hint_w, gray_raw=raw)
 
     def test_a_straight_reads_zero_at_both_ends(self):
         detector = self._detector()
@@ -1399,13 +1415,13 @@ class LaneFitTests(unittest.TestCase):
         self.assertAlmostEqual(fit["fit_curve_px"], 0.0, delta=2.0)
 
     def test_the_arc_separation_survives_the_fit(self):
-        """分离度是拟合出来的，不是几何里算出来的：R=77.6 上前视 55cm 处车道中心
-        离切线 22.9cm、25cm 处只有 4.1cm，换成像素是 -82.8 和 -18.2，"远-近" 该有
-        -64.6px，而直道是 0。拟合要真能把这条弧读回来，这个数就得对得上。"""
+        """分离度是拟合出来的，不是几何里算出来的：R=77.6 上前视 50cm 处车道中心
+        离切线 18.3cm、25cm 处只有 4.1cm，换成像素是 -68.0 和 -18.2，"远-近" 该有
+        -49.8px，而直道是 0。拟合要真能把这条弧读回来，这个数就得对得上。"""
         detector = self._detector()
         fit = self._fit(detector, self.ARC_CM)
         truth_near = self._centre_px(detector, 25.0, self.ARC_CM)
-        truth_far = self._centre_px(detector, 55.0, self.ARC_CM)
+        truth_far = self._centre_px(detector, 50.0, self.ARC_CM)
         self.assertTrue(fit["fit_ok"])
         self.assertAlmostEqual(fit["fit_near_px"], truth_near, delta=3.0)
         self.assertAlmostEqual(fit["fit_far_px"], truth_far, delta=3.0)
@@ -1426,7 +1442,7 @@ class LaneFitTests(unittest.TestCase):
         self.assertTrue(fit["fit_ok"])
         self.assertLess(fit["fit_top_cm"], 58.0)
         self.assertGreater(fit["fit_top_cm"], 50.0)
-        truth_far = self._centre_px(detector, 55.0, self.ARC_CM)
+        truth_far = self._centre_px(detector, 50.0, self.ARC_CM)
         self.assertAlmostEqual(fit["fit_far_px"], truth_far, delta=5.0)
 
     def test_the_arc_hides_its_outer_line_before_the_far_point_can_be_read(self):

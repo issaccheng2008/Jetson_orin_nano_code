@@ -22,7 +22,7 @@ class WalkingModeTests(unittest.TestCase):
 
     def test_defaults_and_vision_or_turn_options(self):
         args = self.args()
-        self.assertEqual((args.command_source, args.vx, args.wz), ("fixed", 0.3, 0.0))
+        self.assertEqual((args.command_source, args.vx, args.wz), ("fixed", 0.2, 0.0))
         self.assertEqual(self.args("--command-source", "vision").udp_command_port, 5005)
         self.assertEqual(self.args("--wz", "0.5").wz, 0.5)
 
@@ -77,12 +77,12 @@ class WalkingModeTests(unittest.TestCase):
             self.assertEqual(main.main(), 1)
             self.assertEqual(policy.step.call_count, 2)
             for call in policy.step.call_args_list:
-                np.testing.assert_allclose(call.kwargs["velocity_command"], [0.3, 0, 0])
+                np.testing.assert_allclose(call.kwargs["velocity_command"], [0.2, 0, 0])
             self.assertEqual(link.send_command.call_args.args[-1], 0)
             link.close.assert_called_once()
             # --max-vx / --max-step-cm reach the observation builder as one ratio.
             self.assertAlmostEqual(policy_cls.call_args.args[1],
-                                   config.MAX_STEP_DISTANCE / config.MAX_COMMAND_VX)
+                                   config.MAX_STEP_DISTANCE / config.STEP_REFERENCE_VX)
 
 
     def test_live_vision_commands_are_not_overridden_after_five_seconds(self):

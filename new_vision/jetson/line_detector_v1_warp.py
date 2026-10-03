@@ -261,7 +261,7 @@ class LineDetector:
         self.lane_fit_seg = 50           # 每段多少行（滑动窗口的高度）
         self.lane_fit_top_cm = 70.0      # 高带最远扫到地面多少 cm（成对的点扫不了那么远）
         self.lane_fit_near_cm = 25.0     # 读第一个点的地面距离
-        self.lane_fit_far_cm = 55.0      # 读第二个点；65 在最紧的弯上读不到（见下）
+        self.lane_fit_far_cm = 50.0      # 读第二个点；再远在最紧的弯上读不到（见下）
         self.lane_fit_min_pts = 8        # 少于这个点数就不拟合
         self.curve_smooth_alpha = 0.85   # ~6-frame EMA, for telling a curve from jitter
         self.curve_angle_deg = 8.0       # fitted heading past which one band is a curve
@@ -854,15 +854,35 @@ class LineDetector:
         （0.2 m/s 下 0.258 rad/s），而不是每帧去估 —— 这才是"已知赛道形状"
         真正能给的东西。
         """
-        # 一段一段往上扫，**每段用上一段最远那一行的中心当种子**（滑动窗口）。
-        # 一开始写成"一条高带从远往近扫"，结果 30 帧里近端读出 +147px 这种
-        # 不可能的值 —— 远端对比度低、先锁错，连续性闸再把错误一路带到近端。
+        # 一段一段往上扫（滑动窗口），**相邻窗口重叠一半**。两个坑都在这几行里：
+        #
+        # 1. `_scan_band_midline` 的 y 是**递增**的，而调用处 y_start=y_lo（远）、
+        #    y_end=y_hi（近），所以它是**由远及近**扫，`centers_list[0]` 是段内
+        #    **最远**那行。原来每段整个往上挪一格（`y_hi = y_lo`），新段的第一行
+        #    就比任何测过的行还远一整段，而种子是上一段最远那行（差着 50 行）；
+        #    偏偏新段第一行 `centers_px` 还是空的，连续性闸
+        #    （`_scan_band_midline` 的 `if len(centers_px) > 0`）被跳过，只剩那个
+        #    很松的绝对门。实车 91 帧里 49 帧就是这样死在第 3 段、`top` 卡在
+        #    34~36cm（正好是中带顶边 row 300）。重叠一半之后，新段的远端落在上一段
+        #    已经扫过的行里，种子可以取到一个**真正的测量值**。
+        # 2. 一整段都是单线盲推（mode 1）时，它报的 `lane_width_px` 是段内中值 ——
+        #    在没有成对行的情况下那是编出来的宽度，回灌给下一段会把配对门一起带歪。
+        #    成对行不够就不回灌，沿用上一次的。
         y_top = max(1, self._row_at_cm(self.lane_fit_top_cm))
         ys_all, cx_all, modes_all = [], [], []
         center, width = hint_x, lane_width_hint
+        win_step = max(1, self.lane_fit_seg // 2)
         y_hi = self.bird_h - 1
-        while y_hi > y_top:
+        while True:
             y_lo = max(y_top, y_hi - self.lane_fit_seg)
+            if y_lo >= y_hi:
+                break
+            # 种子取已测点里行号最接近 y_lo（新段第一行）的那个。用**全部**点，
+            # 含单线盲推的：它只负责把搜索窗领到大致位置，连续性闸会兜住；
+            # 拟合才只认成对的点。
+            if ys_all:
+                nearest = min(range(len(ys_all)), key=lambda i: abs(ys_all[i] - y_lo))
+                center = float(cx_all[nearest])
             res = self._scan_band_midline(
                 gray, bgr, black_th, track_is_dark, center, width,
                 y_lo / float(self.bird_h), y_hi / float(self.bird_h),
@@ -875,11 +895,11 @@ class LineDetector:
                     ys_all.extend(yl)
                     cx_all.extend(cl)
                     modes_all.extend(ml if len(ml) == len(yl) else [1] * len(yl))
-                    # 种子仍用**全部**点（含单线盲推的）：它只负责把下一段的搜索窗
-                    # 领到大致位置，连续性闸会兜住。拟合才只认成对的点。
-                    center = float(cl[0])          # 这一段最远那行 = 下一段的近端
-                    width = float(res["lane_width_px"])
-            y_hi = y_lo
+                    if len(ml) == len(yl) and sum(m >= 2 for m in ml) >= max(3, len(yl) // 2):
+                        width = float(res["lane_width_px"])
+            if y_lo <= y_top:
+                break
+            y_hi = y_lo + win_step
         ys = np.asarray(ys_all, dtype=np.float64)
         cx = np.asarray(cx_all, dtype=np.float64)
         keep = np.asarray(modes_all, dtype=np.int32) >= 2

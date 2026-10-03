@@ -89,10 +89,11 @@ def parse_args() -> argparse.Namespace:
         help="Fixed mode only: yaw-rate command in rad/s, within [-0.5, 0.5]",
     )
     parser.add_argument(
-        "--max-vx", type=float, default=config.MAX_COMMAND_VX,
-        help="The speed --max-step-cm is calibrated at, m/s. In vision mode this is "
-             "whatever --vx the vision runs at, and it only sets the step-distance "
-             "scaling, not the speed itself",
+        "--max-vx", type=float, default=config.STEP_REFERENCE_VX,
+        help="The speed --max-step-cm is calibrated at, m/s. NOT the speed the robot "
+             "walks - it only sets the step-distance scaling. Leave it alone unless "
+             "you are re-calibrating the gait; changing it rescales the stride at "
+             "every speed",
     )
     parser.add_argument(
         "--max-step-cm", type=float, default=config.MAX_STEP_DISTANCE * 100.0,

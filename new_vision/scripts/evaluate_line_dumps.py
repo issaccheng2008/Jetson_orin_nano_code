@@ -41,10 +41,11 @@ def load(dirpath):
     return out
 
 
-def run_one(fp):
+def run_one(fp, lane_fit=False):
     # startup 分支走的是另一条检测路径，离线复现要关掉
     det = LineDetector()
     det.startup_settle_frames = 0
+    det.lane_fit_enable = lane_fit
     img = cv2.imread(fp)
     if img is None:
         return None
@@ -59,6 +60,10 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--bad-deg", type=float, default=20.0,
                     help="|ang| 超过这个度数算坏帧")
+    ap.add_argument("--lane-fit", action="store_true",
+                    help="同时跑 --lane-fit 的整条车道拟合，报 fit_pts / fit_top_cm / 远-近。"
+                         "注意这里是**每帧新建 detector、种子恒为画面中心**，所以它验的是"
+                         "单帧几何，验不了实车上跨帧的那个种子")
     args = ap.parse_args()
 
     items = load(args.dir)
@@ -70,7 +75,7 @@ def main():
 
     rec, got = [], []
     for name, fp, saved in items:
-        dbg = run_one(fp)
+        dbg = run_one(fp, lane_fit=args.lane_fit)
         if dbg is None:
             continue
         rec.append(saved)
@@ -121,6 +126,25 @@ def main():
           f"{spur}/{len(got)}  ({100.0 * spur / len(got):.0f}%)")
     print(f"  融合放大倍数 |fused|/|near|: 中位 {st.median(amp):.2f}  "
           f"90分位 {amp[int(0.9 * (len(amp) - 1))]:.2f}  峰 {amp[-1]:.1f}")
+
+    if args.lane_fit:
+        print()
+        print(" ── --lane-fit ──")
+        print(f"  {'帧':<12} {'pts':>5} {'成对':>5} {'top_cm':>8} {'近px':>8} "
+              f"{'远px':>8} {'远-近':>8}  ok")
+        tops = []
+        for name, d in got:
+            top = d.get("fit_top_cm") or 0.0
+            tops.append(top)
+            print(f"  {name:<12} {d.get('fit_pts', 0):>5} {d.get('fit_pair_pts', 0):>5} "
+                  f"{top:>8.1f} {d.get('fit_near_px', float('nan')):>8.1f} "
+                  f"{d.get('fit_far_px', float('nan')):>8.1f} "
+                  f"{d.get('fit_curve_px', float('nan')):>8.1f}  "
+                  f"{'是' if d.get('fit_ok') else '否'}")
+        if tops:
+            ok = sum(1 for _, d in got if d.get("fit_ok"))
+            print(f"  top_cm: 中位 {st.median(tops):.1f}  最小 {min(tops):.1f}  "
+                  f"拟合成功 {ok}/{len(tops)}")
 
 
 if __name__ == "__main__":

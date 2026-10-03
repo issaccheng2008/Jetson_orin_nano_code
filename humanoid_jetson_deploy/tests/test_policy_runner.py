@@ -62,7 +62,7 @@ class PolicyInterfaceTests(unittest.TestCase):
             joint_position_policy=config.Q_DEFAULT,
             joint_velocity_policy=np.zeros(12),
         )
-        max_vx, max_step = config.MAX_COMMAND_VX, config.MAX_STEP_DISTANCE
+        max_vx, max_step = config.STEP_REFERENCE_VX, config.MAX_STEP_DISTANCE
         for vx, expected in ((max_vx, max_step), (max_vx / 2, max_step / 2),
                              (max_vx / 10, max_step / 10), (0.0, 0.0)):
             with self.subTest(vx=vx):
@@ -86,6 +86,19 @@ class PolicyInterfaceTests(unittest.TestCase):
                 obs = policy.build_observation(
                     velocity_command=np.array([vx, 0, 0]), **values)
                 self.assertAlmostEqual(float(obs[11]), expected, places=6)
+
+    def test_the_speed_and_the_step_calibration_are_separate_knobs(self):
+        """SPEED and the step pair must not share a constant. They did until
+        2026-10-03: MAX_COMMAND_VX was both main.py's --vx default and the
+        --max-vx reference, so dropping the speed 0.3 -> 0.2 also rescaled the
+        stride by 25% on every command that did not pass --max-vx/--max-step-cm.
+        The stride the policy is asked for at the running speed is what has to
+        stay put, so pin it here rather than pinning either constant."""
+        self.assertAlmostEqual(config.STEP_DISTANCE_PER_MPS, 0.08 / 0.3, places=6)
+        self.assertAlmostEqual(config.MAX_COMMAND_VX * config.STEP_DISTANCE_PER_MPS,
+                               0.2 * 0.08 / 0.3, places=6)   # 5.33 cm at vx 0.2
+        self.assertNotEqual(config.MAX_COMMAND_VX, config.STEP_REFERENCE_VX,
+                            "a single constant here is the bug this test exists for")
 
     def test_rejects_legacy_models_before_inference(self):
         for width in (47, 48):
