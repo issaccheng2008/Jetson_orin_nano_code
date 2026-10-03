@@ -408,9 +408,13 @@ def parse_args():
     parser.add_argument("--lane-fit-near-cm", type=float, default=25.0,
                         help="Where to read the near point off the fitted centre line")
     parser.add_argument("--lane-fit-far-cm", type=float, default=65.0,
-                        help="Where to read the far point; the gap between it and "
-                             "the near point is what separates a 0.776 m arc (about "
-                             "10 cm of lane bend) from a straight (about 0)")
+                        help="Where to read the far point. On the R=0.776 m arc, "
+                             "with the robot centred and tangent, the lane centre "
+                             "sits R-sqrt(R^2-z^2) to the side: 14 cm (55 px) at "
+                             "45 cm, 35 cm (120 px) at 65 cm. A straight gives 0, so "
+                             "the gap separates them by 3~8x the fit's measured "
+                             "5~11 px noise. Do not go past ~70 cm: the lane centre "
+                             "then leaves the 320 px wide birdseye")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")
@@ -1197,15 +1201,21 @@ def main():
                 log_frames = 0
                 if args.lane_fit:
                     # 只读诊断：整条车道拟合读出来的两点中心（px，相对画面中心）。
-                    # "远 − 近"在圆弧上约 30px（10cm 的车道弯曲），直道上约 0 ——
-                    # 这一列就是判断能不能拿它分直道/弯道的唯一依据。
+                    # "远 − 近" 是判断能不能拿它分直道/弯道的唯一依据。按检测器自己的
+                    # LUT 反算，车在正中、对准切线时：直道 0；R=0.776m 的圆弧上前视
+                    # 45cm 处车道中心偏 14cm=55px、65cm 处偏 35cm=120px，而拟合对
+                    # 检测器自身读数的实测误差只有 5~11px。top 是链条真正爬到的地面
+                    # 距离 —— 它小于 far-cm 时 far 那一点就是外推，代码会直接不给值
+                    # （fit_ok 为假），所以 top 偏低只会丢帧，不会喂假数。
                     if debug.get("fit_ok"):
                         print(f"[lane-fit] pts={debug.get('fit_pts')} "
+                              f"top={debug.get('fit_top_cm') or 0:.0f}cm "
                               f"near={debug.get('fit_near_px'):+.0f}px "
                               f"far={debug.get('fit_far_px'):+.0f}px "
                               f"远-近={debug.get('fit_curve_px'):+.0f}px", flush=True)
                     else:
-                        print(f"[lane-fit] 拟合不出（pts={debug.get('fit_pts', 0)}）",
+                        print(f"[lane-fit] 拟合不出（pts={debug.get('fit_pts', 0)}, "
+                              f"top={debug.get('fit_top_cm') or 0:.0f}cm）",
                               flush=True)
             if not args.headless:
                 cv2.putText(frame, f"vx={vx:+.3f} wz={wz:+.3f} Q=quit", (10, 25),
