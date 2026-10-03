@@ -2086,13 +2086,85 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         published = client_cls.return_value.publish.call_args_list
         self.assertFalse(published[0].kwargs["card_tilt"])
         self.assertTrue(published[1].kwargs["card_tilt"])
-        # The trigger lands on read 2, so 1000 ms of mocked time is reads 3..12 skipped
+        # The trigger lands on read 2. The legacy path waits 1000ms plus the new
+        # 300ms settling margin before looking at a card again.
         # and the every-other-frame cadence picks up from the first read at or after
         # the window. Asserted against the tilt being ten reads long rather than a
         # fixed index: the mocked clock accumulates 0.1 and lands either side of the
         # boundary. With --card-tilt-ms 0 the same harness looks from read 4.
         inside = [i for i in seen if i > 3]
-        self.assertEqual(inside[:5], [12, 14, 16, 18, 20])
+        self.assertEqual(inside[:5], [16, 18, 20, 22, 24])
+
+    def test_votes_start_only_after_stm32_done_plus_settle_time(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.8, None, detection())
+        clock = [0.0]
+        reads = [0]
+        seen = []
+        shape = Mock()
+        shape.action_map = {"square": 3}
+
+        def update(*_args, **_kwargs):
+            seen.append(reads[0])
+            return None, {"presence": reads[0] >= 2,
+                          "presence_cy_frac": 0.9 if reads[0] >= 2 else None,
+                          "shape": "square"}
+
+        shape.update.side_effect = update
+        attitude = Mock()
+        attitude.value = 45.0
+        attitude.card_tilt_status_seen = True
+        attitude.card_tilt_event_id = 0
+        attitude.card_tilt_done = False
+
+        def read():
+            reads[0] += 1
+            clock[0] = reads[0] * 0.1
+            if reads[0] > 23:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        def poll():
+            if reads[0] >= 3:
+                attitude.card_tilt_event_id = 1
+                attitude.card_tilt_done = True  # delayed DONE from a previous card
+            if reads[0] >= 7:
+                attitude.card_tilt_event_id = 2
+                attitude.card_tilt_done = False
+            if reads[0] >= 12:
+                attitude.card_tilt_done = True
+
+        camera.read.side_effect = read
+        attitude.poll.side_effect = poll
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--shape-every", "1", "--card-every-stopped", "1",
+                               "--card-vote-frames", "1", "--card-tilt-ms", "0",
+                               "--card-settle-ms", "300"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch("attitude_input.AttitudeInput", return_value=attitude),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+
+        # Trigger-frame classification is not a vote. Even with the old 0ms
+        # blind timer, a stale DONE from the previous card cannot start voting.
+        # The current event reaches DONE at read 12; then another 300ms must pass.
+        self.assertEqual([i for i in seen if 2 < i < 15], [])
+        events = [i + 1 for i, call in enumerate(client_cls.return_value.publish.call_args_list)
+                  if "event_id" in call.kwargs]
+        self.assertTrue(events)
+        self.assertGreaterEqual(events[0], 15)
 
     def test_a_card_in_view_speeds_the_detection_up_before_the_stop(self):
         """The stop fires on the first cy at or above the trigger line, so

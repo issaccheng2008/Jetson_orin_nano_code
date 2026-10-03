@@ -57,7 +57,7 @@ class ShapeMainTests(unittest.TestCase):
             self.assertEqual(main.main(), 1)
             return walk, foot, link
 
-    def run_ticks(self, snapshots, states=None):
+    def run_ticks(self, snapshots, states=None, action_statuses=None):
         """像 run_one_tick，但喂多帧 —— 撤重摆那一帧和形状请求是同一帧，
         顺序只有在那一帧里才看得见。states 逐帧给，测站定和保持要用。"""
         with patch("sys.argv", ["main.py", "--model", "walk.onnx", "--no-plot",
@@ -85,8 +85,24 @@ class ShapeMainTests(unittest.TestCase):
             link.get_latest_state.side_effect = (
                 list(states) + [RuntimeError("end test")])
             link.get_action_status.return_value = 0
+            if action_statuses is not None:
+                link.get_action_status.side_effect = action_statuses
             self.assertEqual(main.main(), 1)
             return walk_cls.return_value, link
+
+    def test_re_pose_done_is_broadcast_to_vision(self):
+        from protocol import ACTION_DONE
+
+        window = CommandSnapshot(np.zeros(3, dtype=np.float32), card_tilt=True)
+        with patch.object(main, "AttitudeBroadcaster") as broadcaster_cls:
+            self.run_ticks([window] * 6, action_statuses=[0, ACTION_DONE])
+
+        packets = broadcaster_cls.return_value.publish.call_args_list
+        self.assertGreaterEqual(len(packets), 2)
+        self.assertEqual(packets[0].kwargs,
+                         {"card_tilt_event_id": 1, "card_tilt_done": False})
+        self.assertEqual(packets[1].kwargs,
+                         {"card_tilt_event_id": 1, "card_tilt_done": True})
 
     def test_the_untilt_is_requested_before_the_shape_action(self):
         """8 必须排在 1-6 前面。STM32 一次只跑一个动作，后到的直接 BUSY 丢掉 ——

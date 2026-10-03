@@ -53,6 +53,9 @@ class AttitudeInput:
         self.value = float(mount_pitch_deg)   # 没有姿态时的退路：就是静态安装角
         self.received = 0
         self.last_packet_s = 0.0
+        self.card_tilt_status_seen = False
+        self.card_tilt_event_id = 0
+        self.card_tilt_done = False
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.setblocking(False)
         try:
@@ -76,6 +79,15 @@ class AttitudeInput:
                 if len(gravity) != 3:
                     raise ValueError("gravity must have three components")
                 target = camera_pitch_deg(gravity, self.mount_pitch_deg)
+                if "card_tilt_event_id" in message and "card_tilt_done" in message:
+                    event_id = int(message["card_tilt_event_id"])
+                    if event_id < 0 or event_id > 0xFFFFFFFF:
+                        raise ValueError("invalid card tilt event ID")
+                    if not isinstance(message["card_tilt_done"], bool):
+                        raise ValueError("invalid card tilt completion flag")
+                    self.card_tilt_status_seen = True
+                    self.card_tilt_event_id = event_id
+                    self.card_tilt_done = message["card_tilt_done"]
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError,
                     ValueError, OverflowError):
                 continue

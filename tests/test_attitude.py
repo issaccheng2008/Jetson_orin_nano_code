@@ -79,6 +79,30 @@ class AttitudeBroadcastTests(unittest.TestCase):
             listener.close()
         self.assertAlmostEqual(message["t"], 3.5, places=3)
         self.assertAlmostEqual(camera_pitch_deg(message["g"], 45.0), 57.0, places=3)
+        self.assertEqual(message["card_tilt_event_id"], 0)
+        self.assertFalse(message["card_tilt_done"])
+
+    def test_re_pose_completion_reaches_the_vision_listener(self):
+        receiver = AttitudeInput(0, 45.0)
+        sender = AttitudeBroadcaster("127.0.0.1", receiver.socket.getsockname()[1])
+        try:
+            sender.publish(gravity_for(0.0), 1.0, card_tilt_event_id=7,
+                           card_tilt_done=False)
+            time.sleep(0.02)
+            self.assertTrue(receiver.poll())
+            self.assertTrue(receiver.card_tilt_status_seen)
+            self.assertEqual(receiver.card_tilt_event_id, 7)
+            self.assertFalse(receiver.card_tilt_done)
+
+            sender.publish(gravity_for(0.0), 1.1, card_tilt_event_id=7,
+                           card_tilt_done=True)
+            time.sleep(0.02)
+            self.assertTrue(receiver.poll())
+            self.assertEqual(receiver.card_tilt_event_id, 7)
+            self.assertTrue(receiver.card_tilt_done)
+        finally:
+            sender.close()
+            receiver.close()
 
     def test_non_finite_gravity_is_not_sent(self):
         listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

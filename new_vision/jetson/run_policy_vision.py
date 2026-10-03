@@ -237,20 +237,14 @@ def parse_args():
                              "exactly one of the two")
     parser.add_argument("--card-tilt-ms", type=float,
                         default=float(os.getenv("CARD_TILT_MS", "1800")),
-                        help="After the stop trigger, spend this long not looking at "
-                             "the card at all. The classifier does not run until it "
-                             "expires, because a frame taken mid-tilt is a frame of a "
-                             "body in motion. 0 identifies immediately. "
-                             "It has to outlast two things: how long the robot takes "
-                             "to settle - main.py only asks for the tilt once it reads "
-                             "`stopped`, and asking earlier snapshots a mid-stride pose "
-                             "- plus the STM32's lean ramp, which is a firmware "
-                             "constant (20 deg at 0.6 rad/s = 0.58s). ~0.9 + 0.58 is "
-                             "where 1800 comes from. "
-                             "Too early and the classifier looks at a body that is "
-                             "still leaning, while the geometry assumes the install "
-                             "pose - every card gets rejected. Check --card-stop-ms "
-                             "(default 3000) still covers this plus identification.")
+                        help="Legacy wait after stop before reading a card, used only "
+                             "when the attitude broadcaster does not report STM32 "
+                             "re-pose status. Current deployments wait for DONE instead.")
+    parser.add_argument("--card-settle-ms", type=float,
+                        default=float(os.getenv("CARD_SETTLE_MS", "300")),
+                        help="Wait this long after STM32 confirms card re-pose DONE "
+                             "before taking the first shape vote. With an older "
+                             "attitude broadcaster, add it to --card-tilt-ms instead.")
     parser.add_argument("--card-cold-start", action="store_true",
                         help="On the stopped-to-walking edge, wipe the controller's loop "
                              "state and the detector's memory instead of keeping them. "
@@ -417,6 +411,8 @@ def parse_args():
         parser.error("card-hold-ms must be finite and nonnegative")
     if not math.isfinite(args.card_stop_ms) or args.card_stop_ms < 0:
         parser.error("card-stop-ms must be finite and nonnegative")
+    if not math.isfinite(args.card_settle_ms) or args.card_settle_ms < 0:
+        parser.error("card-settle-ms must be finite and nonnegative")
     if not math.isfinite(args.center_dead_cm) or args.center_dead_cm < 0:
         parser.error("center-dead-cm must be finite and nonnegative")
     if args.max_wz_right is not None and not (
@@ -645,6 +641,10 @@ def main():
         line_pitch_until = 0.0       # 窗口关掉之后，还要继续喂巡线俯角到什么时候
         last_cmd_vx = 0.0            # 上一帧发出去的速度，判"车在不在走"
         tilt_until = 0.0
+        card_wait_for_tilt_done = False
+        card_tilt_event_before_stop = 0
+        card_tilt_pending_id = 0
+        card_vote_ready_at = 0.0
         card_flag = False        # a card is in view on this approach
         card_absent = 0          # consecutive detection calls without one
         card_triggered = False   # this card has already been acted on
@@ -707,6 +707,8 @@ def main():
             stop_window = processed < stop_until or processed < card_until
             window_open = stop_window or gate_window_open
             if card_window_open and not window_open:
+                card_wait_for_tilt_done = False
+                card_vote_ready_at = 0.0
                 # Handover on the stopped-to-walking edge, BEFORE this frame is
                 # processed. Doing anything to the state after detector.process() left
                 # the first walking frame computed from the old state, so only the
@@ -826,7 +828,20 @@ def main():
             # mid-tilt is a frame of a body in motion, and feeding those to the
             # classifier is how a card gets read as the wrong shape. The card is
             # stationary and the window is seconds long, so the wait is free.
-            tilting = processed < tilt_until
+            if card_wait_for_tilt_done and card_vote_ready_at == 0.0:
+                tilt_event_id = getattr(attitude, "card_tilt_event_id", 0)
+                if (type(tilt_event_id) is int
+                        and tilt_event_id > card_tilt_event_before_stop):
+                    if getattr(attitude, "card_tilt_done", False) is False:
+                        card_tilt_pending_id = tilt_event_id
+                    elif tilt_event_id == card_tilt_pending_id:
+                        card_vote_ready_at = processed + args.card_settle_ms / 1000.0
+                        print(f"[shape] STM32 re-pose DONE event={tilt_event_id}; "
+                              f"wait {args.card_settle_ms:.0f}ms before voting", flush=True)
+            if card_wait_for_tilt_done:
+                tilting = card_vote_ready_at == 0.0 or processed < card_vote_ready_at
+            else:
+                tilting = processed < tilt_until
             # 每帧清空：下面投票那段在检测块外面，读到上一帧的 card_dbg 就会拿同一次
             # 检测投两次票（--card-every-stopped 2 时票数正好翻倍）。
             card_dbg = None
@@ -921,7 +936,14 @@ def main():
                     card_triggered = True
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
-                    tilt_until = processed + args.card_tilt_ms / 1000.0
+                    tilt_until = processed + (args.card_tilt_ms + args.card_settle_ms) / 1000.0
+                    card_wait_for_tilt_done = (
+                        getattr(attitude, "card_tilt_status_seen", False) is True)
+                    card_tilt_event_before_stop = (
+                        attitude.card_tilt_event_id if card_wait_for_tilt_done else 0)
+                    card_tilt_pending_id = 0
+                    card_vote_ready_at = 0.0
+                    tilting = True  # the trigger frame may identify a shape, but gets no vote
                     card_votes = {}
                     card_vote_total = 0
                     # 和下面"识别到图卡"那条配成一对：这两个时刻是整趟里唯一需要
@@ -938,8 +960,10 @@ def main():
                           f"    {how}"
                           f"    cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')}",
                           flush=True)
-                    print(f"        先重摆 {args.card_tilt_ms:.0f}ms（这期间不认形状），"
-                          f"之后才开始识别", flush=True)
+                    print(f"        等 STM32 重摆完成后静置 {args.card_settle_ms:.0f}ms 再投票"
+                          if card_wait_for_tilt_done else
+                          f"        兼容模式：盲等 {args.card_tilt_ms + args.card_settle_ms:.0f}ms 再投票",
+                          flush=True)
                     print("=" * 68 + "\n", flush=True)
                 # Why a card that is plainly in view did not become an action: the
                 # quad gates (found/closure), the classifier (shape/rules), or the
@@ -1000,7 +1024,7 @@ def main():
             # 分支靠 card_action_triggered / card_event_id 挡，清票靠卡离开那一段，
             # 三处只要有一处没跟上就会拿着残留的票再定一次案。判过的卡连票都不该
             # 收，就不需要依赖那三处同步。
-            if (processed < stop_until and not card_action_triggered
+            if (processed < stop_until and not tilting and not card_action_triggered
                     and card_dbg and card_dbg.get("shape")):
                 _name = card_dbg["shape"]
                 card_votes[_name] = card_votes.get(_name, 0) + 1

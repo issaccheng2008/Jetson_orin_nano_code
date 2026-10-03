@@ -729,6 +729,8 @@ def main() -> int:
 
             # 10 Hz 就够：视觉那边用长时间常数低通，滤掉的正是步态摆动。
             if attitude is not None and step % 5 == 0:
+                # Only the current lean event may open the next voting window.
+                # A previous card's DONE must not be mistaken for this card's DONE.
                 tilt_event_id = card_tilt_event if card_tilt_active else 0
                 attitude.publish(
                     projected_gravity, elapsed_s,
@@ -781,4 +783,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

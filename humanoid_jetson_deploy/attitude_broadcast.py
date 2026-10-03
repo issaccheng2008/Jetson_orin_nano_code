@@ -26,13 +26,16 @@ class AttitudeBroadcaster:
         self.address = (str(host), int(port))
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    def publish(self, projected_gravity, elapsed_s: float) -> None:
+    def publish(self, projected_gravity, elapsed_s: float,
+                card_tilt_event_id: int = 0, card_tilt_done: bool = False) -> None:
         gravity = np.asarray(projected_gravity, dtype=np.float64).reshape(3)
         if not np.all(np.isfinite(gravity)):
             return
         message = {
             "g": [round(float(value), 5) for value in gravity],
             "t": round(float(elapsed_s), 3),
+            "card_tilt_event_id": int(card_tilt_event_id),
+            "card_tilt_done": bool(card_tilt_done),
         }
         self.socket.sendto(
             json.dumps(message, separators=(",", ":")).encode("utf-8"), self.address

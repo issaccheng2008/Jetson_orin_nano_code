@@ -22,6 +22,19 @@ Jetson remains the only writer of 12 leg targets, including while the STM32
 controls the arms or head. `--fixed-policy` continues through its original
 joint-frame playback path and does not consume shape events.
 
+Before voting, vision requests the STM32 card re-pose (action 7). The policy
+process reports action 7's `DONE` status over the existing attitude UDP channel
+(port 5007). Vision then waits another 300 ms (`--card-settle-ms`) before taking
+the first shape vote. The stop-trigger frame cannot vote. The 300 ms margin is
+measured from receipt of `DONE`, so it also covers UDP delivery delay. The
+existing `--card-stop-ms` budget still starts at the stop trigger; if re-posing
+uses the entire budget, there may be no votes. With an older policy process
+that does not publish completion status, vision uses the legacy
+`--card-tilt-ms` wait plus the 300 ms settling margin. Deploy the policy and
+vision changes together to get the STM32-confirmed behavior. STM32 `DONE`
+reports that its commanded lean ramp reached the target; it does not measure
+the physical head position. Confirm the extra margin with camera footage.
+
 ## Run
 
 Run the connector and vision from the repository root on the Jetson:
