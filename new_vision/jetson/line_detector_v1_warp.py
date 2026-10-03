@@ -248,6 +248,9 @@ class LineDetector:
         self.pix_curve_gain = 0.18       # narrower band → weaker curve signal
         self.pix_angle_gain = 0.15 / self._asp  # compensated: angle×gain unchanged
         self.curve_switch_px = 18.0      # ~1/3 of 50px band separation
+        # 前瞻/曲率/航向/左弯外推四项之和，最多是近带读数的这个倍数。近带是唯一
+        # 直接测量，其余是推断 —— 推断不能反号把测量翻掉。0 = 关。见融合那段。
+        self.anticipation_clip = 0.5
         self.curve_smooth_alpha = 0.85   # ~6-frame EMA, for telling a curve from jitter
         self.curve_angle_deg = 8.0       # fitted heading past which one band is a curve
         # 车偏得这么远就强制进弯道模式：这是**转向策略**的门槛，不是"锁可不可信"
@@ -823,6 +826,18 @@ class LineDetector:
     # ═══════════════════════════════════════════════════════════
     # Band scanning (on birdseye)
     # ═══════════════════════════════════════════════════════════
+
+    def _clip_anticipation(self, near_term, anticipation):
+        """把推断项夹在近带读数的 anticipation_clip 倍以内。
+
+        近带是唯一直接测量，推断（前瞻带 / 曲率 / 拟合航向 / 左弯外推）只有
+        补充的份，没有翻案的份 —— 近带报 42px 偏差时，推断加起来最多把它削掉
+        一半，削不成零、更翻不了号。0 关掉。
+        """
+        if self.anticipation_clip <= 0.0:
+            return anticipation
+        limit = self.anticipation_clip * abs(near_term)
+        return clamp(anticipation, -limit, limit)
 
     def _scan_band_midline(self, gray, bgr, black_th, track_is_dark,
                            hint_x, lane_width_hint,
@@ -1629,10 +1644,12 @@ class LineDetector:
             turn_gate = clamp(abs(curve_px) / max(self.curve_switch_px, 1.0), 0.0, 1.0)
             lookahead_dyn = self.pix_lookahead_gain * (0.70 + 0.90 * turn_gate)
 
-            # Pixel-domain error fusion
+            # Pixel-domain error fusion. 近带是唯一直接量"我在不在线上"的一项，
+            # 其余全是推断（前瞻带、曲率、拟合航向）。推断合起来有权力补充，没有
+            # 权力翻案 —— 见下面那段 clip。
             fused_err = -near_norm
-            fused_err += lookahead_dyn * (-far_norm)
-            fused_err += self.pix_curve_gain * (-curve_norm)
+            anticipation = lookahead_dyn * (-far_norm)
+            anticipation += self.pix_curve_gain * (-curve_norm)
             # Not negated. angle_err is the fitted lane heading, and the axes say
             # larger row is nearer and larger column is right - so a lane that goes
             # left as it recedes reads angle_err > 0, which is the same statement as
@@ -1640,9 +1657,22 @@ class LineDetector:
             # left curve: on a measured left-curve fixture it took 1.36 cm back out of
             # a 3.24 cm correction. run_robot.py:257 carries the same heading into its
             # preview term with a plus, so the two ends of the repo disagreed.
-            fused_err += self.pix_angle_gain * (angle_err / 45.0)
+            anticipation += self.pix_angle_gain * (angle_err / 45.0)
             if curve_px < -self.left_curve_outward_px:
-                fused_err += self.left_curve_outward_gain * curve_norm
+                anticipation += self.left_curve_outward_gain * curve_norm
+
+            # 工程性截断（PPO clip 那个意思）：前瞻 + 曲率 + 航向 + 左弯外推，
+            # 合起来不得超过近带读数的 anticipation_clip 倍。
+            #
+            # 2026-10-03 实车三次跑出去就是缺这一下：两条带子互相矛盾时，"统一
+            # 航向拟合"会给出 ang=-73°、curve_px=±78 这种值（真弯道是 +22° / 9~14），
+            # 它们加起来能把近带报的 42px 偏差抵消到 -0.9cm —— 车眼看要出线却什么
+            # 都不做；同样的 44px 换个方向叠就又变成 +17.4cm 满舵。同一次近带读数，
+            # 两种结果，差别全在推断项能不能反号。
+            #
+            # 近带小的时候上限也小，所以"基本在线上"就真的是直走 —— 这和离散模式
+            # 的意图一致。0 关掉这一条，逐位回退到没有它的时候。
+            fused_err += self._clip_anticipation(fused_err, anticipation)
 
             fused_err_raw = fused_err
             state["smoothed_err"] = confidence_weighted_ema(

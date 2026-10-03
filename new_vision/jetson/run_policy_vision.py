@@ -388,6 +388,15 @@ def parse_args():
                              "while the body is right of the lane centre (err > 0). "
                              "Left of centre it coasts, which is what turns the "
                              "corrections into the pulse-then-coast the polygon wants")
+    parser.add_argument("--anticipation-clip", type=float,
+                        default=float(os.getenv("ANTICIPATION_CLIP", "0.5")),
+                        help="Cap on the fusion's inferred terms (lookahead band + "
+                             "curvature + fitted heading + left-curve outward) as a "
+                             "multiple of the near band's own reading. The near band "
+                             "is the only direct measurement of 'am I on the line'; "
+                             "the rest are inference and may add to it but not "
+                             "outvote it. 0.5 by default. 0 disables the cap and "
+                             "restores the old fusion exactly")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")
@@ -573,6 +582,7 @@ def main():
                                 cam_vfov_deg=args.camera_vfov_deg)
         if args.no_red_detect:
             detector.red_detect_enable = False
+        detector.anticipation_clip = args.anticipation_clip
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
               f"{args.connector_host}:{args.connector_port}; vx={args.vx} m/s; "
               f"max_wz={args.max_wz} rad/s "

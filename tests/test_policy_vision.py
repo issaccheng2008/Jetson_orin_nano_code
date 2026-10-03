@@ -2348,6 +2348,37 @@ class LaneWidthAnchorTests(unittest.TestCase):
         self.assertLessEqual(detector.lateral_scale, detector.lateral_scale_max)
 
 
+class AnticipationClipTests(unittest.TestCase):
+    """工程性截断：推断项不许把近带的直接测量翻掉。"""
+
+    def test_the_inferred_terms_cannot_outvote_the_near_band(self):
+        from line_detector_v1_warp import LineDetector
+        det = LineDetector(1280, 720)
+        self.assertEqual(det.anticipation_clip, 0.5)
+        # 近带 +1.0，推断不管给多大，最多只到一半、且符号跟着近带
+        self.assertAlmostEqual(det._clip_anticipation(1.0, -3.0), -0.5)
+        self.assertAlmostEqual(det._clip_anticipation(1.0, +3.0), +0.5)
+        self.assertAlmostEqual(det._clip_anticipation(-1.0, -3.0), -0.5)
+        self.assertAlmostEqual(det._clip_anticipation(-1.0, +3.0), +0.5)
+        # 限内的原样通过
+        self.assertAlmostEqual(det._clip_anticipation(1.0, 0.2), 0.2)
+        # 近带为 0（车就在线上）→ 推断整个被切掉，不再凭空注入误差
+        self.assertEqual(det._clip_anticipation(0.0, 3.0), 0.0)
+
+    def test_zero_restores_the_old_fusion(self):
+        from line_detector_v1_warp import LineDetector
+        det = LineDetector(1280, 720)
+        det.anticipation_clip = 0.0
+        self.assertAlmostEqual(det._clip_anticipation(1.0, -3.0), -3.0)
+        self.assertAlmostEqual(det._clip_anticipation(0.0, 3.0), 3.0)
+
+    def test_the_argument_reaches_the_detector(self):
+        with patch("sys.argv", ["run_policy_vision.py", "--anticipation-clip", "0.25"]):
+            self.assertAlmostEqual(run_policy_vision.parse_args().anticipation_clip, 0.25)
+        with patch("sys.argv", ["run_policy_vision.py"]):
+            self.assertAlmostEqual(run_policy_vision.parse_args().anticipation_clip, 0.5)
+
+
 class DiscreteSteeringTests(unittest.TestCase):
     """离散航向：只换发出去的 wz，SteeringController 本身一个字不动。"""
 
