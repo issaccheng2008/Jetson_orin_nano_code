@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 from pathlib import Path
 import signal
 import time
@@ -198,6 +199,44 @@ CARD_UNTILT_HOLD_S = 0.65
 
 def slew_limit(target: np.ndarray, previous: np.ndarray, dt: float) -> np.ndarray:
     return limit_target_slew(target, previous, dt, config.MAX_TARGET_SPEED_RAD_S)
+
+
+def reconnect_link(link: SerialLink, port: str, baud: int,
+                   timeout_s: float = 10.0) -> SerialLink:
+    """STM32 复位/掉线之后重连：等 /dev/ttyACM0 回来、重新打开、等到第一帧状态。
+
+    固件有几条路径会**主动复位**（100ms 没收到新命令、ESTOP、目标非法），复位时
+    USB 要消失 0.2~0.5s 再枚举回来。主机原来直接 FAULT 退出，一次复位就毁掉整趟；
+    这里给它一个窗口，超时才把异常抛回去走原来的 FAULT。
+
+    旧句柄必须先放干净（`reader_alive()` 就是干这个的）：reader 线程还卡在
+    `read()` 上时重开，新端口会复用同一个 fd，旧线程会把新连接的字节偷走。
+    """
+    try:
+        link.close()
+    except Exception:
+        pass
+    deadline = time.monotonic() + timeout_s
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        if not os.path.exists(port):
+            time.sleep(0.05)
+            continue
+        fresh = None
+        try:
+            fresh = SerialLink(port, baud)
+            fresh.wait_for_state(timeout_s=1.0)
+            return fresh
+        except (TimeoutError, OSError) as exc:
+            last_error = exc
+            if fresh is not None:
+                try:
+                    fresh.close()
+                except Exception:
+                    pass
+            time.sleep(0.1)
+    raise TimeoutError(
+        f"STM32 did not come back on {port} within {timeout_s:.0f}s ({last_error})")
 
 
 def send_disable(link: SerialLink, q_motor: np.ndarray, estop: bool = False) -> None:
@@ -453,6 +492,16 @@ def main() -> int:
         held_observation = None
         last_action_tx = -float("inf")
 
+        def link_loss_recovery(exc: Exception, where: str) -> None:
+            """掉线后的统一恢复：重连，并把节拍和命令保持重新起表。"""
+            nonlocal link, previous_tick, next_tick
+            print(f"[link] STM32 掉线（{where}: {exc}）—— 等 USB 回来重连", flush=True)
+            link = reconnect_link(link, args.port, args.baud)
+            print("[link] 重连成功，继续", flush=True)
+            previous_tick = time.monotonic()
+            next_tick = previous_tick
+            walking_command_hold.clear()
+
         while not stop_requested:
             now = time.monotonic()
             if args.fixed_policy and policy.index >= len(policy.frames):
@@ -462,7 +511,11 @@ def main() -> int:
                 timed_run_completed = True
                 break
 
-            state = link.get_latest_state(max_age_s=0.05)
+            try:
+                state = link.get_latest_state(max_age_s=0.05)
+            except (TimeoutError, OSError) as exc:
+                link_loss_recovery(exc, "state")
+                continue
             diagnostic_read_time = time.monotonic_ns() * 1e-9
             state_receive_info = receive_metadata(link, state, diagnostic_read_time) if diagnostics is not None else None
             if state.status_flags & STATE_FAULT:
@@ -746,6 +799,13 @@ def main() -> int:
             try:
                 send_result = link.send_command(command_timestamp, last_q_motor,
                                                 args.kp_scale, args.kd_scale, flags)
+            except OSError as exc:
+                if diagnostics is not None:
+                    diagnostics.write(**diagnostic_values, send_result="link_lost",
+                                      send_error=str(exc),
+                                      send_done_monotonic_s=time.monotonic_ns() * 1e-9)
+                link_loss_recovery(exc, "write")
+                continue
             except Exception as exc:
                 if diagnostics is not None:
                     diagnostics.write(**diagnostic_values, send_result="error", send_error=str(exc),

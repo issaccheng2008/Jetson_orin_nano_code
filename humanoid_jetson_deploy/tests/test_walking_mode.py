@@ -4,7 +4,7 @@ import contextlib
 import io
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -84,6 +84,97 @@ class WalkingModeTests(unittest.TestCase):
             self.assertAlmostEqual(policy_cls.call_args.args[1],
                                    config.STEP_LENGTH_CM / 100.0)
 
+
+    def test_a_stale_state_reconnects_instead_of_faulting(self):
+        """STM32 复位时 USB 要消失 0.2~0.5s，状态流先停 —— 主机 50ms 的陈旧判据
+        会抛 TimeoutError。原来直接 FAULT 退出，一次复位毁掉整趟；现在等端口回来
+        重连，跑动继续。"""
+        state = SimpleNamespace(
+            status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID,
+            accel_m_s2=np.array([0, 0, 9.81], dtype=np.float32),
+            gyro_rad_s=np.zeros(3, dtype=np.float32),
+            orientation_wxyz=np.array([1, 0, 0, 0], dtype=np.float32),
+            joint_position=config.Q_DEFAULT.copy(),
+            joint_velocity=np.zeros(12, dtype=np.float32), sequence=1,
+        )
+        fresh = Mock()
+        fresh.get_latest_state.side_effect = [state, RuntimeError("stale state")]
+        fresh.send_command.return_value = True
+        output = io.StringIO()
+        with (
+            patch.object(main, "parse_args", return_value=self.args()),
+            patch.object(main.signal, "signal"),
+            patch.object(main, "HumanoidPolicy") as policy_cls,
+            patch.object(main, "SerialLink") as link_cls,
+            patch.object(main, "reconnect_link", return_value=fresh) as reconnect,
+            patch.object(main, "PositionCsvLogger"),
+            contextlib.redirect_stdout(output),
+        ):
+            policy = policy_cls.return_value
+            policy.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.0)
+            link = link_cls.return_value
+            link.wait_for_state.return_value = state
+            link.get_latest_state.side_effect = [
+                state,
+                TimeoutError("STM32 state is missing or stale (0.061 s)"),
+                RuntimeError("stale state"),
+            ]
+            link.send_command.return_value = True
+            self.assertEqual(main.main(), 1)
+            reconnect.assert_called_once()
+            self.assertEqual(policy.step.call_count, 2)      # 复位那一帧不算一步
+            self.assertIn("STM32 掉线", output.getvalue())
+            self.assertIn("重连成功", output.getvalue())
+
+    def test_a_write_timeout_reconnects_instead_of_faulting(self):
+        """写超时（SerialTimeoutException 是 OSError）也是同一类掉线：设备那一刻
+        从 USB 上消失了。别让它把整趟顶掉。"""
+        state = SimpleNamespace(
+            status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID,
+            accel_m_s2=np.array([0, 0, 9.81], dtype=np.float32),
+            gyro_rad_s=np.zeros(3, dtype=np.float32),
+            orientation_wxyz=np.array([1, 0, 0, 0], dtype=np.float32),
+            joint_position=config.Q_DEFAULT.copy(),
+            joint_velocity=np.zeros(12, dtype=np.float32), sequence=1,
+        )
+        sent = []
+
+        def send_command(*args, **kwargs):
+            sent.append(args)
+            if len(sent) == 2:
+                raise OSError("Write timeout")
+            return True
+
+        fresh = Mock()
+        fresh.get_latest_state.side_effect = [state, RuntimeError("stale state")]
+        fresh.send_command.return_value = True
+        output = io.StringIO()
+        with (
+            patch.object(main, "parse_args", return_value=self.args()),
+            patch.object(main.signal, "signal"),
+            patch.object(main, "HumanoidPolicy") as policy_cls,
+            patch.object(main, "SerialLink") as link_cls,
+            patch.object(main, "reconnect_link", return_value=fresh) as reconnect,
+            patch.object(main, "PositionCsvLogger"),
+            contextlib.redirect_stdout(output),
+        ):
+            policy = policy_cls.return_value
+            policy.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.0)
+            link = link_cls.return_value
+            link.wait_for_state.return_value = state
+            link.get_latest_state.side_effect = [state, state, RuntimeError("stale state")]
+            link.send_command.side_effect = send_command
+            self.assertEqual(main.main(), 1)
+            reconnect.assert_called_once()
+            self.assertEqual(policy.step.call_count, 3)      # 写失败那一步之后还在走
+            fresh.send_command.assert_called()
+
+    def test_reconnect_gives_up_if_the_port_never_returns(self):
+        link = Mock()
+        with patch.object(main.os.path, "exists", return_value=False):
+            with self.assertRaises(TimeoutError):
+                main.reconnect_link(link, "/dev/ttyACM0", 921600, timeout_s=0.15)
+        link.close.assert_called_once()
 
     def test_live_vision_commands_are_not_overridden_after_five_seconds(self):
         # Both clocks represent the same fake host time. The two walking
