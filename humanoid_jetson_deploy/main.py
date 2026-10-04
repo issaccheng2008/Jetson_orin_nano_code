@@ -66,8 +66,8 @@ def parse_args() -> argparse.Namespace:
         help="One-foot mode: command-one duration, then command zero until exit",
     )
     parser.add_argument("--one-foot-model", help="One-foot ONNX model for vision cards 3/4")
-    parser.add_argument("--shape-lift-seconds", type=float, default=4.0,
-                        help="Vision card lift hold duration, greater than 3 seconds")
+    parser.add_argument("--shape-lift-seconds", type=float, default=3.0,
+                        help="Vision card one-foot model duration (default 3 seconds)")
     parser.add_argument("--port", default="/dev/ttyACM0", help="STM32 serial device")
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument(
@@ -293,8 +293,8 @@ def main() -> int:
                                 or args.command_source != "vision"):
         raise SystemExit("--one-foot-model requires walking policy with --command-source vision")
     if args.one_foot_model and (not np.isfinite(args.shape_lift_seconds)
-                                or args.shape_lift_seconds <= 3.0):
-        raise SystemExit("--shape-lift-seconds must exceed 3 seconds")
+                                or args.shape_lift_seconds < 3.0):
+        raise SystemExit("--shape-lift-seconds must be at least 3 seconds")
     config.validate_imu_configuration()
     if args.enable_motors and (
         not config.CALIBRATION_CONFIRMED or not config.IMU_CALIBRATION_CONFIRMED
@@ -692,7 +692,11 @@ def main() -> int:
                         print(f"[shape] dry run: STM32 did not execute card={shape_controller.action_id}")
                         status = ACTION_DONE
                     was_busy = shape_controller.phase != "idle"
-                    decision = shape_controller.advance(now, stopped, status)
+                    # The card re-pose (8) still owns the body for its return ramp.
+                    # Leg policy targets must wait for that ramp; the first card at
+                    # the start has no re-pose and can enter the model immediately.
+                    decision = shape_controller.advance(
+                        now, stopped, status, ready_to_lift=now >= tilt_release_at)
                     if was_busy and not decision.busy:
                         print(f"[shape] event={shape_controller.event_id} card={shape_controller.action_id} complete")
                     if decision.busy:

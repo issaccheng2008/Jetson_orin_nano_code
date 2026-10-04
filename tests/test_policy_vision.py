@@ -728,12 +728,12 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertEqual(published[1].args[:2], (0.0, 0.0))
         self.assertEqual(published[1].args[2], -1)
         self.assertEqual(published[2].args[2], 3)
-        # The window is 5000 ms at 10 Hz, so it lifts around publish 52 (read 53).
+        # A leg card adds 300 ms for the switch back to the walking model.
         # Asserted as a window rather than an exact index: the mocked clock
         # accumulates 0.1 fifty-odd times and lands either side of the boundary.
         resumed = next(i for i, call in enumerate(published)
                        if i > 1 and call.args[0] > 0.0)
-        self.assertIn(resumed, (52, 53, 54))
+        self.assertIn(resumed, (55, 56, 57))
         self.assertEqual(published[resumed - 1].args[:2], (0.0, 0.0))
         self.assertEqual(published[resumed - 1].kwargs["event_action"], 3)
         self.assertEqual(published[resumed].args[2], -1)      # released with the resume
@@ -2881,6 +2881,11 @@ class StartGateTests(unittest.TestCase):
         gate.observe_qr("1")
         self.assertTrue(gate.passed)
 
+    def test_card_action_stop_budget(self):
+        self.assertEqual(run_policy_vision.card_action_stop_s(1, 500), 3.0)
+        self.assertEqual(run_policy_vision.card_action_stop_s(3, 500), 3.3)
+        self.assertEqual(run_policy_vision.card_action_stop_s(4, 5000), 5.3)
+
     def test_latching_survives_frames_that_report_nothing(self):
         from start_gate import StartGate
         gate = StartGate(mode="both")
@@ -3024,11 +3029,10 @@ class StartGateIntegrationTests(unittest.TestCase):
     def test_the_gate_holds_the_robot_then_hands_the_card_logic_back(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         clock = [0.0]
-        camera, reads = self._camera(frame, clock, 16)
+        camera, reads = self._camera(frame, clock, 20)
         detector = Mock()
         detector.process.return_value = (0, 0, 0.9, None, detection())
-        # 宽 200px 的框：比 43cm 那条停车线（~99px）近得多，所以门控一放开就该
-        # 立刻进停车读卡 —— 起点那张卡本来就在线内。
+        # 宽 200px 的框已在线内：首卡必须走锁存形状的短步路径，不能再等近距触发。
         quad = np.array([[500., 200.], [700., 200.], [700., 300.], [500., 300.]])
         shape = Mock()
         shape.action_map = {"circle": 1}
@@ -3058,33 +3062,39 @@ class StartGateIntegrationTests(unittest.TestCase):
             patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
             contextlib.redirect_stdout(out),
         ):
-            qr_cls.return_value.decode.return_value = reading
+            # The first card is classified before anyone raises the start QR.
+            qr_cls.return_value.decode.side_effect = (
+                lambda _: reading if reads[0] >= 6 else None)
             qr_cls.return_value.scans = 1
             qr_cls.return_value.geom_rejects = 0
             qr_cls.return_value.last_cost_ms = 70.0
             self.assertEqual(run_policy_vision.main(), 0)
         published = client_cls.return_value.publish.call_args_list
-        # 读 1：阀1 锁存（二维码）。读 2：图卡连 1/2。读 3：连 2/2 → 释放。
-        # 这三帧谁也不许动，而且机身必须是被按住直立的。
+        # 读 2/3 锁存首卡，读 6 才扫到二维码；此前必须始终站着。
         self.assertGreaterEqual(len(published), 6)
-        for index in range(3):
+        for index in range(6):
             with self.subTest(publish=index):
                 self.assertEqual(published[index].args[:2], (0.0, 0.0))
                 self.assertTrue(published[index].kwargs["hold_upright"])
                 self.assertFalse(published[index].kwargs["card_tilt"])
                 self.assertNotIn("event_id", published[index].kwargs)
-        # 释放之后，原来那套停车/投票逻辑原样复活，并真的出 event。
-        # 同一条 event 会在 --card-hold-ms 内逐帧重发（收端按 id 去重），所以数的是
-        # 有几个不同的 id，不是有几帧带着 id。
+        # 释放后先直行约 0.5 秒，再停车发门控阶段锁存的编号。
+        moving = [call for call in published if call.args[0] > 0]
+        self.assertGreaterEqual(len(moving), 5)
+        self.assertTrue(all(call.args[:2] == (0.2, 0.0) for call in moving))
+        self.assertTrue(all("event_id" not in call.kwargs for call in moving))
         events = [call for call in published if call.kwargs.get("event_id")]
         self.assertEqual(len({call.kwargs["event_id"] for call in events}), 1)
         self.assertEqual(events[0].kwargs["event_action"], 1)      # circle
         self.assertEqual(events[0].args[2], 1)                     # qr = 形状号
+        self.assertEqual(events[0].args[:2], (0.0, 0.0))
+        self.assertFalse(events[0].kwargs["card_tilt"])
         # 扫到就锁存：之后一次解码都不该再发生。
-        self.assertEqual(qr_cls.return_value.decode.call_count, 1)
+        self.assertEqual(qr_cls.return_value.decode.call_count, 6)
         self.assertIn("阀1 通过", out.getvalue())
         self.assertIn("阀2 通过", out.getvalue())
         self.assertIn("start gate released", out.getvalue())
+        self.assertNotIn("识别到图卡（投票）", out.getvalue())
 
     def test_the_qr_is_only_read_every_n_frames(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)

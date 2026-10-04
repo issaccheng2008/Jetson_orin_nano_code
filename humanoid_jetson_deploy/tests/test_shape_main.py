@@ -176,7 +176,7 @@ class ShapeMainTests(unittest.TestCase):
         walk, foot, link = self.run_one_tick(3)
         link.send_action.assert_not_called()
         foot.select_support_foot.assert_called_once_with("right")
-        self.assertEqual(foot.step.call_args.kwargs["lift_command"], 0.0)
+        self.assertEqual(foot.step.call_args.kwargs["lift_command"], 1.0)
         walk.step.assert_not_called()
 
     def test_diamond_uses_left_support(self):

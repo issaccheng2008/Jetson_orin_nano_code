@@ -38,6 +38,11 @@ CARD_NAMES_ZH = {
 LANE_RADIUS_M = 0.776
 
 
+def card_action_stop_s(action, hold_ms):
+    """Keep vision stopped through the three-second action and leg handover."""
+    return max(3.0, hold_ms / 1000.0) + (0.3 if action in (3, 4) else 0.0)
+
+
 def _new_dump_run(path, run_id, metadata):
     """Keep each run and its actual command together without removing older data."""
     directory = os.path.join(path, run_id)
@@ -206,10 +211,10 @@ def parse_args():
                              "lock. Temporary, for isolating red's effect on line "
                              "following")
     parser.add_argument("--card-hold-ms", type=float,
-                        default=float(os.getenv("CARD_HOLD_MS", "5000")),
-                        help="Once the shape is identified: keep the event available and stay "
-                             "stopped this long before resuming speed. 5000 is the rules' "
-                             "action window plus margin")
+                        default=float(os.getenv("CARD_HOLD_MS", "3000")),
+                        help="Minimum stop after an arm/head card event (default 3000 ms). "
+                             "Leg cards also wait 300 ms after the one-foot model before "
+                             "walking resumes")
     parser.add_argument("--card-stop-ms", type=float,
                         default=float(os.getenv("CARD_STOP_MS", "3000")),
                         help="Stand still at most this long waiting for the shape to "
@@ -720,6 +725,12 @@ def main():
         gate_released = False
         gate_last_log = -math.inf
         qr_odd_seen = set()
+        # Competition start: classify the first card while stationary, walk for one
+        # complete policy command interval, then act on that latched classification.
+        startup_move_until = 0.0
+        startup_first_card = -1
+        startup_first_card_pending = False
+        startup_first_card_lock = False
         dumped = 0
         run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}_{time.time_ns()}"
         dump_metadata = {
@@ -994,10 +1005,11 @@ def main():
                     card_flag = True
                 else:
                     card_absent += 1
-                    if card_absent >= args.card_clear_calls:
+                    if card_absent >= args.card_clear_calls and not startup_first_card_pending:
                         card_flag = False
                         card_triggered = False
                         card_action_triggered = False
+                        startup_first_card_lock = False
                         # 卡走了，票也跟着作废。不清的话：窗口关闭后
                         # card_event_id 归零、这里又把 card_action_triggered 归零，
                         # 兜底分支就会拿着上一批旧票再投一次 —— 实机是刚起步又停下。
@@ -1021,6 +1033,8 @@ def main():
                 if gate_window_open:
                     card_armed = False
                 if (card_flag and not card_triggered and card_armed
+                        and not startup_first_card_pending
+                        and not startup_first_card_lock
                         and card_reach is not None
                         and card_reach >= card_reach_line):
                     # The trigger itself was detected only after line processing;
@@ -1098,15 +1112,34 @@ def main():
                         print("=" * 68 + "\n", flush=True)
                 if start_gate.passed and gate_window_open:
                     gate_released = True
-                    card_armed = True
-                    if card_width_px is not None:
-                        print(f"[start-gate] 起步：第一张卡实测框宽 {card_width_px:.0f}px "
-                              f"/ 停车线 {card_reach_line:.0f}px —— "
-                              f"{'已经在线内，会立刻进停车读卡' if card_width_px >= card_reach_line else '还在线外，会走一段再停'}",
+                    if args.start_gate == "both":
+                        startup_first_card = shape_numbers[start_gate.last_shape]
+                        startup_first_card_pending = True
+                        startup_first_card_lock = True
+                        startup_move_until = 0.0  # set when the first nonzero command is sent
+                        card_armed = False
+                        print(f"[start-gate] 二维码和首卡均已锁存："
+                              f"{start_gate.last_shape} -> {startup_first_card}; "
+                              "先直行 0.5s，再停车直接执行首卡（不等近距触发/二次投票）",
                               flush=True)
                     else:
-                        print("[start-gate] 起步：这一帧没有框，停车线由 cy 判",
-                              flush=True)
+                        card_armed = True
+            if (startup_first_card_pending and startup_move_until > 0.0
+                    and not gate_window_open
+                    and processed >= startup_move_until):
+                # The first card may already be inside the normal proximity line.
+                # Its identity was confirmed before QR release, so there is no
+                # benefit in walking farther just to trigger another vote.
+                startup_first_card_pending = False
+                card_triggered = True
+                card_action_triggered = True
+                card_armed = False
+                card_action = startup_first_card
+                card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
+                card_until = processed + card_action_stop_s(card_action, args.card_hold_ms)
+                recognized_this_frame = True
+                print(f"[start-gate] 首卡短步结束；停车并发送已锁存的 "
+                      f"action={card_action} event={card_event_id}", flush=True)
             # ── 停车投票 ──
             # 停车窗口里，每一帧的分类结果投一票。用 card_dbg["shape"]（每帧都写），
             # 不是 update() 返回的 action —— 那个受 cooldown_ms 限制，一次停车最多
@@ -1128,12 +1161,13 @@ def main():
             # 机器人继续停着等动作。一票都没有才什么都不出（那次确实没看到卡）。
             # 并列时按名字排序取第一个，结果可复现。
             if (card_votes and not card_action_triggered and card_event_id == 0
+                    and not startup_first_card_pending
                     and (card_vote_total >= args.card_vote_frames
                          or processed >= stop_until)):
                 winner = max(sorted(card_votes), key=card_votes.get)
                 card_action = shape_numbers[winner]
                 card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
-                card_until = processed + args.card_hold_ms / 1000.0
+                card_until = processed + card_action_stop_s(card_action, args.card_hold_ms)
                 card_action_triggered = True
                 recognized_this_frame = True
                 tally = " ".join(f"{n}:{card_votes[n]}" for n in
@@ -1148,7 +1182,8 @@ def main():
                       f"qr={card_action}", flush=True)
                 print(f"        票 {votes_cast} 张 / 要求 {args.card_vote_frames}"
                       f"    {tally}"
-                      f"    保持 {args.card_hold_ms:.0f} ms", flush=True)
+                      f"    保持 {card_action_stop_s(card_action, args.card_hold_ms):.1f} s",
+                      flush=True)
                 print("=" * 68 + "\n", flush=True)
 
             if card_action != -1 and processed >= card_until:
@@ -1171,6 +1206,12 @@ def main():
                 # holds can reach the wheels, and the handover below drops the stored
                 # command before the first frame that does call it.
                 vx, wz = 0.0, 0.0
+            elif startup_first_card_pending:
+                # Symbolic first step: exactly one >=0.5 s walking command, with
+                # no line steering while the known first card is so close.
+                if startup_move_until == 0.0:
+                    startup_move_until = processed + 0.5
+                vx, wz = args.vx, 0.0
             else:
                 vx, wz = controller.command(debug, confidence, processed - previous)
                 debug.update(getattr(controller, "diagnostics", {}))
