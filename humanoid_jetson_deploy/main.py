@@ -95,7 +95,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--curve-vx", type=float, default=0.2,
-        help="curve mode: forward speed for all three legs, m/s",
+        help="curve mode: forward speed for the straight legs, m/s (the turn "
+             "uses --curve-turn-vx, unset = this)",
+    )
+    parser.add_argument(
+        "--curve-turn-vx", type=float, default=None,
+        help="curve mode: forward speed held through the turn, m/s; unset keeps "
+             "--curve-vx, so the whole bulge walks at one speed",
     )
     parser.add_argument(
         "--curve-once", action="store_true",
@@ -306,12 +312,15 @@ def main() -> int:
             try:
                 legs = curve_legs(args.curve_straight_s, args.curve_turn_s,
                                   args.curve_vx, args.curve_turn_wz,
+                                  turn_vx=args.curve_turn_vx,
                                   loop=not args.curve_once)
                 ScriptedCommandSource(legs, loop=not args.curve_once)
             except ValueError as exc:
                 raise SystemExit(str(exc)) from exc
             if not 0.0 <= args.curve_vx <= 1.0:
                 raise SystemExit("curve-vx must be in [0, 1]")
+            if args.curve_turn_vx is not None and not 0.0 <= args.curve_turn_vx <= 1.0:
+                raise SystemExit("curve-turn-vx must be in [0, 1]")
             if not -MAX_WZ <= args.curve_turn_wz <= MAX_WZ:
                 raise SystemExit(f"curve-turn-wz must be in [{-MAX_WZ}, {MAX_WZ}]")
         else:
@@ -384,8 +393,11 @@ def main() -> int:
             loop = not args.curve_once
             command_source = ScriptedCommandSource(curve_legs(
                 args.curve_straight_s, args.curve_turn_s,
-                args.curve_vx, args.curve_turn_wz, loop=loop), loop=loop)
+                args.curve_vx, args.curve_turn_wz,
+                turn_vx=args.curve_turn_vx, loop=loop), loop=loop)
             turn_deg = math.degrees(args.curve_turn_wz * args.curve_turn_s)
+            turn_vx = (args.curve_vx if args.curve_turn_vx is None
+                       else args.curve_turn_vx)
             shape = ("straight, turn, straight - one bulge" if not loop
                      else f"straight/turn alternating every "
                           f"{command_source.total_s:g}s, until the process stops")
@@ -393,7 +405,8 @@ def main() -> int:
                 f"CURVE open loop, {'ONCE' if not loop else 'LOOPING'}"
                 f" ({shape}): straight {args.curve_straight_s:g}s / turn "
                 f"{args.curve_turn_s:g}s at wz={args.curve_turn_wz:+.3f} rad/s, "
-                f"all at vx={args.curve_vx:g} m/s ({turn_deg:+.0f} deg per turn if "
+                f"straight vx={args.curve_vx:g} / turn vx={turn_vx:g} m/s "
+                f"({turn_deg:+.0f} deg per turn if "
                 "the yaw rate is achieved); vision disconnected, no feedback"
             )
         else:

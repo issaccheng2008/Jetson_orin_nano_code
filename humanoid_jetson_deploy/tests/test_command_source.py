@@ -48,6 +48,24 @@ class ScriptedCommandSourceTests(unittest.TestCase):
         source = ScriptedCommandSource(legs)
         self.assertAlmostEqual(source.total_s, 18.51, places=6)
 
+    def test_the_turn_can_walk_at_its_own_speed(self) -> None:
+        """直线和弯道各一个速度：--curve-vx 给直道，--curve-turn-vx 给弯道。
+        不设 turn_vx 时和原来一样，整条 bulge 一个速度。"""
+        legs = curve_legs(3.16, 12.19, 0.2, 0.258, turn_vx=0.15)
+        self.assertEqual(legs, [(3.16, 0.2, 0.0), (12.19, 0.15, 0.258),
+                                (3.16, 0.2, 0.0)])
+        self.assertEqual(curve_legs(3.16, 12.19, 0.2, 0.258, turn_vx=0.15,
+                                    loop=True),
+                         [(3.16, 0.2, 0.0), (12.19, 0.15, 0.258)])
+        # 循环体里两个速度都生效：直行段 0.2、转弯段 0.15
+        source = ScriptedCommandSource(
+            curve_legs(0.05, 0.05, 0.2, 0.4, turn_vx=0.15, loop=True), loop=True)
+        np.testing.assert_allclose(source.get(), [0.2, 0.0, 0.0])
+        time.sleep(0.07)
+        np.testing.assert_allclose(source.get(), [0.15, 0.0, 0.4])
+        time.sleep(0.05)
+        np.testing.assert_allclose(source.get(), [0.2, 0.0, 0.0])   # 回到直行
+
     def test_the_loop_unit_is_two_legs_so_straights_never_double_up(self) -> None:
         """一圈 = 直道→半圆→直道→半圆。把三段式的 `直,转,直` 拿来循环会得到
         `…直,直…`（连着走两段直道），所以 loop=True 必须换成两段式的 `直,转`。"""

@@ -101,7 +101,7 @@ class ScriptedCommandSource:
 
 
 def curve_legs(straight_s: float, turn_s: float, vx: float, turn_wz: float,
-               loop: bool = False):
+               turn_vx: float | None = None, loop: bool = False):
     """The stadium's straight/curve alternation as an open-loop timeline.
 
     Defaults come straight off the track: centreline R = 0.776 m, so a semicircle
@@ -112,11 +112,16 @@ def curve_legs(straight_s: float, turn_s: float, vx: float, turn_wz: float,
     One bulge is `straight, turn, straight`; the lap is that pattern's straights
     shared, i.e. `straight, turn` repeated. Looping the three-leg form instead
     would put two straights back to back, so loop=True returns the two-leg unit.
+
+    turn_vx is the forward speed held through the turn; unset (None) keeps vx on
+    every leg, i.e. the whole bulge at one speed.
     """
+    if turn_vx is None:
+        turn_vx = vx
     if loop:
-        return [(straight_s, vx, 0.0), (turn_s, vx, turn_wz)]
+        return [(straight_s, vx, 0.0), (turn_s, turn_vx, turn_wz)]
     return [(straight_s, vx, 0.0),
-            (turn_s, vx, turn_wz),
+            (turn_s, turn_vx, turn_wz),
             (straight_s, vx, 0.0)]
 
 
