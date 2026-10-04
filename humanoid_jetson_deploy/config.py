@@ -58,7 +58,11 @@ Q_DEFAULT = np.array(
 )
 
 # Limits from v2.4.1.urdf, in policy joint coordinates and radians.
-Q_LOWER = np.array(
+# 2026-10-04：整体放宽 25%。实车转弯时 l_ankle_roll 实测被地面带到 −0.60 rad，
+# 越过 ±0.5 限位 + margin 0.05 + 10° 反馈窗 → target safety 以
+# "no safe target window" 退出（阈值原本 −0.6245 rad）；放宽后阈值到 −0.75 rad。
+Q_LIMIT_SCALE = np.float32(1.25)
+Q_LOWER = Q_LIMIT_SCALE * np.array(
     [
         -1.57,
         -1.57,
@@ -75,7 +79,7 @@ Q_LOWER = np.array(
     ],
     dtype=np.float32,
 )
-Q_UPPER = np.array(
+Q_UPPER = Q_LIMIT_SCALE * np.array(
     [
         1.57,
         0.50,
