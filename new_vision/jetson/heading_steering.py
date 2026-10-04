@@ -13,6 +13,8 @@ import math
 from statistics import median
 
 COMMAND_HOLD_S = 0.5  # Training contract: intentionally not a CLI parameter.
+LEFT_OFFSET_RELEASE_CM = 4.0  # Positive near offset: robot is left of the lane.
+LEFT_OFFSET_CONFIRM_FRAMES = 2
 
 
 class HeadingSteeringController:
@@ -48,6 +50,7 @@ class HeadingSteeringController:
         self._samples = []
         self._command = (0.0, 0.0)
         self._loss_s = 0.0
+        self._left_offset_frames = 0
         self.diagnostics = {}
 
     @property
@@ -77,12 +80,14 @@ class HeadingSteeringController:
         self._samples.clear()
         self._command = (0.0, 0.0)
         self._loss_s = 0.0
+        self._left_offset_frames = 0
         self.diagnostics = {}
 
     def drop_held_command(self):
         self.reset(clear_hold=True)
 
     def _stop(self, reason):
+        self._left_offset_frames = 0
         self._started = None
         self._samples.clear()
         self._command = self.inner.hold = (0.0, 0.0)
@@ -210,6 +215,7 @@ class HeadingSteeringController:
         except (KeyError, TypeError, ValueError, OverflowError):
             geometry = None
         if geometry is None:
+            self._left_offset_frames = 0
             self._loss_s += dt
             self._samples.clear()
             # Brief missing frames keep the exact pair, never a per-frame fade.
@@ -222,6 +228,12 @@ class HeadingSteeringController:
         self._loss_s = 0.0
         self.inner.lost_s = 0.0
         near, z, angle, demand, source = geometry
+        # Confirm position independently of the trend samples, which are cleared
+        # on command changes. A single shaken frame cannot veto a left command.
+        self._left_offset_frames = (min(LEFT_OFFSET_CONFIRM_FRAMES,
+                                       self._left_offset_frames + 1)
+                                    if near >= LEFT_OFFSET_RELEASE_CM else 0)
+        left_offset_confirmed = self._left_offset_frames >= LEFT_OFFSET_CONFIRM_FRAMES
         self._samples.append((self._clock, demand, angle, near))
         self._samples = [s for s in self._samples if self._clock-s[0] <= COMMAND_HOLD_S+1e-9]
         filtered = median(s[1] for s in self._samples[-3:])
@@ -235,12 +247,19 @@ class HeadingSteeringController:
             steering_predicted_demand_deg=predicted, steering_demand_rate_deg_s=rate,
             steering_predicted_heading_deg=(angle+COMMAND_HOLD_S*angle_rate if angle_rate is not None else angle),
             steering_prediction_valid=rate is not None, steering_braked=False)
+        self.diagnostics.update(steering_left_offset_confirmed=left_offset_confirmed,
+                                steering_left_offset_release_cm=LEFT_OFFSET_RELEASE_CM)
         self.inner.last_err_eff = filtered  # Units explicitly renamed in entry-point logging.
         if self._started is not None and self._clock-self._started < COMMAND_HOLD_S:
             self.diagnostics.update(steering_reason="minimum_hold",
                 command_hold_remaining_s=self.turn_left, steering_applied_wz=self._command[1])
             return self._command
         candidate, decision = self._decision(filtered, filtered_near, filtered_heading)
+        # After the existing half-second hold, confirmed left position takes
+        # priority over a distant leftward target. Only veto geometric left yaw;
+        # forward speed and the original right-recovery decision stay intact.
+        if left_offset_confirmed and candidate > 0:
+            candidate, decision = 0.0, "left_offset_release"
         self.diagnostics["steering_decision"] = decision
         self.diagnostics["steering_corridor_cm"] = self.corridor_cm
         current = self._command[1] * self.yaw_sign

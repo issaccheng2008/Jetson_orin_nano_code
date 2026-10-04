@@ -28,6 +28,76 @@ def controller(**changes):
 
 
 class HeadingSteeringTests(unittest.TestCase):
+    def test_stable_left_offset_releases_left_yaw_only_after_half_second(self):
+        for yaw_sign in (-1, 1):
+            with self.subTest(yaw_sign=yaw_sign):
+                c = controller(inner_options=dict(yaw_sign=yaw_sign))
+                first = c.command(detection(30., z=25.), 1., .01)
+                self.assertGreater(first[1]*yaw_sign, 0.)
+                left = detection(60., near=6., z=25.)
+                self.assertEqual(c.command(left, 1., .2), first)
+                self.assertEqual(c.command(left, 1., .299), first)
+                self.assertTrue(c.diagnostics["steering_left_offset_confirmed"])
+                self.assertAlmostEqual(c.turn_left, .001)
+                self.assertEqual(c.command(left, 1., .001001), (.2, 0.))
+                self.assertEqual(c.diagnostics["steering_decision"], "left_offset_release")
+
+    def test_stable_left_position_cannot_start_another_left_block(self):
+        c = controller()
+        self.assertEqual(c.command(detection(0., z=25.), 1., .01), (.2, 0.))
+        left = detection(60., near=6., z=25.)
+        self.assertEqual(c.command(left, 1., .3), (.2, 0.))
+        self.assertEqual(c.command(left, 1., .201), (.2, 0.))
+        self.assertEqual(c.diagnostics["steering_decision"], "left_offset_release")
+        for _ in range(4):
+            self.assertEqual(c.command(left, 1., .1), (.2, 0.))
+        self.assertEqual(c.turn_left, 0.)
+        # Returning to the centre rearms the original leftward correction.
+        self.assertGreater(c.command(detection(60., near=0., z=25.), 1., .1)[1], 0.)
+
+    def test_one_left_offset_spike_does_not_veto_a_left_correction(self):
+        c = controller()
+        c.command(detection(0., z=25.), 1., .01)
+        output = c.command(detection(60., near=6., z=25.), 1., .501)
+        self.assertGreater(output[1], 0.)
+        self.assertFalse(c.diagnostics["steering_left_offset_confirmed"])
+
+    def test_valid_single_edge_frames_can_confirm_left_offset(self):
+        c = controller()
+        c.command(detection(0., z=25.), 1., .01)
+        left = self.single_edge(60., single_edge_near_cm=6.)
+        c.command(left, 1., .3)
+        self.assertEqual(c.command(left, 1., .201), (.2, 0.))
+        self.assertTrue(c.diagnostics["steering_left_offset_confirmed"])
+        self.assertEqual(c.diagnostics["steering_decision"], "left_offset_release")
+
+    def test_left_offset_guard_preserves_right_recovery_and_right_position_recovery(self):
+        for yaw_sign in (-1, 1):
+            for near, heading, expected in ((9., -5., -.4), (-9., 5., .4)):
+                with self.subTest(yaw_sign=yaw_sign, near=near):
+                    c = controller(inner_options=dict(yaw_sign=yaw_sign))
+                    c.command(detection(0., z=25.), 1., .01)
+                    frame = detection(heading, near=near, z=25.)
+                    c.command(frame, 1., .3)
+                    output = c.command(frame, 1., .201)
+                    self.assertEqual(output, (.2, expected*yaw_sign))
+
+    def test_loss_and_external_stop_clear_left_position_confirmation(self):
+        for loss in (True, False):
+            with self.subTest(loss=loss):
+                c = controller()
+                left = detection(60., near=6., z=25.)
+                c.command(detection(0., z=25.), 1., .01)
+                c.command(left, 1., .3)
+                c.command(left, 1., .201)
+                self.assertTrue(c.diagnostics["steering_left_offset_confirmed"])
+                if loss:
+                    c.command(detection(measurement_valid=False), 0., .1)
+                else:
+                    c.drop_held_command()
+                c.command(left, 1., .1)
+                self.assertFalse(c.diagnostics["steering_left_offset_confirmed"])
+
     def test_real_near_planes_direction_and_offset_tradeoff(self):
         # Real detector sees near at 20-30cm, not the robot origin. The dead zone
         # is target bearing; it must not be misrepresented as a raw heading gate.
