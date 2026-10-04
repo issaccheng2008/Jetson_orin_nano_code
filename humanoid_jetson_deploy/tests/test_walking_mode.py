@@ -171,10 +171,38 @@ class WalkingModeTests(unittest.TestCase):
 
     def test_reconnect_gives_up_if_the_port_never_returns(self):
         link = Mock()
-        with patch.object(main.os.path, "exists", return_value=False):
+        with patch.object(main.glob, "glob", return_value=[]):
             with self.assertRaises(TimeoutError):
                 main.reconnect_link(link, "/dev/ttyACM0", 921600, timeout_s=0.15)
         link.close.assert_called_once()
+
+    def test_reconnect_finds_the_renumbered_port(self):
+        """复位时进程还攥着死掉的 ttyACM0，新设备会枚举成 ttyACM1。等固定
+        路径就永远等不到（2026-10-04 实车两次都这样），扫描认新名字。"""
+        link = Mock()
+        fresh = Mock()
+        with (
+            patch.object(main.glob, "glob", return_value=["/dev/ttyACM1"]),
+            patch.object(main, "SerialLink", return_value=fresh) as link_cls,
+        ):
+            got = main.reconnect_link(link, "/dev/ttyACM0", 921600, timeout_s=1.0)
+        self.assertIs(got, fresh)
+        link_cls.assert_called_once_with("/dev/ttyACM1", 921600)
+        fresh.wait_for_state.assert_called_once()
+
+    def test_reconnect_skips_a_dead_node_and_takes_the_live_one(self):
+        link = Mock()
+        dead, live = Mock(), Mock()
+        dead.wait_for_state.side_effect = TimeoutError("STM32 state is missing or stale")
+        link_by_path = {"/dev/ttyACM0": dead, "/dev/ttyACM1": live}
+        with (
+            patch.object(main.glob, "glob",
+                         return_value=["/dev/ttyACM0", "/dev/ttyACM1"]),
+            patch.object(main, "SerialLink", side_effect=lambda p, b: link_by_path[p]),
+        ):
+            got = main.reconnect_link(link, "/dev/ttyACM0", 921600, timeout_s=1.0)
+        self.assertIs(got, live)
+        dead.close.assert_called_once()
 
     def test_live_vision_commands_are_not_overridden_after_five_seconds(self):
         # Both clocks represent the same fake host time. The two walking

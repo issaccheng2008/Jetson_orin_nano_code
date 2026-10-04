@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import math
 import os
 from pathlib import Path
@@ -203,11 +204,15 @@ def slew_limit(target: np.ndarray, previous: np.ndarray, dt: float) -> np.ndarra
 
 def reconnect_link(link: SerialLink, port: str, baud: int,
                    timeout_s: float = 10.0) -> SerialLink:
-    """STM32 复位/掉线之后重连：等 /dev/ttyACM0 回来、重新打开、等到第一帧状态。
+    """STM32 复位/掉线之后重连：等 USB 枚举回来、重新打开、等到第一帧状态。
 
     固件有几条路径会**主动复位**（100ms 没收到新命令、ESTOP、目标非法），复位时
     USB 要消失 0.2~0.5s 再枚举回来。主机原来直接 FAULT 退出，一次复位就毁掉整趟；
     这里给它一个窗口，超时才把异常抛回去走原来的 FAULT。
+
+    回来的名字**不一定是原来的**：本进程还攥着已经死掉的 ttyACM0 时，新的设备
+    会枚举成 ttyACM1（2026-10-04 实车两次，等固定路径就 10s 超时）。按 ttyACM*
+    全扫，第一个能回状态包的端口就接。进程退出后再上电通常又回 ttyACM0。
 
     旧句柄必须先放干净（`reader_alive()` 就是干这个的）：reader 线程还卡在
     `read()` 上时重开，新端口会复用同一个 fd，旧线程会把新连接的字节偷走。
@@ -216,27 +221,26 @@ def reconnect_link(link: SerialLink, port: str, baud: int,
         link.close()
     except Exception:
         pass
+    pattern = os.path.join(os.path.dirname(port) or "/dev", "ttyACM*")
     deadline = time.monotonic() + timeout_s
     last_error: Exception | None = None
     while time.monotonic() < deadline:
-        if not os.path.exists(port):
-            time.sleep(0.05)
-            continue
-        fresh = None
-        try:
-            fresh = SerialLink(port, baud)
-            fresh.wait_for_state(timeout_s=1.0)
-            return fresh
-        except (TimeoutError, OSError) as exc:
-            last_error = exc
-            if fresh is not None:
-                try:
-                    fresh.close()
-                except Exception:
-                    pass
-            time.sleep(0.1)
+        for candidate in sorted(glob.glob(pattern)):
+            fresh = None
+            try:
+                fresh = SerialLink(candidate, baud)
+                fresh.wait_for_state(timeout_s=1.0)
+                return fresh
+            except (TimeoutError, OSError) as exc:
+                last_error = exc
+                if fresh is not None:
+                    try:
+                        fresh.close()
+                    except Exception:
+                        pass
+        time.sleep(0.05)
     raise TimeoutError(
-        f"STM32 did not come back on {port} within {timeout_s:.0f}s ({last_error})")
+        f"STM32 did not come back on {pattern} within {timeout_s:.0f}s ({last_error})")
 
 
 def send_disable(link: SerialLink, q_motor: np.ndarray, estop: bool = False) -> None:
