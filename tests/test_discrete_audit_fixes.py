@@ -55,7 +55,7 @@ class DiscreteAuditFixTests(unittest.TestCase):
     def test_loss_stop_cancels_old_turn_and_waits_before_reacquisition(self):
         c = controller(turn_s=3.0, gap_s=.5)
         c.command(measurement(), 1.0, .05)
-        self.assertEqual(c.command(measurement(lost=1), 0.0, .25), (0.0, 0.0))
+        self.assertEqual(c.command(measurement(lost=1), 0.0, .25), (0.2, 0.0))
         self.assertEqual(c.turn_left, 0.0)
         self.assertEqual(c.command(measurement(), 1.0, .05)[1], 0.0)
         self.assertAlmostEqual(c.gap_left, .40)
@@ -63,7 +63,7 @@ class DiscreteAuditFixTests(unittest.TestCase):
     def test_long_loss_credits_gap_time_after_the_loss_stop_deadline(self):
         c = controller(turn_s=3.0, gap_s=.5)
         c.command(measurement(), 1.0, .05)
-        self.assertEqual(c.command(measurement(lost=1), 0.0, .8), (0.0, 0.0))
+        self.assertEqual(c.command(measurement(lost=1), 0.0, .8), (0.2, 0.0))
         self.assertEqual(c.turn_left, 0.0)
         self.assertEqual(c.gap_left, 0.0)
         # This is a fresh trigger, with a new complete duration, not a resumed turn.
@@ -116,7 +116,7 @@ class DiscreteAuditFixTests(unittest.TestCase):
             with self.subTest(dt=dt):
                 c = controller()
                 c.command(measurement(), 1.0, .05)
-                self.assertEqual(c.command(measurement(), 1.0, dt), (0.0, 0.0))
+                self.assertEqual(c.command(measurement(), 1.0, dt), (0.2, 0.0))
                 self.assertEqual(c.turn_left, 0.0)
 
     def test_continuous_proportional_curve_and_loss_outputs_are_preserved(self):
@@ -127,7 +127,7 @@ class DiscreteAuditFixTests(unittest.TestCase):
         self.assertEqual(c.command(measurement(4.0), 1.0, .05), (.2, .2))
         self.assertEqual(c.command(measurement(4.0, curve=True), 1.0, .05), (.2, .4))
         vx, wz = c.command(measurement(lost=1), 0.0, .05)
-        self.assertAlmostEqual(vx, .15)
+        self.assertAlmostEqual(vx, .2)      # 速度不掉（丢线只丢转向）
         self.assertAlmostEqual(wz, .3)
         self.assertEqual(c.command(measurement(1.0), 1.0, .05), (.2, .05))
 

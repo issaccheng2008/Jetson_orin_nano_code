@@ -20,9 +20,10 @@ def clamp(value, lower, upper):
 class SteeringController:
     """run_robot.py dual-mode PID and one-step preview, mapped to rad/s.
 
-    Hold the last command for lost_hold_s on lost/invalid detection, then stop
-    instead of running the serial controller's blind search. Reset PID on loss
-    so reacquisition has no derivative kick.
+    On lost/invalid detection the steering fades over lost_hold_s and the PID
+    state is reset so reacquisition has no derivative kick; the walking speed
+    itself never fades (see lost_command). A real stop is published elsewhere
+    (start gate / card window / event hold).
     """
 
     DERIV_NOMINAL_DT = 0.05  # nominal vision frame period, seconds
@@ -193,7 +194,16 @@ class SteeringController:
         return (err, angle) if valid else None
 
     def lost_command(self, dt, *, clamp_elapsed=True):
-        """Fade the stored output; discrete timers use the actual elapsed time."""
+        """Fade the *steering*; the speed keeps whatever the last good command had.
+
+        丢线/无效帧只说明"转向看不可信"，不该把前进也停掉 —— 2026-10-04 实车：
+        无效帧占四成，每次掉线都把车钉在 vx=0（C 侧的 0.5 s 最小保持再钉半秒），
+        整趟走不起来。速度取上一条好命令的速度：走路时就是 --vx。
+        真停（起跑门控、卡窗口、事件保持）走的是另一条路，而且已经
+        `drop_held_command()` 把 hold 清成 0 —— 所以"无效帧不能凭空起步"
+        这条契约不变：没有走路上下文时这里就是 (0, 0)。
+        离散计时器用真实经过时间（clamp_elapsed=False）。
+        """
         self.reset()
         if clamp_elapsed:
             elapsed = clamp(dt, 0.01, 0.2)
@@ -202,13 +212,13 @@ class SteeringController:
         else:
             # An invalid clock cannot justify replaying a stale motion command.
             self.lost_s = math.inf
-            self.hold = (0.0, 0.0)
+            self.hold = (self.hold[0], 0.0)
             return self.hold
         self.lost_s += elapsed
         if self.lost_hold_s > 0.0 and self.lost_s <= self.lost_hold_s:
             fade = 1.0 - self.lost_s / self.lost_hold_s
-            return (self.hold[0] * fade, self.hold[1] * fade)
-        self.hold = (0.0, 0.0)
+            return (self.hold[0], self.hold[1] * fade)
+        self.hold = (self.hold[0], 0.0)
         return self.hold
 
     def command(self, debug, confidence, dt):
