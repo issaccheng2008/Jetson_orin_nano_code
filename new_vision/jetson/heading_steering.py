@@ -41,9 +41,9 @@ class HeadingSteeringController:
         self.corridor_cm = float(corridor_cm)
         # These are geometric left/right magnitudes; yaw_sign maps them onto
         # the robot wire convention. Caps remove levels, never create new ones.
-        self.left_levels = tuple(v for v in (0.4, 0.5) if v <= self._cap(+1))
-        self.right_levels = tuple(v for v in (0.1, 0.4, 0.5) if v <= self._cap(-1))
-        if not self.left_levels or (self.allow_right and 0.4 not in self.right_levels):
+        self.left_levels = tuple(v for v in (0.1, 0.4, 0.5) if v <= self._cap(+1))
+        self.right_levels = tuple(v for v in (0.4, 0.5) if v <= self._cap(-1))
+        if 0.4 not in self.left_levels or (self.allow_right and 0.4 not in self.right_levels):
             raise ValueError("wz caps must permit a 0.4 correction in each enabled direction")
         self._clock = 0.0
         self._started = None
@@ -171,8 +171,6 @@ class HeadingSteeringController:
         if self.allow_right and demand <= -negative_gate and demand < 0:
             target = self._cap(-1) * min(1., max(0., -demand-negative_gate)/self.full_scale_deg)
             level = min(self.right_levels, key=lambda level: (abs(level-target), level))
-            if demand <= -corridor_angle:
-                level = max(0.4, level)  # 0.1 is for small corrections, not corridor recovery.
             return -level
         return 0.
 
@@ -188,7 +186,11 @@ class HeadingSteeringController:
             return 0., "returning_from_left"
         # Near position protection is independent of the relaxed angular gate.
         if demand >= corridor_angle or (near <= -self.corridor_cm and heading >= 0):
-            return max(candidate, self.left_levels[0]), "right_corridor"
+            # A distant leftward target can use 0.1 to follow the bend. Near
+            # right-boundary recovery still needs >=0.4, including a tiny inward
+            # heading whose projected target remains outside the corridor.
+            minimum = 0.4 if near <= -self.corridor_cm else self.left_levels[0]
+            return max(candidate, minimum), "right_corridor"
         if self.allow_right and (demand <= -corridor_angle
                                  or (near >= self.corridor_cm and heading <= 0)):
             return min(candidate, -0.4), "left_corridor"
@@ -268,12 +270,17 @@ class HeadingSteeringController:
         if rate is not None and current*candidate > 0 and current*rate < 0:
             forecast = self._map_angle(predicted)
             reduced = min(abs(current), abs(candidate), abs(forecast)) if candidate*forecast > 0 else 0.0
-            if decision in ("right_corridor", "left_corridor") and 0 < reduced < 0.4:
+            if decision in ("right_corridor", "left_corridor"):
                 corridor_angle = math.degrees(math.atan2(self.corridor_cm, self.lookahead_cm))
-                # A weak 0.1 is not a boundary recovery. If the observed trend
-                # predicts re-entry, release to straight; otherwise keep >=0.4.
-                reduced = (0.0 if abs(predicted) <= corridor_angle
-                           else min(abs(candidate), abs(forecast)))
+                near_boundary = (filtered_near <= -self.corridor_cm if candidate > 0
+                                 else filtered_near >= self.corridor_cm)
+                # Preserve the existing re-entry brake even though a small
+                # rightward forecast now maps to 0.4 instead of 0.1. Light left
+                # following is allowed; near-boundary recovery cannot fade to it.
+                if abs(predicted) <= corridor_angle:
+                    reduced = 0.0
+                elif near_boundary and 0 < reduced < 0.4:
+                    reduced = min(abs(candidate), max(0.4, abs(forecast)))
             previous_candidate = candidate
             candidate = math.copysign(reduced, candidate) if reduced else 0.0
             self.diagnostics["steering_braked"] = (abs(candidate) < abs(previous_candidate)

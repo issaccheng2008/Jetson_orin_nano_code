@@ -109,7 +109,7 @@ class HeadingSteeringTests(unittest.TestCase):
                 self.assertAlmostEqual(c.diagnostics["steering_demand_deg"], expected)
                 self.assertGreater(output[1], 0.)
         c = controller()
-        self.assertEqual(c.command(detection(20., z=25.), 1., .05)[1], .4)
+        self.assertEqual(c.command(detection(20., z=25.), 1., .05)[1], .1)
         self.assertAlmostEqual(c.diagnostics["steering_demand_deg"], 10.314104815618196)
 
     def test_normal_speed_and_yaw_pair_hold_half_second(self):
@@ -140,7 +140,7 @@ class HeadingSteeringTests(unittest.TestCase):
 
     def test_only_requested_geometric_levels_are_used(self):
         values = []
-        for heading, expected in ((0, 0), (10, .4), (35, .5), (-5, -.1), (-14, -.4), (-40, -.5)):
+        for heading, expected in ((0, 0), (10, .1), (20, .4), (35, .5), (-5, -.4), (-14, -.4), (-40, -.5)):
             with self.subTest(heading=heading):
                 output = controller().command(detection(heading), 1., .01)[1]
                 self.assertAlmostEqual(output, expected)
@@ -148,7 +148,7 @@ class HeadingSteeringTests(unittest.TestCase):
         self.assertEqual(len(set(values)), 6)
 
     def test_all_outputs_stay_quantized_with_real_near_planes_and_history(self):
-        geometric_levels = {0., .4, .5, -.1, -.4, -.5}
+        geometric_levels = {0., .1, .4, .5, -.4, -.5}
         for yaw_sign in (-1, 1):
             c = controller(inner_options=dict(yaw_sign=yaw_sign))
             allowed = {yaw_sign * value for value in geometric_levels}
@@ -178,12 +178,40 @@ class HeadingSteeringTests(unittest.TestCase):
             c = controller(right_tolerance_deg=80., left_tolerance_deg=80.)
             self.assertEqual(c.command(detection(0., near, 25.), 1., .01)[1], 0.)
 
-    def test_small_right_correction_is_not_used_for_corridor_recovery(self):
+    def test_light_left_following_does_not_weaken_near_boundary_recovery(self):
         c = controller()
-        self.assertEqual(c.command(detection(-10., 0., 25.), 1., .01)[1], -.1)
-        for near in (8., 8.1, 12.):
-            c = controller()
-            self.assertLessEqual(c.command(detection(0., near, 25.), 1., .01)[1], -.4)
+        self.assertEqual(c.command(detection(20., 0., 25.), 1., .01)[1], .1)
+        for near in (-12., -8.1, -8., 8., 8.1, 12.):
+            for yaw_sign in (-1, 1):
+                with self.subTest(near=near, yaw_sign=yaw_sign):
+                    c = controller(inner_options=dict(yaw_sign=yaw_sign))
+                    self.assertEqual(c.command(detection(0., near, 25.), 1., .01)[1],
+                                     -math.copysign(.4, near)*yaw_sign)
+
+    def test_light_left_follows_observations_without_a_fixed_straight_timer(self):
+        for yaw_sign in (-1, 1):
+            with self.subTest(yaw_sign=yaw_sign):
+                c = controller(inner_options=dict(yaw_sign=yaw_sign))
+                bend = detection(20., z=25.)
+                first = c.command(bend, 1., .01)
+                self.assertEqual(first, (.2, .1*yaw_sign))
+                for _ in range(10):
+                    self.assertEqual(c.command(bend, 1., .1), first)
+                self.assertEqual(c.turn_left, 0.)
+                # Straight is selected from new geometry, not an elapsed timer.
+                for _ in range(2):
+                    output = c.command(detection(0., z=25.), 1., .1)
+                self.assertEqual(output, (.2, 0.))
+
+    def test_light_left_hold_finishes_before_strong_position_recovery(self):
+        for yaw_sign in (-1, 1):
+            with self.subTest(yaw_sign=yaw_sign):
+                c = controller(inner_options=dict(yaw_sign=yaw_sign))
+                first = c.command(detection(20., z=25.), 1., .01)
+                outside = detection(0., near=-12., z=25.)
+                self.assertEqual(c.command(outside, 1., .2), first)
+                self.assertEqual(c.command(outside, 1., .299), first)
+                self.assertEqual(c.command(outside, 1., .001001), (.2, .4*yaw_sign))
 
     def test_returning_inward_coasts_after_hold_instead_of_overturning(self):
         for near in (-10., 10.):
@@ -237,24 +265,24 @@ class HeadingSteeringTests(unittest.TestCase):
         for near, dt in ((12, .1), (11, .1), (10, .1), (9, .1)):
             self.assertEqual(c.command(detection(0., near, 25.), 1., dt), first)
         output = c.command(detection(0., 8.5, 25.), 1., .100001)
-        # The angular mapper alone requests -0.1; at the boundary a measured
-        # re-entry trend should release to straight, rather than use that level.
-        self.assertEqual(c._map_angle(c.diagnostics["steering_predicted_demand_deg"]), -.1)
+        # Removing the light right level must not suppress the existing re-entry
+        # brake just because this forecast now quantizes to -0.4.
+        self.assertEqual(c._map_angle(c.diagnostics["steering_predicted_demand_deg"]), -.4)
         self.assertEqual(output[1], 0.)
         self.assertTrue(c.diagnostics["steering_braked"])
         self.assertEqual(c.diagnostics["steering_decision"], "left_corridor")
 
     def test_stronger_boundary_correction_is_not_mislabeled_as_braking(self):
         c = controller()
-        first = c.command(detection(-6), 1., .01)
-        self.assertEqual(first[1], -.1)
-        for near, dt in ((16, .1), (15.5, .1), (15, .1), (14.5, .1)):
+        first = c.command(detection(10), 1., .01)
+        self.assertEqual(first[1], .1)
+        for near, dt in ((-16, .1), (-15.5, .1), (-15, .1), (-14.5, .1)):
             self.assertEqual(c.command(detection(0., near, 25.), 1., dt), first)
-        output = c.command(detection(0., 14, 25.), 1., .100001)
+        output = c.command(detection(0., -14, 25.), 1., .100001)
         self.assertGreater(abs(c.diagnostics["steering_predicted_demand_deg"]), math.degrees(math.atan2(8., 50.)))
-        self.assertEqual(output[1], -.4)
+        self.assertEqual(output[1], .4)
         self.assertFalse(c.diagnostics["steering_braked"])
-        self.assertEqual(c.diagnostics["steering_decision"], "left_corridor")
+        self.assertEqual(c.diagnostics["steering_decision"], "right_corridor")
 
     def test_heading_and_position_cancel_at_projected_center(self):
         heading, near_z, lookahead = 30., 10., 50.
@@ -279,7 +307,7 @@ class HeadingSteeringTests(unittest.TestCase):
                     c = controller(allow_right=True, inner_options=dict(yaw_sign=yaw_sign))
                     self.assertAlmostEqual(c.command(detection(heading), 1., .01)[1], expected * yaw_sign)
         self.assertAlmostEqual(controller().command(detection(6), 1., .01)[1], 0.)
-        self.assertEqual(controller().command(detection(-6), 1., .01)[1], -.1)
+        self.assertEqual(controller().command(detection(-6), 1., .01)[1], -.4)
         self.assertEqual(controller(allow_right=False).command(detection(-60), 1., .01)[1], 0.)
 
     def test_asymmetric_cap_is_in_final_output_coordinate_for_both_signs(self):
@@ -289,7 +317,8 @@ class HeadingSteeringTests(unittest.TestCase):
                     c = controller(allow_right=True, inner_options=dict(yaw_sign=yaw_sign, max_wz_right=.45))
                     output = c.command(detection(heading), 1., .01)[1]
                     self.assertAlmostEqual(output, -.4 if heading * yaw_sign < 0 else .5)
-        for options in (dict(max_step=.3), dict(inner_options=dict(max_wz_right=.3))):
+        for options in (dict(max_step=.3), dict(max_step=.3, allow_right=False),
+                        dict(inner_options=dict(max_wz_right=.3))):
             with self.subTest(options=options), self.assertRaisesRegex(ValueError, "0.4 correction"):
                 controller(**options)
 
@@ -298,7 +327,7 @@ class HeadingSteeringTests(unittest.TestCase):
             with self.subTest(yaw_sign=yaw_sign):
                 c = controller(allow_right=True, inner_options=dict(yaw_sign=yaw_sign))
                 first = c.command(detection(14), 1., .01)[1]
-                self.assertAlmostEqual(abs(first), .4)
+                self.assertAlmostEqual(abs(first), .1)
                 # A rise followed by a measured decline produces a larger
                 # present/forecast candidate than the small action actually
                 # being executed. Calling it braking may not raise that action.
@@ -389,11 +418,11 @@ class HeadingSteeringTests(unittest.TestCase):
         output = c.command(self.single_edge(20.), 1., .01)
         self.assertEqual(c.diagnostics["steering_heading_source"], "single_edge")
         self.assertAlmostEqual(c.diagnostics["steering_demand_deg"], 10.314104815618196)
-        self.assertEqual(output, (c.inner.vx, .4))
+        self.assertEqual(output, (c.inner.vx, .1))
         self.assertEqual(c.diagnostics["steering_decision"], "right_corridor")
 
     def test_the_single_edge_sign_sets_the_turn_direction(self):
-        for heading, expected in ((20., .4), (-20., -.4)):
+        for heading, expected in ((20., .1), (-20., -.4)):
             with self.subTest(heading=heading):
                 c = controller()
                 self.assertEqual(c.command(self.single_edge(heading), 1., .01)[1], expected)
@@ -402,7 +431,7 @@ class HeadingSteeringTests(unittest.TestCase):
         c = controller()
         output = c.command(self.single_edge(-40., heading_control_valid=True), 1., .01)
         self.assertEqual(c.diagnostics["steering_heading_source"], "ground_x_z")
-        self.assertEqual(output[1], .4)
+        self.assertEqual(output[1], .1)
 
     def test_the_single_edge_fallback_shares_the_geometry_gates(self):
         cases = (dict(single_edge_heading_deg=90.), dict(single_edge_z_cm=50.),
