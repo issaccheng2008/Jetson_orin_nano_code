@@ -51,6 +51,33 @@ class WalkingModeTests(unittest.TestCase):
         self.assertEqual(float(clamp_command([0.0, 0.0, 0.0])[0]), 0.0)
         self.assertEqual(self.args("--vx", "0").vx, 0.0)
 
+    def test_the_fixed_walk_pause_duty_cycle(self):
+        """走/停交替：walk_seconds 走一段、pause_seconds 停一段，循环。
+        pause=0 保持原来的一次性行为（走完停住），walk=0 则一直走。"""
+        self.assertTrue(main.fixed_walk_active(0.0, 1.0, 1.0))
+        self.assertTrue(main.fixed_walk_active(0.999, 1.0, 1.0))
+        self.assertFalse(main.fixed_walk_active(1.0, 1.0, 1.0))
+        self.assertFalse(main.fixed_walk_active(1.999, 1.0, 1.0))
+        self.assertTrue(main.fixed_walk_active(2.0, 1.0, 1.0))     # 第二轮
+        self.assertTrue(main.fixed_walk_active(2.5, 1.0, 1.0))
+        self.assertFalse(main.fixed_walk_active(3.25, 1.0, 1.0))
+        # pause=0：旧行为 —— 走完以后一直是停
+        self.assertTrue(main.fixed_walk_active(4.9, 5.0, 0.0))
+        self.assertFalse(main.fixed_walk_active(5.0, 5.0, 0.0))
+        self.assertFalse(main.fixed_walk_active(50.0, 5.0, 0.0))
+        # walk=0：定时器关掉，一直走
+        self.assertTrue(main.fixed_walk_active(99.0, 0.0, 3.0))
+
+    def test_pause_seconds_needs_a_walking_leg_and_is_validated(self):
+        for extra, message in ((("--pause-seconds", "1", "--walk-seconds", "0"),
+                                "pause-seconds needs walk-seconds"),
+                               (("--pause-seconds", "-1"),
+                                "pause-seconds must be")):
+            with self.subTest(extra=extra), \
+                 patch.object(main, "parse_args", return_value=self.args(*extra)):
+                with self.assertRaisesRegex(SystemExit, message):
+                    main.main()
+
     def test_runtime_keeps_walking_without_vision_and_disables_on_state_fault(self):
         state = SimpleNamespace(
             status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID,

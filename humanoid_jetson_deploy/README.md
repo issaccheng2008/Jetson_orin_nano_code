@@ -498,10 +498,16 @@ Standalone fixed tests remain available:
 ```bash
 python main.py --model models/current_walking.onnx --port /dev/ttyACM0 \
   --command-source fixed --vx 0.4 --wz 0 --walk-seconds 5
+# walk/pause duty cycle: 1 s at (vx, wz), 1 s at zero, repeating
+python main.py --model models/current_walking.onnx --port /dev/ttyACM0 \
+  --command-source fixed --vx 0.2 --wz 0 --walk-seconds 1 --pause-seconds 1 \
+  --max-seconds 20
 ```
 
 Fixed mode commands zero after five seconds by default; `--walk-seconds 0`
-keeps it continuous. `--wz` accepts values within ±0.5 rad/s. Motor enable remains
+keeps it continuous, and `--pause-seconds > 0` turns the walk leg into an
+alternating walk/pause loop (needs `walk-seconds > 0`; give `--max-seconds` or
+stop with Ctrl+C). `--wz` accepts values within ±0.5 rad/s. Motor enable remains
 opt-in. Ctrl+C, `--max-seconds` completion, invalid/stale STM32 state and faults
 still disable motors. A zero velocity command itself does not disable motors.
 

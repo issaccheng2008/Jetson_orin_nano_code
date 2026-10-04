@@ -126,8 +126,18 @@ def parse_args() -> argparse.Namespace:
                              "is otherwise a static config value while the body moves")
     parser.add_argument("--command-timeout", type=float, default=0.25,
                         help="Zero velocity after this many seconds without connector data")
-    parser.add_argument("--walk-seconds", type=float, default=5.0,
-                        help="Fixed mode only: command zero after this duration; 0 disables timer")
+    parser.add_argument(
+        "--walk-seconds", type=float, default=5.0,
+        help="Fixed mode only: how long to hold (--vx, --wz). With "
+             "--pause-seconds it is the walking leg of a walk/pause loop; without "
+             "it the command goes zero after this long, once (0 disables the timer)",
+    )
+    parser.add_argument(
+        "--pause-seconds", type=float, default=0.0,
+        help="Fixed mode only: with walk-seconds > 0, alternate forever -- "
+             "walk-seconds at (--vx, --wz), then this long at zero. 0 keeps the "
+             "one-shot walk-then-stop",
+    )
     parser.add_argument(
         "--vx", type=float, default=config.MAX_COMMAND_VX,
         help="Fixed mode only: forward command in m/s (positive, at most 1.0)",
@@ -249,6 +259,20 @@ def reconnect_link(link: SerialLink, port: str, baud: int,
         f"STM32 did not come back on {pattern} within {timeout_s:.0f}s ({last_error})")
 
 
+def fixed_walk_active(elapsed_s: float, walk_s: float, pause_s: float) -> bool:
+    """Fixed-command duty cycle: walking leg vs pause leg at this elapsed time.
+
+    pause_s = 0 keeps the original one-shot behaviour (walk once, then zero
+    forever); pause_s > 0 alternates walk/pause for as long as the process runs.
+    walk_s = 0 disables the timer and the command holds forever.
+    """
+    if walk_s <= 0.0:
+        return True
+    if pause_s <= 0.0:
+        return elapsed_s < walk_s
+    return (elapsed_s % (walk_s + pause_s)) < walk_s
+
+
 def send_disable(link: SerialLink, q_motor: np.ndarray, estop: bool = False) -> None:
     flags = COMMAND_ESTOP if estop else 0
     for _ in range(3):
@@ -334,6 +358,10 @@ def main() -> int:
                 raise SystemExit(f"wz must be finite and in [{-MAX_WZ}, {MAX_WZ}]")
             if not np.isfinite(args.walk_seconds) or args.walk_seconds < 0:
                 raise SystemExit("walk-seconds must be finite and nonnegative")
+            if not np.isfinite(args.pause_seconds) or args.pause_seconds < 0:
+                raise SystemExit("pause-seconds must be finite and nonnegative")
+            if args.pause_seconds > 0 and args.walk_seconds <= 0:
+                raise SystemExit("pause-seconds needs walk-seconds > 0 to alternate")
 
     stop_requested = False
 
@@ -411,9 +439,14 @@ def main() -> int:
             )
         else:
             command_source = FixedCommandSource(args.vx, args.wz)
+            if args.walk_seconds > 0 and args.pause_seconds > 0:
+                duty = (f"walk {args.walk_seconds:g}s / pause "
+                        f"{args.pause_seconds:g}s alternating")
+            else:
+                duty = f"walk_seconds={args.walk_seconds:g} (0=continuous)"
             command_source_description = (
                 f"fixed walking vx={args.vx:+.3f} m/s, vy=0, wz={args.wz:+.3f}; "
-                f"walk_seconds={args.walk_seconds:g} (0=continuous); vision disconnected"
+                f"{duty}; vision disconnected"
             )
     # 只有视觉在指挥时才广播：fixed 模式是"视觉断开"的意思，不该凭空开一个
     # UDP 口，那边也没人在听。
@@ -701,8 +734,10 @@ def main() -> int:
                     policy.reset()
                 upright_active = upright_hold
                 # A fixed-test timer must never override live vision commands.
-                if (args.command_source == "fixed" and args.walk_seconds > 0
-                        and now - start_time >= args.walk_seconds):
+                if (args.command_source == "fixed"
+                        and not fixed_walk_active(now - start_time,
+                                                  args.walk_seconds,
+                                                  args.pause_seconds)):
                     velocity_command[:] = 0.0  # vx=0, vy=0, wz=0
 
                 if step_policy is card_policy:
