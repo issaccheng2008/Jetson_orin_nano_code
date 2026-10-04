@@ -28,6 +28,19 @@ def controller(**changes):
 
 
 class HeadingSteeringTests(unittest.TestCase):
+    def test_light_left_is_opt_in_for_both_wire_signs(self):
+        for yaw_sign in (-1, 1):
+            with self.subTest(yaw_sign=yaw_sign):
+                inner_options = dict(yaw_sign=yaw_sign)
+                plain = controller(inner_options=inner_options)
+                light = controller(light_left=True, inner_options=inner_options)
+                bend = detection(20., z=25.)
+                self.assertEqual(plain.left_levels, (.4, .5))
+                self.assertEqual(light.left_levels, (.1, .4, .5))
+                self.assertEqual(plain.command(bend, 1., .01), (.2, .4*yaw_sign))
+                self.assertEqual(light.command(bend, 1., .01), (.2, .1*yaw_sign))
+                self.assertEqual(plain.command(bend, 1., .501), (.2, .4*yaw_sign))
+
     def test_stable_left_offset_releases_left_yaw_only_after_half_second(self):
         for yaw_sign in (-1, 1):
             with self.subTest(yaw_sign=yaw_sign):
@@ -108,7 +121,7 @@ class HeadingSteeringTests(unittest.TestCase):
                 expected = math.degrees(math.atan((50.-z)/50.*math.tan(math.radians(35.))))
                 self.assertAlmostEqual(c.diagnostics["steering_demand_deg"], expected)
                 self.assertGreater(output[1], 0.)
-        c = controller()
+        c = controller(light_left=True)
         self.assertEqual(c.command(detection(20., z=25.), 1., .05)[1], .1)
         self.assertAlmostEqual(c.diagnostics["steering_demand_deg"], 10.314104815618196)
 
@@ -142,7 +155,7 @@ class HeadingSteeringTests(unittest.TestCase):
         values = []
         for heading, expected in ((0, 0), (10, .1), (20, .4), (35, .5), (-5, -.4), (-14, -.4), (-40, -.5)):
             with self.subTest(heading=heading):
-                output = controller().command(detection(heading), 1., .01)[1]
+                output = controller(light_left=True).command(detection(heading), 1., .01)[1]
                 self.assertAlmostEqual(output, expected)
                 values.append(round(output, 8))
         self.assertEqual(len(set(values)), 6)
@@ -179,19 +192,19 @@ class HeadingSteeringTests(unittest.TestCase):
             self.assertEqual(c.command(detection(0., near, 25.), 1., .01)[1], 0.)
 
     def test_light_left_following_does_not_weaken_near_boundary_recovery(self):
-        c = controller()
+        c = controller(light_left=True)
         self.assertEqual(c.command(detection(20., 0., 25.), 1., .01)[1], .1)
         for near in (-12., -8.1, -8., 8., 8.1, 12.):
             for yaw_sign in (-1, 1):
                 with self.subTest(near=near, yaw_sign=yaw_sign):
-                    c = controller(inner_options=dict(yaw_sign=yaw_sign))
+                    c = controller(light_left=True, inner_options=dict(yaw_sign=yaw_sign))
                     self.assertEqual(c.command(detection(0., near, 25.), 1., .01)[1],
                                      -math.copysign(.4, near)*yaw_sign)
 
     def test_light_left_follows_observations_without_a_fixed_straight_timer(self):
         for yaw_sign in (-1, 1):
             with self.subTest(yaw_sign=yaw_sign):
-                c = controller(inner_options=dict(yaw_sign=yaw_sign))
+                c = controller(light_left=True, inner_options=dict(yaw_sign=yaw_sign))
                 bend = detection(20., z=25.)
                 first = c.command(bend, 1., .01)
                 self.assertEqual(first, (.2, .1*yaw_sign))
@@ -206,7 +219,7 @@ class HeadingSteeringTests(unittest.TestCase):
     def test_light_left_hold_finishes_before_strong_position_recovery(self):
         for yaw_sign in (-1, 1):
             with self.subTest(yaw_sign=yaw_sign):
-                c = controller(inner_options=dict(yaw_sign=yaw_sign))
+                c = controller(light_left=True, inner_options=dict(yaw_sign=yaw_sign))
                 first = c.command(detection(20., z=25.), 1., .01)
                 outside = detection(0., near=-12., z=25.)
                 self.assertEqual(c.command(outside, 1., .2), first)
@@ -273,7 +286,7 @@ class HeadingSteeringTests(unittest.TestCase):
         self.assertEqual(c.diagnostics["steering_decision"], "left_corridor")
 
     def test_stronger_boundary_correction_is_not_mislabeled_as_braking(self):
-        c = controller()
+        c = controller(light_left=True)
         first = c.command(detection(10), 1., .01)
         self.assertEqual(first[1], .1)
         for near, dt in ((-16, .1), (-15.5, .1), (-15, .1), (-14.5, .1)):
@@ -325,7 +338,8 @@ class HeadingSteeringTests(unittest.TestCase):
     def test_approaching_trend_brake_never_increases_existing_amplitude(self):
         for yaw_sign in (-1, 1):
             with self.subTest(yaw_sign=yaw_sign):
-                c = controller(allow_right=True, inner_options=dict(yaw_sign=yaw_sign))
+                c = controller(light_left=True, allow_right=True,
+                               inner_options=dict(yaw_sign=yaw_sign))
                 first = c.command(detection(14), 1., .01)[1]
                 self.assertAlmostEqual(abs(first), .1)
                 # A rise followed by a measured decline produces a larger
@@ -414,7 +428,7 @@ class HeadingSteeringTests(unittest.TestCase):
 
     def test_single_edge_direction_supplies_heading_when_the_pair_fit_is_invalid(self):
         """丢线兜底：配对拟合无效、但检测器还看得见一条边时，沿着这条边的方向走。"""
-        c = controller()
+        c = controller(light_left=True)
         output = c.command(self.single_edge(20.), 1., .01)
         self.assertEqual(c.diagnostics["steering_heading_source"], "single_edge")
         self.assertAlmostEqual(c.diagnostics["steering_demand_deg"], 10.314104815618196)
@@ -424,11 +438,11 @@ class HeadingSteeringTests(unittest.TestCase):
     def test_the_single_edge_sign_sets_the_turn_direction(self):
         for heading, expected in ((20., .1), (-20., -.4)):
             with self.subTest(heading=heading):
-                c = controller()
+                c = controller(light_left=True)
                 self.assertEqual(c.command(self.single_edge(heading), 1., .01)[1], expected)
 
     def test_paired_geometry_wins_over_the_single_edge_fallback(self):
-        c = controller()
+        c = controller(light_left=True)
         output = c.command(self.single_edge(-40., heading_control_valid=True), 1., .01)
         self.assertEqual(c.diagnostics["steering_heading_source"], "ground_x_z")
         self.assertEqual(output[1], .1)

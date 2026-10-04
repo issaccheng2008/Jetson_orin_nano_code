@@ -20,7 +20,7 @@ LEFT_OFFSET_CONFIRM_FRAMES = 2
 class HeadingSteeringController:
     def __init__(self, inner, lookahead_cm=50.0, right_tolerance_deg=12.0,
                  left_tolerance_deg=4.0, full_scale_deg=20.0, max_step=0.5,
-                 allow_right=True, corridor_cm=8.0):
+                 allow_right=True, corridor_cm=8.0, light_left=False):
         values = (lookahead_cm, right_tolerance_deg, left_tolerance_deg,
                   full_scale_deg, max_step, corridor_cm)
         if not all(math.isfinite(v) for v in values):
@@ -39,9 +39,11 @@ class HeadingSteeringController:
         self.max_step = float(max_step)
         self.allow_right = bool(allow_right)
         self.corridor_cm = float(corridor_cm)
+        self.light_left = bool(light_left)
         # These are geometric left/right magnitudes; yaw_sign maps them onto
         # the robot wire convention. Caps remove levels, never create new ones.
-        self.left_levels = tuple(v for v in (0.1, 0.4, 0.5) if v <= self._cap(+1))
+        left_options = (0.1, 0.4, 0.5) if self.light_left else (0.4, 0.5)
+        self.left_levels = tuple(v for v in left_options if v <= self._cap(+1))
         self.right_levels = tuple(v for v in (0.4, 0.5) if v <= self._cap(-1))
         if 0.4 not in self.left_levels or (self.allow_right and 0.4 not in self.right_levels):
             raise ValueError("wz caps must permit a 0.4 correction in each enabled direction")

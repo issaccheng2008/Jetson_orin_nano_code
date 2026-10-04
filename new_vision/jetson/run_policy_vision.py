@@ -331,6 +331,9 @@ def parse_args():
     parser.add_argument("--heading-full-scale-deg", type=float, default=20.0,
                         help="heading mode: degrees beyond gate for full demand before level selection; "
                              "legacy PID/fire/stop/turn/gap settings do not apply")
+    parser.add_argument("--heading-left-0p1", action="store_true",
+                        help="heading mode: enable the +0.1 left-following level; "
+                             "off by default (left levels 0.4/0.5)")
     parser.add_argument("--wz-fire-cm", type=float, default=5.0,
                         help="Dead band, cm: inside it the published wz is exactly "
                              "0 - no scaling, no half authority, straight. Below "
@@ -533,7 +536,8 @@ def main():
             right_tolerance_deg=args.heading_right_tolerance_deg,
             left_tolerance_deg=args.heading_left_tolerance_deg,
             full_scale_deg=args.heading_full_scale_deg, max_step=args.wz_step,
-            allow_right=True, corridor_cm=args.heading_corridor_cm)
+            allow_right=True, corridor_cm=args.heading_corridor_cm,
+            light_left=args.heading_left_0p1)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
     from line_detector_v1_warp import LineDetector

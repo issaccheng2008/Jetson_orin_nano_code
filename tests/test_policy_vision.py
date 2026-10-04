@@ -47,6 +47,12 @@ NO_TRIM = dict(bias_cm=0.0, bias_straight_cm=0.0)
 
 
 class SteeringTests(unittest.TestCase):
+    def test_left_point_one_requires_heading_cli_switch(self):
+        with patch("sys.argv", ["run_policy_vision.py"]):
+            self.assertFalse(run_policy_vision.parse_args().heading_left_0p1)
+        with patch("sys.argv", ["run_policy_vision.py", "--heading-left-0p1"]):
+            self.assertTrue(run_policy_vision.parse_args().heading_left_0p1)
+
     def test_sign_units_clamping_and_preview(self):
         # yaw_sign, preview_gain and the centre dead band pinned so this tests the
         # maths, not the defaults: the band would scale the zero-lateral-error frame
