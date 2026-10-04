@@ -467,7 +467,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.isOpened.return_value = True
         camera.get.side_effect = [1280, 720]
         detector = Mock()
-        detector.process.return_value = (0, 0, 0.8, None, detection())
+        detector.process.return_value = (0, 0, 0.8, None, detection(angle=35))
         clock = [0.0]
         def tick():
             clock[0] += 0.03
@@ -495,9 +495,10 @@ class VisionEntryPointTests(unittest.TestCase):
             calls = client_cls.return_value.publish.call_args_list
             self.assertEqual(len(calls), 4)
             self.assertEqual(calls[2].args[0], 0.2)
-            # 转向在热启动之后发出来了。两发之间强制空 2 秒以上，所以这 4 帧里
-            # 只有真打脉冲的那一帧非零 —— 不能再假设"每帧都在纠正"。
+            # 默认 heading 模式：方向误差触发，并在这三帧期间保持同一命令。
             self.assertTrue(any(c.args[1] != 0.0 for c in calls[:3]), [c.args for c in calls])
+            self.assertTrue(all(c.kwargs.get("command_mode") == "held" for c in calls[:3]))
+            self.assertEqual(len({c.args[:2] for c in calls[:3]}), 1)
             self.assertEqual(calls[3].args, (0.0, 0.0, -1))
             client_cls.return_value.close.assert_called_once()
             camera.release.assert_called_once()
@@ -553,7 +554,7 @@ class VisionEntryPointTests(unittest.TestCase):
         detector = Mock()
         seen = [0]
 
-        def process(_frame):
+        def process(_frame, *, dt=None):
             seen[0] += 1
             if seen[0] <= 2:
                 return (0, 0, 0.9, None, detection())
@@ -617,16 +618,17 @@ class VisionEntryPointTests(unittest.TestCase):
         detector.process.return_value = (0, 0, 0.8, None, detection())
         shape = Mock()
         # 投票制下动作只在停车窗口里出，所以这一帧要同时满足停车闸（presence +
-        # cy 过线）才拿得到票。--card-vote-frames 1 让它第一帧就定案，把这条
+        # cy 过线）。触发帧不投票，下一次检测定案；将等待显式置0，把这条
         # 测的"event 生命周期"和投票分开。
         shape.update.side_effect = [
             (3, {"presence": True, "presence_cy_frac": 0.9, "shape": "square"})
-        ] + [(None, {})] * 2
+        ] * 2 + [(None, {})]
         shape.action_map = {"square": 3}
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless",
                                "--shape-every", "1", "--card-hold-ms", "3000",
-                               "--card-vote-frames", "1"]),
+                               "--card-vote-frames", "1", "--card-every-stopped", "1",
+                               "--card-tilt-ms", "0", "--card-settle-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -647,8 +649,10 @@ class VisionEntryPointTests(unittest.TestCase):
             self.assertEqual(run_policy_vision.main(), 0)
             published = [c.args[2] for c in client_cls.return_value.publish.call_args_list]
             # qr reports the current recognition; the event is retained for delivery.
-            self.assertEqual(published, [3, -1, -1, -1])
+            self.assertEqual(published, [-1, 3, -1, -1])
             events = [call.kwargs for call in client_cls.return_value.publish.call_args_list]
+            self.assertNotIn("event_id", events[0])
+            events = events[1:]
             self.assertGreater(events[0]["event_id"], 0)
             self.assertTrue(all(event["event_id"] == events[0]["event_id"] for event in events))
             self.assertTrue(all(event["event_action"] == 3 for event in events))
@@ -689,7 +693,9 @@ class VisionEntryPointTests(unittest.TestCase):
             patch("sys.argv", ["run_policy_vision.py", "--headless",
                                "--wz-mode", "continuous",
                                "--shape-every", "1", "--card-vote-frames", "1",
-                               "--card-hold-ms", "5000", "--card-stop-ms", "3000"]),
+                               "--card-hold-ms", "5000", "--card-stop-ms", "3000",
+                               "--card-tilt-ms", "0", "--card-settle-ms", "0",
+                               "--card-every-stopped", "1"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -702,17 +708,18 @@ class VisionEntryPointTests(unittest.TestCase):
             self.assertEqual(run_policy_vision.main(), 0)
         published = client_cls.return_value.publish.call_args_list
         # read N lands at t = N * 0.1, so publish[i] is read i+1.
-        # read 1 drives; read 2 sees the box and names it, opening the window at t=0.2
+        # read 1 drives; read 2 triggers the stop; read 3 casts the first vote.
         self.assertGreater(published[0].args[0], 0.0)
         self.assertEqual(published[0].args[2], -1)
         self.assertEqual(published[1].args[:2], (0.0, 0.0))
-        self.assertEqual(published[1].args[2], 3)
+        self.assertEqual(published[1].args[2], -1)
+        self.assertEqual(published[2].args[2], 3)
         # The window is 5000 ms at 10 Hz, so it lifts around publish 52 (read 53).
         # Asserted as a window rather than an exact index: the mocked clock
         # accumulates 0.1 fifty-odd times and lands either side of the boundary.
         resumed = next(i for i, call in enumerate(published)
                        if i > 1 and call.args[0] > 0.0)
-        self.assertIn(resumed, (51, 52, 53))
+        self.assertIn(resumed, (52, 53, 54))
         self.assertEqual(published[resumed - 1].args[:2], (0.0, 0.0))
         self.assertEqual(published[resumed - 1].kwargs["event_action"], 3)
         self.assertEqual(published[resumed].args[2], -1)      # released with the resume
@@ -722,12 +729,13 @@ class VisionEntryPointTests(unittest.TestCase):
         # The mechanism in use: main.py turns the two edges of this into the two
         # action requests the STM32 re-poses the body on. The re-pose is only for
         # reading, so it comes off the moment the shape is named — the action then
-        # runs on truthful attitude. In this harness the shape is named on the same
-        # frame the stop fires, so the flag is never up: the case where it is up is
-        # test_the_card_is_not_looked_at_while_the_body_is_being_re_posed.
-        self.assertIn("event_id", published[1].kwargs)
-        for call in published:
-            self.assertFalse(call.kwargs.get("card_tilt", False))
+        # runs after the tilt flag is released. Only the trigger frame requests tilt;
+        # the next frame names the shape in this zero-wait lifecycle fixture.
+        self.assertIn("event_id", published[2].kwargs)
+        self.assertTrue(published[1].kwargs["card_tilt"])
+        for index, call in enumerate(published):
+            if index != 1:
+                self.assertFalse(call.kwargs.get("card_tilt", False))
         # The superseded one is off unless --hold-upright is passed: it drives the same
         # joints, so exactly one of the two may be on.
         for call in published:
@@ -879,7 +887,7 @@ class VisionEntryPointTests(unittest.TestCase):
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
                                "--card-every-stopped", "1",
-                               "--card-tilt-ms", "0",
+                               "--card-tilt-ms", "0", "--card-settle-ms", "0",
                                "--card-vote-frames", "3"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
@@ -892,7 +900,7 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         qr = [call.args[2] for call in client_cls.return_value.publish.call_args_list]
-        # read 2 停车并投出 triangle；read 3 投 square；read 4 第 3 张票到，定案 square
+        # read 1 触发不投票；read 2 投 triangle；read 3/4 投 square，定案 square
         self.assertEqual(qr[0], -1)
         self.assertEqual(qr[1], -1)
         self.assertEqual(qr[3], 3)
@@ -928,7 +936,7 @@ class VisionEntryPointTests(unittest.TestCase):
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
                                "--card-every-stopped", "2",
-                               "--card-tilt-ms", "0", "--card-stop-ms", "500",
+                               "--card-tilt-ms", "0", "--card-settle-ms", "0", "--card-stop-ms", "500",
                                "--card-vote-frames", "99"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient"),
@@ -942,9 +950,9 @@ class VisionEntryPointTests(unittest.TestCase):
             self.assertEqual(run_policy_vision.main(), 0)
 
         # 触发在第 1 帧（t=0.1），窗口 500ms 到 t=0.6 关。窗口内检测只跑
-        # 第 1/2/4 帧 —— 三票。不清 card_dbg 的话第 3/5 帧会拿第 2/4 帧的结果
-        # 再投一次，报的是五票。
-        self.assertIn("票 3 张", out.getvalue())
+        # 第 1 帧仅触发不投票，第 2/4 帧共两票。
+        # 不清 card_dbg 会在第 3/5 帧重复计票。
+        self.assertIn("票 2 张", out.getvalue())
 
     def test_the_box_width_decides_the_stop_when_there_is_a_box(self):
         """cy is an angle, so the body pitching moves it without the card moving at
@@ -1097,7 +1105,8 @@ class VisionEntryPointTests(unittest.TestCase):
         with (
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
                                "--card-trigger-frac", "0.5",
-                               "--card-vote-frames", "1"]),
+                               "--card-vote-frames", "1", "--card-tilt-ms", "0",
+                               "--card-settle-ms", "0", "--card-every-stopped", "1"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -1109,11 +1118,13 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         # reads 2-4 are short of the line and must be ignored; read 5 reaches it.
-        # --card-vote-frames 1 so the vote settles on that same frame; the default 20
+        # The trigger frame cannot vote; the next frame settles the one-vote fixture.
+        # The default 20
         # would need a stop window this mock does not have.
         qr = [call.args[2] for call in client_cls.return_value.publish.call_args_list]
         self.assertEqual(qr[1:4], [-1, -1, -1])
-        self.assertEqual(qr[4], 3)
+        self.assertEqual(qr[4], -1)
+        self.assertEqual(qr[5], 3)
         self.assertIn("qr=3", out.getvalue())
 
     def test_a_card_already_driven_past_cannot_trigger_a_second_stop(self):
@@ -1199,26 +1210,18 @@ class SingleLineTrackingTests(unittest.TestCase):
             cv2.polylines(image, [points], False, (0, 0, 0), 20)
         return image
 
-    def test_the_angle_term_pushes_the_way_the_curve_goes(self):
-        """Three encodings of one direction: fused_err > 0 is the left correction,
-        angle_err > 0 is "the lane ahead goes left", curve_px < 0 is a left curve. On
-        one measured left-curve fixture all three hold together, so the angle term has
-        to add to the correction. It was negated, which steered right on a left curve -
-        against the curve term and against run_robot.py:257, which carries the same
-        heading into its preview term with a plus."""
-        def steady(angle_gain):
+    def test_legacy_angle_gain_cannot_make_rejected_geometry_actionable(self):
+        """Keep the old camera-space arc as a rejection regression: adding an
+        angle weight cannot promote an unsupported pair into a measurement."""
+        for angle_gain in (self._detector().pix_angle_gain, 0.0, 10.0):
             detector = self._detector()
             detector.pix_angle_gain = angle_gain
             image = self._arc_lane(0.00057)
             for _ in range(detector.startup_settle_frames + 4):
-                _, _, _, _, debug = detector.process(image)
-            return debug
-
-        curved = steady(self._detector().pix_angle_gain)
-        flat = steady(0.0)                                  # the same frame, no angle term
-        self.assertLess(curved["curve_px"], 0.0)
-        self.assertGreater(curved["angle_err_deg"], 0.0)
-        self.assertGreater(curved["fused_err_cm"], flat["fused_err_cm"])
+                _, _, confidence, _, debug = detector.process(image, dt=.1)
+            self.assertFalse(debug["measurement_valid"])
+            self.assertFalse(debug["heading_valid"])
+            self.assertEqual(confidence, 0.0)
 
     def test_a_zero_width_hint_does_not_shrink_the_inferred_centre(self):
         """The startup window hands the scan a width of 0, and 0 used to become
@@ -1276,39 +1279,29 @@ class SingleLineTrackingTests(unittest.TestCase):
                     abs(result["center_px"] - detector.center_x),
                     detector.max_track_width / 2.0)
 
-    def test_a_single_line_curve_reaches_curve_mode(self):
-        """The single-line gain is gated on curve_mode, and one visible boundary makes
-        curve_px read ~0 - both bands place the same half-width offset off the same run.
-        Without the heading clause the gain could never fire on the frames it exists
-        for; without the straight case it would fire on straights."""
+    def test_single_line_without_width_support_cannot_supply_curve_heading(self):
+        """P1 does not infer a lane heading from an unassociated single edge."""
         import cv2
-        def frame(dx):
+        for dx in (0, 160):
+            detector = self._detector()
             image = np.full((720, 1280, 3), 255, np.uint8)
             cv2.line(image, (640, 719), (640 + dx, 300), (0, 0, 0), 20)
-            return image
-
-        def steady(dx):
-            detector = self._detector()
             for _ in range(detector.startup_settle_frames + 3):
-                _, _, _, _, debug = detector.process(frame(dx))
-            return debug
+                _, _, confidence, _, debug = detector.process(image, dt=.1)
+            self.assertFalse(debug["measurement_valid"])
+            self.assertFalse(debug["heading_valid"])
+            self.assertFalse(debug["preview_valid"])
+            self.assertFalse(debug["curve_mode"])
+            self.assertEqual(confidence, 0.0)
 
-        straight = steady(0)
-        self.assertTrue(straight["single_line"])
-        self.assertFalse(straight["curve_mode"])
-        self.assertTrue(steady(160)["curve_mode"])
-
-    def test_a_one_frame_curve_spike_does_not_reach_the_bias_gate(self):
-        """The gate for the standing trim reads this, not the one-frame curve_px. A
-        straight's jitter reaches past any threshold a real curve (9-14 px) also
-        reaches, so only the average tells the two apart - which is why curve_mode as
-        a one-frame test came out anti-correlated with curvature."""
+    def test_a_one_frame_unsupported_edge_does_not_reach_the_bias_gate(self):
         import cv2
         image = np.full((720, 1280, 3), 255, np.uint8)
         cv2.line(image, (640, 719), (760, 300), (0, 0, 0), 20)
-        _, _, _, _, debug = self._detector().process(image)
-        self.assertGreater(abs(debug["curve_px"]), 12.0)        # the spike
-        self.assertLess(abs(debug["curve_px_smooth"]), 4.0)     # held back by the EMA
+        _, _, confidence, _, debug = self._detector().process(image, dt=.1)
+        self.assertFalse(debug["measurement_valid"])
+        self.assertEqual(debug["curve_px_smooth"], 0.)
+        self.assertEqual(confidence, 0.)
 
     def test_a_single_boundary_band_keeps_most_of_its_weight(self):
         """A band that saw one boundary cannot pair, and pair_ratio cannot tell that
@@ -1323,20 +1316,16 @@ class SingleLineTrackingTests(unittest.TestCase):
         both = self._band(detector, [100, 240])
         self.assertAlmostEqual(detector._result_quality_weight(both), 1.0)
 
-    def test_a_one_line_frame_reaches_the_loop_quickly(self):
-        """The frame's confidence is the weight of its step into the error EMA, so a
-        low value here is latency. At 0.127 against 0.99 for a paired frame it put the
-        single-line correction about 1.75 s behind instead of 0.23 s."""
+    def test_repeated_single_edges_cannot_invent_a_trusted_lane_width(self):
         import cv2
         image = np.full((720, 1280, 3), 255, np.uint8)
         cv2.line(image, (640, 719), (760, 300), (0, 0, 0), 20)
         detector = self._detector()
         for _ in range(detector.startup_settle_frames + 3):
-            _, _, confidence, _, debug = detector.process(image)
-        self.assertTrue(debug["single_line"])
-        self.assertGreater(confidence, 0.5)
-        # And the step it actually takes, against a fully-paired frame's 0.28.
-        self.assertGreaterEqual((1.0 - detector.smooth_alpha) * confidence, 0.15)
+            _, _, confidence, _, debug = detector.process(image, dt=.1)
+        self.assertFalse(debug["measurement_valid"])
+        self.assertEqual(confidence, 0.)
+        self.assertGreater(debug["lost_frames"], 0)
 
 
 class LaneFitTests(unittest.TestCase):
@@ -1558,6 +1547,55 @@ class LineDetectorStateTests(unittest.TestCase):
             self.assertEqual(run_policy_vision.main(), 0)
         detector.reset_state.assert_not_called()
 
+    def test_stop_frames_do_not_change_the_first_resumed_walking_seed(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.get.side_effect = [1280, 720]
+        clock, reads, seed, inputs = [0.0], [0], [0], []
+        detector = Mock()
+        detector.snapshot_tracking_state.side_effect = lambda: seed[0]
+        detector.restore_tracking_state.side_effect = lambda saved: seed.__setitem__(0, saved)
+
+        def process(_frame, *, dt=None):
+            inputs.append((reads[0], seed[0]))
+            # Stopped/card frames offer a very different apparent lane.
+            seed[0] = 100 if 2 <= reads[0] < 8 else seed[0] + 1
+            return (0, 0, 0.9, None, detection())
+
+        detector.process.side_effect = process
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        shape.update.side_effect = lambda *_a, **_k: (None, {
+            "presence": reads[0] == 2,
+            "presence_cy_frac": 0.9 if reads[0] == 2 else None})
+
+        def read():
+            reads[0] += 1
+            clock[0] = reads[0] * 0.1
+            if reads[0] > 10:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, None
+            return True, frame
+
+        camera.read.side_effect = read
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-stop-ms", "600", "--card-tilt-ms", "1000"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch("attitude_input.AttitudeInput", side_effect=OSError),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        self.assertEqual(inputs[0], (1, 0))
+        self.assertTrue(all(value == 1 for index, value in inputs if 2 <= index <= 8))
+        self.assertEqual(dict(inputs)[9], 2)
+        detector.reset_state.assert_not_called()
+
     def test_a_low_confidence_frame_barely_moves_the_error(self):
         """conf is the detector's own verdict on a reading, and the fusion has to
         obey it. Before this, a 0.07-confidence frame moved smoothed_err exactly as
@@ -1568,26 +1606,25 @@ class LineDetectorStateTests(unittest.TestCase):
         # A frame it gives no confidence to cannot move the error at all.
         self.assertEqual(confidence_weighted_ema(0.5, -1.0, 0.72, 0.0), 0.5)
 
-    def test_the_fusion_update_goes_through_the_confidence_weight(self):
-        """Guards the call site, not just the helper - the inline EMA that used to
-        be there ignored confidence, and the helper test above would not notice it
-        coming back."""
-        import cv2
+    def test_fusion_uses_elapsed_seconds_and_explicit_tau_not_confidence_ema(self):
         import line_detector_v1_warp as ld
-        frame = np.full((720, 1280, 3), 255, np.uint8)
-        cv2.line(frame, (610, 719), (670, 300), (0, 0, 0), 24)
         detector = ld.LineDetector(1280, 720)
-        real = ld.confidence_weighted_ema
-        seen = []
-
-        def spy(previous, fused, alpha, confidence):
-            seen.append(confidence)
-            return real(previous, fused, alpha, confidence)
-
-        with patch.object(ld, "confidence_weighted_ema", side_effect=spy):
-            detector.process(frame)
-        self.assertEqual(len(seen), 1)
-        self.assertGreater(seen[0], 0.0)
+        detector.bottom_lock_enable = False
+        detector.robust_enable = False
+        band = SingleLineTrackingTests()._band(detector, [100, 240])
+        band.update(band_name="low", weight=1.)
+        frame = np.full((720, 1280, 3), 255, np.uint8)
+        with patch.object(detector, "_detect_two_band_lanes", return_value=[band]), \
+             patch.object(ld, "confidence_weighted_ema", side_effect=AssertionError("legacy EMA")), \
+             patch.object(ld, "time_constant_ema", wraps=ld.time_constant_ema) as update:
+            first = detector.process(frame, dt=.1)[-1]
+            second = detector.process(frame, dt=.07)[-1]
+        self.assertTrue(first["measurement_valid"])
+        self.assertTrue(second["measurement_valid"])
+        # Curve diagnostics may also use the time-based helper; locate the main tau.
+        self.assertTrue(any(abs(call.args[2] - .07) < 1e-9 and
+                            abs(call.args[3] - detector.filter_tau_s) < 1e-9
+                            for call in update.call_args_list))
 
     def test_shape_dump_leaves_the_frame_and_its_detection_dict_behind(self):
         """Twice now the classifier has been called wrong on the field with nothing left
@@ -1635,7 +1672,8 @@ class LineDetectorStateTests(unittest.TestCase):
                 camera.read.side_effect = read
                 self.assertEqual(run_policy_vision.main(), 0)
 
-            written = sorted(Path(folder).iterdir())
+            written = sorted(p for p in Path(folder).rglob("*")
+                             if p.is_file() and p.name != "run_manifest.json")
             self.assertGreaterEqual(len(written), 4)      # a frame and a dict per call
             self.assertEqual(len([p for p in written if p.suffix == ".jpg"]),
                              len([p for p in written if p.suffix == ".json"]))
@@ -1659,7 +1697,7 @@ class LineDetectorStateTests(unittest.TestCase):
             # Locked for four frames, then gone: the trip is on the fourth->fifth.
             pairs = [1.0, 1.0, 1.0, 1.0, 0.0, 0.0]
 
-            def process(_frame):
+            def process(_frame, *, dt=None):
                 index = min(calls[0], len(pairs) - 1)
                 calls[0] += 1
                 return (0, 0, 0.9, vis, {**detection(),
@@ -1698,7 +1736,8 @@ class LineDetectorStateTests(unittest.TestCase):
                 camera.read.side_effect = read
                 self.assertEqual(run_policy_vision.main(), 0)
 
-            written = sorted(Path(folder).iterdir())
+            written = sorted(p for p in Path(folder).rglob("*")
+                             if p.is_file() and p.name != "run_manifest.json")
             frames = [p for p in written if p.name.endswith("_frame.jpg")]
             views = [p for p in written if p.name.endswith("_vis.jpg")]
             self.assertEqual(len(frames), len(views))
@@ -1732,7 +1771,7 @@ class LineDetectorStateTests(unittest.TestCase):
             return value
 
         detector = Mock()
-        detector.process.side_effect = lambda _f: record(
+        detector.process.side_effect = lambda _f, **_kwargs: record(
             "process", (0, 0, 0.9, None, detection()))
         detector.reset_state.side_effect = lambda: record("reset", None)
         shape = Mock()
@@ -2030,7 +2069,8 @@ class ShapeDetectorReportingTests(unittest.TestCase):
             # --card-tilt-ms 0: this test is about the stopped cadence, and the tilt
             # delay would push the first looked-at frame ten frames later.
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
-                               "--card-every-stopped", "2", "--card-tilt-ms", "0"]),
+                               "--card-every-stopped", "2", "--card-tilt-ms", "0",
+                               "--card-settle-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient"),
             patch("utils.open_camera", return_value=camera),
@@ -2243,42 +2283,32 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         self.assertEqual(set(gaps), {2})
 
 
-class DumpDirClearingTests(unittest.TestCase):
-    """A run into a --shape-dump that a previous run already used mixed the two
-    together and made them indistinguishable: the sequence number restarts at 1
-    every run, so 0033 from one lap and 0033 from the next sit in the same listing,
-    and same-named pairs silently overwrite. On the 2026-10-01 dumps this read as a
-    cross card "classified as a pentagon" -- they were two different cards, 100
-    seconds and one run apart, sharing an index."""
-
-    def test_only_this_tools_own_dump_files_are_removed(self):
-        keep = ["run_line_card.log", "notes.txt", "random.jpg",
-                "12345_x_cy1.0_g1.jpg", "0001_None_cy0.5_g0.png"]
-        drop = ["0001_None_cy0.5083333333333333_g0.jpg",
-                "0001_None_cyNone_g0.json",
-                "0021_pentagon_cy0.8775439227068865_g1.jpg"]
+class DumpRunIsolationTests(unittest.TestCase):
+    def test_two_runs_keep_same_named_frames_and_their_own_commands(self):
         with tempfile.TemporaryDirectory() as d:
-            for name in keep + drop:
-                open(os.path.join(d, name), "w").close()
-            removed = run_policy_vision._clear_dump_dir(
-                d, run_policy_vision.SHAPE_DUMP_RE)
-            self.assertEqual(removed, len(drop))
-            self.assertEqual(sorted(os.listdir(d)), sorted(keep))
+            old = Path(d) / "0001_None_cy0.5_g0.jpg"
+            old.write_bytes(b"previous flat dump")
+            folders = []
+            for tag, fire in (("run_a", 5), ("run_b", 10)):
+                folder = Path(run_policy_vision._new_dump_run(
+                    d, tag, {"run_id": tag, "arguments": {"wz_fire_cm": fire}}))
+                (folder / "0001_square_cy0.5_g1.jpg").write_bytes(tag.encode())
+                folders.append(folder)
+            self.assertNotEqual(*folders)
+            self.assertEqual(old.read_bytes(), b"previous flat dump")
+            self.assertEqual((folders[0] / "0001_square_cy0.5_g1.jpg").read_bytes(), b"run_a")
+            self.assertEqual(json.loads((folders[1] / "run_manifest.json").read_text())
+                             ["arguments"]["wz_fire_cm"], 10)
 
-    def test_the_loss_dump_gets_its_own_pattern(self):
-        """Both flags write into their own directory, so each clears only its own
-        naming. A shape file must survive a loss-dump clear and the reverse."""
-        loss = ["001_04_pair1.00_conf0.60_frame.jpg",
-                "001_04_pair1.00_conf0.60_vis.jpg",
-                "001_04_pair1.00_conf0.60.json"]
-        shape = ["0001_None_cy0.5_g0.jpg"]
+    def test_shape_and_loss_can_share_one_run_without_replacing_manifest(self):
         with tempfile.TemporaryDirectory() as d:
-            for name in loss + shape:
-                open(os.path.join(d, name), "w").close()
-            self.assertEqual(
-                run_policy_vision._clear_dump_dir(d, run_policy_vision.LOSS_DUMP_RE),
-                len(loss))
-            self.assertEqual(os.listdir(d), shape)
+            first = run_policy_vision._new_dump_run(d, "run_a", {"argv": ["original"]})
+            Path(first, "0001_square_cy0.5_g1.jpg").write_bytes(b"shape")
+            second = run_policy_vision._new_dump_run(d, "run_a", {"argv": ["replacement"]})
+            self.assertEqual(first, second)
+            self.assertEqual(json.loads(Path(second, "run_manifest.json").read_text()),
+                             {"argv": ["original"]})
+            self.assertEqual(Path(second, "0001_square_cy0.5_g1.jpg").read_bytes(), b"shape")
 
 
 class CardGeometryGateTests(unittest.TestCase):
@@ -2683,7 +2713,7 @@ class DiscreteSteeringTests(unittest.TestCase):
         self.assertEqual(self.step(controller, 9.0), 0.5)
         self.assertEqual(controller.hold[1], 0.5)
         self.assertEqual(inner.hold[1], 0.5)
-        self.assertNotEqual(inner.last_steer, 0.0)   # PID 的意见还留着，日志要用
+        self.assertEqual(inner.last_steer, 0.5)      # 离散日志记录实际输出，不运行隐藏 PID
 
     def test_the_bias_does_not_move_the_trigger(self):
         """触发看原始 err，不看加过 --bias-cm 的 eff。默认 bias 3.0 而 --wz-fire-cm
@@ -2693,7 +2723,7 @@ class DiscreteSteeringTests(unittest.TestCase):
                                    bias_dead_px=0.0, bias_gate_px=12.0)
         controller = DiscreteSteeringController(inner)
         self.assertEqual(self.step(controller, 1.0), 0.0)      # err 小于阈值
-        self.assertAlmostEqual(inner.last_err_eff, 11.0)        # 但 eff 早就过线了
+        self.assertAlmostEqual(inner.last_err_eff, 1.0)         # eff 就是离散阈值输入
         self.assertEqual(self.step(controller, 6.0), 0.5)
 
     def test_the_amplitude_is_a_fixed_constant(self):
@@ -2704,7 +2734,7 @@ class DiscreteSteeringTests(unittest.TestCase):
             with self.subTest(vx=vx), patch("sys.argv",
                                             ["run_policy_vision.py", "--vx", vx]):
                 self.assertEqual(run_policy_vision.parse_args().wz_step, 0.5)
-        with patch("sys.argv", ["run_policy_vision.py", "--wz-step", "0.3"]):
+        with patch("sys.argv", ["run_policy_vision.py", "--wz-mode", "discrete", "--wz-step", "0.3"]):
             self.assertAlmostEqual(run_policy_vision.parse_args().wz_step, 0.3)
 
     def test_the_cli_stop_line_has_no_range_limit(self):
@@ -2755,7 +2785,7 @@ class DiscreteSteeringIntegrationTests(unittest.TestCase):
         detector = Mock()
         # 直道 → 弯道 → 大偏差，循环喂，让三个档都出现
         errors = [0.3, 0.3, 5.0, 5.0, 5.0, 12.0, 12.0, 12.0, 0.3, 0.3]
-        detector.process.side_effect = lambda _f: (
+        detector.process.side_effect = lambda _f, **_kwargs: (
             0, 0, 0.8, None, detection(error=errors[(reads[0] - 1) % len(errors)]))
         shape = Mock()
         shape.action_map = {"square": 3}
@@ -2974,7 +3004,8 @@ class StartGateIntegrationTests(unittest.TestCase):
                                "--start-gate", "both", "--qr-every", "1",
                                "--shape-every", "1", "--card-every-stopped", "1",
                                "--card-vote-frames", "1", "--card-stop-ms", "500",
-                               "--card-hold-ms", "500"]),
+                               "--card-hold-ms", "500", "--card-tilt-ms", "0",
+                               "--card-settle-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),

@@ -30,7 +30,17 @@ def slew_toward(current: float, target: float, max_step: float) -> float:
     return current + math.copysign(max_step, delta)
 
 
-def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
+def _command_mode(message: dict[str, Any]) -> str | None:
+    """Validate the optional transmission mode; explicit null is invalid."""
+    if "command_mode" not in message:
+        return None
+    mode = message["command_mode"]
+    if not isinstance(mode, str) or mode not in ("held", "continuous"):
+        raise ValueError("command_mode must be 'held' or 'continuous'")
+    return mode
+
+
+def process_vision_output(message: dict[str, Any]) -> dict[str, Any]:
     """Example hook for converting vision output into a policy command.
 
     Replace or extend this function later for QR-specific behavior, obstacle
@@ -40,9 +50,11 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
     * validates finite numeric inputs;
     * clamps commands to the ranges used during policy training;
     * always forces target lateral velocity ``vy`` to zero; and
-    * forwards the currently visible QR value (or ``-1``).
+    * forwards the currently visible QR value (or ``-1``); and
+    * validates and forwards optional ``command_mode`` held/continuous tags.
     """
 
+    mode = _command_mode(message)
     vx = float(message["vx"])
     wz = float(message["wz"])
     qr = int(message.get("qr", -1))
@@ -64,6 +76,8 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
         # joints, so a rig uses one or the other, never both.
         "card_tilt": bool(message.get("card_tilt", False)),
     }
+    if mode is not None:
+        result["command_mode"] = mode
     if "event_id" in message or "event_action" in message:
         event_id = int(message["event_id"])
         event_action = int(message["event_action"])
@@ -75,11 +89,11 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
 
 
 def select_output(
-    latest: dict[str, float | int],
+    latest: dict[str, Any],
     last_vision_update: float,
     now: float,
     timeout_s: float,
-) -> tuple[dict[str, float | int], bool, float]:
+) -> tuple[dict[str, Any], bool, float]:
     """Hold the latest vision command until it becomes stale.
 
     Vision may run near 10 Hz while this connector publishes at 50 Hz.  This
@@ -95,12 +109,12 @@ def select_output(
 
 
 class CommandSmoother:
-    """Slew-rate limit the policy command so it never steps.
+    """Slew-limit legacy/continuous commands; transmit held commands unchanged.
 
-    The target jumps whenever vision is lost or reacquired, the watchdog
-    expires, or the first packet arrives.  Moving toward it by at most
-    ``accel * dt`` per tick keeps a bipedal gait from being handed a velocity
-    step it cannot absorb.  ``qr`` is discrete and passes through untouched.
+    Stops, stale-vision zeroes and card posture requests stop immediately and
+    reset the smoother. Held commands synchronize its state, so changing mode
+    cannot resume an older ramp. The connector still republishes at 50 Hz;
+    held describes command semantics, not a slower heartbeat.
     """
 
     def __init__(self, max_vx_accel: float, max_wz_accel: float) -> None:
@@ -117,17 +131,28 @@ class CommandSmoother:
         self.wz = 0.0
 
     def update(
-        self, target: dict[str, float | int], dt: float
-    ) -> dict[str, float | int]:
-        self.vx = slew_toward(self.vx, float(target["vx"]), self.max_vx_accel * dt)
-        if self.max_wz_accel > 0.0:
-            self.wz = slew_toward(self.wz, float(target["wz"]),
-                                  self.max_wz_accel * dt)
+        self, target: dict[str, Any], dt: float
+    ) -> dict[str, Any]:
+        mode = _command_mode(target)
+        vx, wz = float(target["vx"]), float(target["wz"])
+        stop = (bool(target.get("hold_upright", False))
+                or bool(target.get("card_tilt", False))
+                or (vx == 0.0 and wz == 0.0))
+        if stop:
+            self.vx = self.wz = 0.0
+        elif mode == "held":
+            self.vx, self.wz = vx, wz
         else:
-            self.wz = float(target["wz"])
+            self.vx = slew_toward(self.vx, vx, self.max_vx_accel * dt)
+            if self.max_wz_accel > 0.0:
+                self.wz = slew_toward(self.wz, wz, self.max_wz_accel * dt)
+            else:
+                self.wz = wz
         output = {"vx": self.vx, "vy": 0.0, "wz": self.wz, "qr": int(target["qr"]),
                   "hold_upright": bool(target.get("hold_upright", False)),
                   "card_tilt": bool(target.get("card_tilt", False))}
+        if mode is not None:
+            output["command_mode"] = mode
         if "event_id" in target:
             output["event_id"] = int(target["event_id"])
             output["event_action"] = int(target["event_action"])
@@ -285,16 +310,9 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        # Ctrl+C here is the documented first step of the stop sequence, so the
-        # last packet the policy sees should ramp down rather than step.
+        # Clear held/ramped state and send an immediate stop on shutdown too.
         zero = {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}
-        deadline = time.monotonic() + 2.0
-        while (smoother.vx != 0.0 or smoother.wz != 0.0) and time.monotonic() < deadline:
-            publisher.sendto(
-                json.dumps(smoother.update(zero, period), separators=(",", ":")).encode("utf-8"),
-                (args.policy_host, args.policy_port),
-            )
-            time.sleep(period)
+        smoother.update(zero, 0.0)
         stop = b'{"vx":0.0,"vy":0.0,"wz":0.0,"qr":-1}'
         for _ in range(3):
             publisher.sendto(stop, (args.policy_host, args.policy_port))

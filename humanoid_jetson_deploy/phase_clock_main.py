@@ -26,6 +26,8 @@ from phase_clock_adapter import DEFAULT_BUNDLE, load_crossing_controller
 from protocol import COMMAND_ENABLE, STATE_ENCODERS_VALID, STATE_FAULT, STATE_IMU_VALID
 from serial_link import SerialLink
 from target_safety import TargetSafety, add_target_safety_arguments
+from control_diagnostics import ControlDiagnostics, add_diagnostic_arguments, receive_metadata
+from models.phase_clock_model_850.deployment.policy_interface import build_observation as build_phase_observation
 
 
 class StartCueSocket:
@@ -73,6 +75,7 @@ def parse_args():
                    help="Maximum absolute encoder speed at the start cue, rad/s")
     p.add_argument("--log", type=Path, default=Path("logs/phase_clock_run.csv"))
     add_target_safety_arguments(p)
+    add_diagnostic_arguments(p)
     args = p.parse_args()
     if not all(np.isfinite(v) for v in (args.kp_scale, args.kd_scale,
                                          args.pose_tolerance_deg, args.max_joint_speed)):
@@ -112,6 +115,8 @@ def main() -> int:
     started = False
     finished = False
     faulted = False
+    diagnostics = None
+    diagnostic_error = None
     try:
         link = SerialLink(args.port, args.baud)
         first = link.wait_for_state(timeout_s=5.0)
@@ -127,6 +132,14 @@ def main() -> int:
         last_q_motor = first.joint_position.copy()
         last_q_target = config.motor_to_policy_position(last_q_motor)
         controller.reset()
+        if not getattr(args, "no_control_diagnostics", False):
+            bundle = Path(args.bundle)
+            directory = getattr(args, "diagnostic_log_dir", None) or args.log.parent / "control_diagnostics"
+            diagnostics = ControlDiagnostics(directory, args, target_safety,
+                {"phase_actor": bundle / "policy.onnx", "phase_contract": bundle / "policy_contract.json",
+                 "phase_clock": bundle / "phase_clock.json"}, first, "phase_clock_main.py", args.log)
+        else:
+            print("Control diagnostics explicitly disabled", flush=True)
         args.log.parent.mkdir(parents=True, exist_ok=True)
         with args.log.open("w", newline="", encoding="utf-8") as handle:
             log = csv.writer(handle)
@@ -144,6 +157,8 @@ def main() -> int:
             while True:
                 now = time.monotonic()
                 state = link.get_latest_state(max_age_s=0.05)
+                diagnostic_read_time = time.monotonic_ns() * 1e-9
+                state_receive_info = receive_metadata(link, state, diagnostic_read_time) if diagnostics is not None else None
                 if state.status_flags & STATE_FAULT:
                     raise RuntimeError(f"STM32 fault flags=0x{state.status_flags:08X}")
                 if (state.status_flags & required) != required:
@@ -166,6 +181,7 @@ def main() -> int:
                             print("Phase clock started; external 8 cm toe-to-stick placement "
                                   "is assumed", flush=True)
                 if started:
+                    diagnostic_previous_action = controller.last_action.copy()
                     infer_start = time.monotonic()
                     sample = controller.tick(acc, gyro, gravity, q, qd, now=now)
                     infer_done = time.monotonic()
@@ -182,6 +198,14 @@ def main() -> int:
                                      + tuple(float(v) for v in gravity)
                                      + ("",) * config.ACTION_DIM)
                         handle.flush()
+                        if diagnostics is not None:
+                            diagnostics.write(state=state, trace=None, motor_target=None, action=None,
+                                reference_qd=qd, reference_accel=acc, reference_gyro=gyro, reference_gravity=gravity,
+                                observation=None, receive_info=state_receive_info, policy_mode="phase_clock",
+                                target_source="sequence_end_no_target", step=controller.clock.read(now).tick,
+                                phase=sample.phase, phase_tick=controller.clock.read(now).tick,
+                                read_monotonic_s=diagnostic_read_time, elapsed_s=sample.elapsed_s, held_reference=0,
+                                command_flags=0, send_result="not_attempted", infer_ms=(infer_done-infer_start)*1000.)
                         print("sequence_finished: clock ended; disabling motors "
                               "(physical crossing success unknown)", flush=True)
                         break
@@ -199,12 +223,37 @@ def main() -> int:
                     target = last_q_target
                     phase, elapsed, tick = -1, 0.0, -1
                     action = None
-                target = target_safety.apply(target, last_q_target, q, config.POLICY_DT)
+                target, target_trace = target_safety.apply_with_trace(target, last_q_target, q, config.POLICY_DT)
                 last_q_target = target
                 last_q_motor = config.policy_to_motor_position(target)
-                link.send_command(monotonic_us(), last_q_motor, args.kp_scale,
-                                  args.kd_scale, COMMAND_ENABLE if args.enable_motors else 0)
+                command_timestamp = monotonic_us()
+                flags = COMMAND_ENABLE if args.enable_motors else 0
+                diagnostic_values = dict(state=state, trace=target_trace, motor_target=last_q_motor, action=action,
+                    reference_qd=qd, reference_accel=acc, reference_gyro=gyro, reference_gravity=gravity,
+                    observation=None, receive_info=state_receive_info, policy_mode="phase_clock",
+                    target_source="onnx" if started else "initial_pose_hold", step=tick, phase=phase, phase_tick=tick,
+                    read_monotonic_s=diagnostic_read_time, elapsed_s=elapsed, held_reference=0, command_flags=flags,
+                    command_timestamp_us=command_timestamp, infer_ms=(infer_done-infer_start)*1000.)
+                if started:
+                    clock_command = controller.clock.read(now).command
+                    if isinstance(clock_command, (tuple, list, np.ndarray)) and len(clock_command) == 4:
+                        diagnostic_values.update(velocity_command=[clock_command[0], 0., clock_command[1]],
+                                                 command_step_distance_m=clock_command[2], command_crossing=clock_command[3])
+                        if isinstance(diagnostic_previous_action, np.ndarray):
+                            diagnostic_values["observation"] = build_phase_observation(
+                                acc, gyro, gravity, clock_command, q, qd, diagnostic_previous_action)
+                try:
+                    send_result = link.send_command(command_timestamp, last_q_motor, args.kp_scale, args.kd_scale, flags)
+                except Exception as exc:
+                    if diagnostics is not None:
+                        diagnostics.write(**diagnostic_values, send_result="error", send_error=str(exc),
+                                          send_done_monotonic_s=time.monotonic_ns()*1e-9)
+                    raise
                 sent = time.monotonic()
+                if diagnostics is not None:
+                    diagnostics.write(**diagnostic_values,
+                        send_result="written" if send_result is True else "not_written" if send_result is False else "unknown",
+                        send_done_monotonic_s=sent)
                 log.writerow((state.timestamp_us, state.sequence, now, phase, tick,
                               elapsed, infer_done, sent,
                               (infer_done - infer_start) * 1000.0,
@@ -227,8 +276,10 @@ def main() -> int:
                           flush=True)
                     next_tick = time.monotonic()
     except KeyboardInterrupt:
+        diagnostic_error = "KeyboardInterrupt"
         print("Interrupted; disabling motors", flush=True)
     except Exception as exc:
+        diagnostic_error = str(exc)
         faulted = True
         print(f"FAULT: {exc}", flush=True)
         return 1
@@ -237,6 +288,9 @@ def main() -> int:
             send_disable(link, last_q_motor, estop=faulted)
             link.close()
         cue.close()
+        if diagnostics is not None:
+            diagnostics.close(status="fault" if faulted else "completed" if finished else "interrupted",
+                              error=diagnostic_error)
     return 0 if finished else 1
 
 

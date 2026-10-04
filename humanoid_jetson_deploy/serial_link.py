@@ -21,6 +21,7 @@ class SerialLink:
         self.decoder = FrameDecoder()
         self._latest_state: StatePacket | None = None
         self._latest_state_host_time = 0.0
+        self._state_receive_times: dict[tuple[int, int], float] = {}
         self._action_status: dict[int, ActionStatusPacket] = {}
         self._lock = threading.Lock()
         self._write_lock = threading.Lock()
@@ -43,6 +44,9 @@ class SerialLink:
                     with self._lock:
                         self._latest_state = message
                         self._latest_state_host_time = time.monotonic()
+                        self._state_receive_times[(message.sequence, message.timestamp_us)] = self._latest_state_host_time
+                        if len(self._state_receive_times) > 64:
+                            self._state_receive_times.pop(next(iter(self._state_receive_times)))
                 elif isinstance(message, ActionStatusPacket):
                     with self._lock:
                         self._action_status[message.event_id] = message
@@ -65,6 +69,14 @@ class SerialLink:
         if state is None or age > max_age_s:
             raise TimeoutError(f"STM32 state is missing or stale ({age:.3f} s)")
         return state
+
+    def get_state_receive_info(self, state: StatePacket, read_monotonic_s: float) -> dict:
+        """Host receive metadata for this packet, even if a newer one arrived."""
+        with self._lock:
+            received = self._state_receive_times.get((state.sequence, state.timestamp_us))
+        return dict(state_receive_monotonic_s=received,
+                    state_receive_age_s=max(0.0, read_monotonic_s - received) if received is not None else None,
+                    state_receive_metadata_available=received is not None)
 
     def send_command(
         self,

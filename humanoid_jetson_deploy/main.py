@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from pathlib import Path
 import signal
 import time
 
@@ -37,6 +38,8 @@ from protocol import (
 )
 from serial_link import SerialLink
 from target_safety import TargetSafety, add_target_safety_arguments, limit_target_slew
+from control_diagnostics import ControlDiagnostics, add_diagnostic_arguments, receive_metadata
+from walking_command_hold import WalkingCommandHold
 
 
 def parse_args() -> argparse.Namespace:
@@ -165,6 +168,7 @@ def parse_args() -> argparse.Namespace:
         help="Disable only the live window for headless runs; CSV logging remains enabled",
     )
     add_target_safety_arguments(parser)
+    add_diagnostic_arguments(parser)
     args = parser.parse_args()
     try:
         TargetSafety.from_args(args)
@@ -391,6 +395,8 @@ def main() -> int:
              if attitude is not None else "off"))
     print(f"Opening {args.port} (line coding {args.baud}; native USB CDC ignores physical baud)")
     print("MOTORS ENABLED" if args.enable_motors else "DRY RUN: command enable flag is OFF")
+    if not args.fixed_policy and args.policy == "walking":
+        print("Walking vx/wz minimum hold: 0.5 s at model input; stops and takeovers preempt")
     print(f"Motor-position and IMU log: {position_logger.path}")
     if position_plot is not None:
         print("Motor/IMU window opened (knee motors and IMU data selected by default)")
@@ -398,6 +404,9 @@ def main() -> int:
     link = SerialLink(args.port, args.baud)
     last_q_motor = np.zeros(config.NUM_JOINTS, dtype=np.float32)
     timed_run_completed = False
+    diagnostics = None
+    diagnostic_error = None
+    walking_command_hold = WalkingCommandHold()
     try:
         first_state = link.wait_for_state(timeout_s=5.0)
         required = STATE_IMU_VALID | STATE_ENCODERS_VALID
@@ -420,6 +429,17 @@ def main() -> int:
         last_q_motor = first_state.joint_position.copy()
         last_q_policy_target = config.motor_to_policy_position(last_q_motor)
         print(f"Received STM32 state packet, sequence={first_state.sequence}")
+        if not getattr(args, "no_control_diagnostics", False):
+            sources = ({"fixed_joint_frames": args.fixed_policy} if args.fixed_policy else
+                       {"onefoot46" if args.policy == "one-foot" else "walking49": args.model})
+            if args.one_foot_model:
+                sources["card_onefoot46"] = args.one_foot_model
+            directory = (getattr(args, "diagnostic_log_dir", None)
+                         or Path(args.position_log_dir) / "control_diagnostics")
+            diagnostics = ControlDiagnostics(directory, args, target_safety, sources,
+                                             first_state, "main.py", position_logger.path)
+        else:
+            print("Control diagnostics explicitly disabled")
 
         next_tick = time.monotonic()
         previous_tick = next_tick
@@ -443,6 +463,8 @@ def main() -> int:
                 break
 
             state = link.get_latest_state(max_age_s=0.05)
+            diagnostic_read_time = time.monotonic_ns() * 1e-9
+            state_receive_info = receive_metadata(link, state, diagnostic_read_time) if diagnostics is not None else None
             if state.status_flags & STATE_FAULT:
                 raise RuntimeError(f"STM32 reports a fault: flags=0x{state.status_flags:08X}")
             required = STATE_IMU_VALID | STATE_ENCODERS_VALID
@@ -468,7 +490,16 @@ def main() -> int:
             )
             step_policy = policy
             upright_hold = False
+            held_reference = False
+            diagnostic_velocity = None
+            diagnostic_lift = None
+            diagnostic_mode = "walking49"
+            diagnostic_source = "onnx"
+            requested_velocity = None
+            command_hold_remaining = 0.0
+            command_hold_reason = "not_walking"
             if args.fixed_policy:
+                diagnostic_mode, diagnostic_source = "fixed", "fixed_joint_frames"
                 q_policy_target = policy.next_target()
                 if q_policy_target is None:
                     timed_run_completed = True
@@ -478,7 +509,9 @@ def main() -> int:
                 latency_ms = 0.0
                 command_status = f"fixed_frame={policy.index}/{len(policy.frames)} "
             elif args.policy == "one-foot":
+                diagnostic_mode = "onefoot46"
                 lift_command = command_source.get(now - start_time)
+                diagnostic_lift = lift_command
                 command_values = {"lift_command": lift_command}
                 command_status = f"lift_command={int(lift_command)} support={args.support_foot} "
             else:
@@ -488,6 +521,7 @@ def main() -> int:
                 snapshot = (command_source.get_snapshot()
                             if args.command_source == "vision" else None)
                 velocity_command = snapshot.velocity if snapshot is not None else command_source.get()
+                requested_velocity = velocity_command.copy()
                 decision = None
                 # Both the card action and the upright hold need it, and it is the same
                 # question either way: has the robot actually settled?
@@ -630,11 +664,14 @@ def main() -> int:
                     held_observation = None
                     print("[shape] untilt ramp done; policy sees live state again")
                 elif held_observation is not None:
+                    held_reference = True
                     (q_policy, qd_policy, accel_policy, gyro_policy,
                      projected_gravity) = held_observation
 
             if not args.fixed_policy:
                 if upright_hold:
+                    walking_command_hold.clear()
+                    command_hold_reason = "upright_takeover"
                     # Same all-zero frame examples/stand_upright_hold.json plays: knees
                     # straight, no policy in the loop. The slew limiter and the
                     # deviation window below still rate-limit the way in and out, so
@@ -644,6 +681,21 @@ def main() -> int:
                     obs = np.zeros(1, dtype=np.float32)
                     latency_ms = 0.0
                 else:
+                    if args.policy == "walking" and step_policy is not card_policy:
+                        # Timestamp the actual first use at the model boundary,
+                        # rather than consuming time spent receiving/processing.
+                        command_now = time.monotonic_ns() * 1e-9
+                        velocity_command = walking_command_hold.apply(velocity_command, command_now)
+                        command_values = {"velocity_command": velocity_command}
+                        command_hold_remaining = walking_command_hold.remaining(command_now)
+                        command_hold_reason = ("stop" if np.all(velocity_command == 0.) else "normal_walking")
+                        command_status = (f"policy_target_velocity=[vx={velocity_command[0]:+.3f} m/s, "
+                                          f"vy={velocity_command[1]:+.3f} m/s, "
+                                          f"wz={velocity_command[2]:+.3f} rad/s] "
+                                          f"hold_remaining={command_hold_remaining:.3f}s ")
+                    else:
+                        walking_command_hold.clear()
+                        command_hold_reason = "onefoot_takeover"
                     q_policy_target, action, obs, latency_ms = step_policy.step(
                         accel_m_s2=accel_policy,
                         gyro_rad_s=gyro_policy,
@@ -652,19 +704,57 @@ def main() -> int:
                         joint_position_policy=q_policy,
                         joint_velocity_policy=qd_policy,
                     )
-            q_policy_target = target_safety.apply(
+            if not args.fixed_policy and args.policy == "walking":
+                diagnostic_velocity = velocity_command.copy()
+            if upright_hold:
+                diagnostic_mode, diagnostic_source = "upright_hold", "hold_upright_zero_target"
+            elif not args.fixed_policy and args.policy == "walking":
+                if step_policy is card_policy:
+                    diagnostic_mode = "onefoot46"
+                    diagnostic_lift = command_values["lift_command"]
+                else:
+                    diagnostic_velocity = velocity_command.copy()
+            q_policy_target, target_trace = target_safety.apply_with_trace(
                 q_policy_target, last_q_policy_target, q_policy, dt)
             last_q_policy_target = q_policy_target
             last_q_motor = config.policy_to_motor_position(q_policy_target)
 
             flags = COMMAND_ENABLE if args.enable_motors else 0
-            link.send_command(
-                monotonic_us(),
-                last_q_motor,
-                args.kp_scale,
-                args.kd_scale,
-                flags,
-            )
+            command_timestamp = monotonic_us()
+            diagnostic_values = dict(state=state, trace=target_trace, motor_target=last_q_motor,
+                action=action if diagnostic_source == "onnx" else None, reference_qd=qd_policy,
+                reference_accel=accel_policy, reference_gyro=gyro_policy, reference_gravity=projected_gravity,
+                observation=obs if diagnostic_source == "onnx" else None, receive_info=state_receive_info,
+                velocity_command=diagnostic_velocity, lift_command=diagnostic_lift,
+                step=step, read_monotonic_s=diagnostic_read_time, elapsed_s=now - start_time, policy_mode=diagnostic_mode,
+                target_source=diagnostic_source, phase=shape_controller.phase if shape_controller is not None else "",
+                held_reference=int(held_reference), card_tilt_active=int(card_tilt_active), upright_hold=int(upright_hold),
+                command_hold_remaining_s=command_hold_remaining, command_hold_reason=command_hold_reason,
+                command_flags=flags, command_timestamp_us=command_timestamp, infer_ms=latency_ms)
+            if requested_velocity is not None:
+                diagnostic_values.update(zip(("requested_cmd_vx", "requested_cmd_vy", "requested_cmd_wz"),
+                                             requested_velocity.tolist()))
+            if diagnostic_source == "onnx" and diagnostic_mode == "walking49":
+                diagnostic_values.update(command_step_distance_m=float(obs[11]), command_crossing=float(obs[12]))
+            if diagnostic_mode == "onefoot46":
+                diagnostic_values["support_foot"] = (args.support_foot if args.policy == "one-foot"
+                                                      else decision.support_foot)
+                if args.policy == "one-foot":
+                    diagnostic_values["phase"] = "lift" if diagnostic_lift else "standing"
+            if args.fixed_policy:
+                diagnostic_values.update(phase="fixed_frame", phase_tick=policy.index - 1)
+            try:
+                send_result = link.send_command(command_timestamp, last_q_motor,
+                                                args.kp_scale, args.kd_scale, flags)
+            except Exception as exc:
+                if diagnostics is not None:
+                    diagnostics.write(**diagnostic_values, send_result="error", send_error=str(exc),
+                                      send_done_monotonic_s=time.monotonic_ns() * 1e-9)
+                raise
+            if diagnostics is not None:
+                diagnostics.write(**diagnostic_values,
+                    send_result="written" if send_result is True else "not_written" if send_result is False else "unknown",
+                    send_done_monotonic_s=time.monotonic_ns() * 1e-9)
             if args.fixed_policy:
                 response_deadline = time.monotonic() + 0.05
                 response = link.get_latest_state(max_age_s=0.05)
@@ -728,10 +818,13 @@ def main() -> int:
                 print(f"WARNING: policy deadline missed by {-sleep_s * 1000.0:.2f} ms")
                 next_tick = time.monotonic()
     except Exception as exc:
+        walking_command_hold.clear()
+        diagnostic_error = str(exc)
         print(f"FAULT: {exc}")
         send_disable(link, last_q_motor, estop=True)
         return 1
     finally:
+        walking_command_hold.clear()
         send_disable(link, last_q_motor)
         if attitude is not None:
             attitude.close()
@@ -741,6 +834,8 @@ def main() -> int:
         if command_source is not None and args.policy == "walking":
             command_source.close()
         link.close()
+        if diagnostics is not None:
+            diagnostics.close(status="fault" if diagnostic_error else "completed", error=diagnostic_error)
 
     print("Policy stopped; disable packets sent")
     if position_plot is not None and timed_run_completed:

@@ -1,0 +1,16 @@
+{
+  "status": "local uncommitted; no robot execution",
+  "hashes": {
+    "new_vision/jetson/heading_steering.py": "8383924e9a09dceed5d673f951b844a2132d004b1ebe6ae1cdea9fd46733b696",
+    "new_vision/jetson/run_policy_vision.py": "98d393dcf27cfb09236a2addd8c9c37a2040a5b33e49d6a44ecc4aa5f1efd086",
+    "tests/test_heading_steering.py": "d3132090286cc8f104718659ca0ebe7fa61daa4d7c1bb3a706e151d895c18d1a",
+    "tests/test_heading_integration.py": "4d759be8ee3087a187fc18b96e5cbf8361f091724a09b1c8685a1db8cd6bb411",
+    "tests/test_policy_vision.py": "6331e79eedc199ec981b25ce4e5472fafb8e2f7d7f6fc2e57980093aaf09990f"
+  },
+  "tests": {
+    "Windows_OpenCV": "231 passed",
+    "Linux_heading": "22 passed"
+  },
+  "cv2_runtime": "4.13.0",
+  "opencv_python_distribution": "4.13.0.92"
+}

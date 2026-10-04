@@ -86,6 +86,15 @@ class WalkingModeTests(unittest.TestCase):
 
 
     def test_live_vision_commands_are_not_overridden_after_five_seconds(self):
+        # Both clocks represent the same fake host time. The two walking
+        # inference calls are one second apart, beyond the 0.5 s contract.
+        times = iter([0, 10, 10, 10, 11, 11, 11, 12])
+        clock = {"now": 0}
+
+        def monotonic():
+            clock["now"] = next(times)
+            return clock["now"]
+
         state = SimpleNamespace(
             status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID,
             accel_m_s2=np.array([0, 0, 9.81], dtype=np.float32),
@@ -101,7 +110,8 @@ class WalkingModeTests(unittest.TestCase):
             patch.object(main, "SerialLink") as link_cls,
             patch.object(main, "UdpCommandSource") as source_cls,
             patch.object(main, "PositionCsvLogger"),
-            patch.object(main.time, "monotonic", side_effect=[0, 10, 10, 10, 11, 11, 11, 12]),
+            patch.object(main.time, "monotonic", side_effect=monotonic),
+            patch.object(main.time, "monotonic_ns", side_effect=lambda: clock["now"] * 1_000_000_000),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             source = source_cls.return_value

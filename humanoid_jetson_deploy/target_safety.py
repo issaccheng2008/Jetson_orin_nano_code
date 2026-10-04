@@ -41,6 +41,20 @@ def limit_target_slew(target, previous, dt, max_speed_rad_s):
 
 
 @dataclass(frozen=True)
+class TargetTrace:
+    raw_target: np.ndarray
+    absolute_target: np.ndarray
+    slew_target: np.ndarray
+    final_target: np.ndarray
+    previous_target: np.ndarray
+    reference_q: np.ndarray
+    absolute_mask: np.ndarray
+    slew_mask: np.ndarray
+    window_mask: np.ndarray
+    dt: float
+
+
+@dataclass(frozen=True)
 class TargetSafety:
     lower: tuple = tuple(float(x) for x in config.Q_LOWER)
     upper: tuple = tuple(float(x) for x in config.Q_UPPER)
@@ -86,10 +100,19 @@ class TargetSafety:
         return np.clip(target, lower, upper)
 
     def apply(self, target, previous, current, dt):
+        return self.apply_with_trace(target, previous, current, dt)[0]
+
+    def apply_with_trace(self, target, previous, current, dt):
         # Preserve the existing absolute -> slew -> feedback-window order.
-        target = self.clamp_absolute(target)
-        target = limit_target_slew(target, previous, dt, self.max_speed_rad_s)
-        return self.clamp_relative(target, current)
+        raw = _vector(target, "target").copy()
+        previous = _vector(previous, "previous target").copy()
+        current = _vector(current, "current joint position").copy()
+        absolute = self.clamp_absolute(raw)
+        slew = limit_target_slew(absolute, previous, dt, self.max_speed_rad_s)
+        final = self.clamp_relative(slew, current)
+        trace = TargetTrace(raw, absolute.copy(), slew.copy(), final.copy(), previous, current,
+                            absolute != raw, slew != absolute, final != slew, float(dt))
+        return final, trace
 
     @classmethod
     def from_args(cls, args):

@@ -13,17 +13,19 @@ Bar crossing is still not signalled.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
-import re
 import signal
+import sys
 import time
 
 import numpy as np
 
 from camera_config import load as load_camera
 from policy_bridge import ConnectorClient, SteeringController
+from line_telemetry import LineTelemetry
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
 CARD_NAMES_ZH = {
@@ -31,30 +33,24 @@ CARD_NAMES_ZH = {
     "diamond": "菱形", "cross": "十字形", "triangle": "三角形",
 }
 
-# 两个 dump 各自写出来的文件名。清理时只认这两种，不认就不动 —— 目录被指到
-# 别处时（比如 home）整清会连别人的东西一起删。序号每次跑都从 1 重来，所以
-# 上一次跑的文件不清掉就会和新的一次混在同一层，同名还会互相覆盖。
-SHAPE_DUMP_RE = re.compile(r"^\d{4}_.+_cy[^_]*_g[01]\.(jpg|json)$")
-LOSS_DUMP_RE = re.compile(r"^\d{3}_\d{2}_pair.+_conf.+"
-                          r"(_frame\.jpg|_vis\.jpg|\.json)$")
-
 # 赛道中线半径（m），文档 §3。只用来在启动横幅里打一行参考："跟住一个弯需要
 # 多少角速度"（ω = vx / R）。**脉冲幅度不按它推** —— 0.4/0.5 是实车量出来的好值。
 LANE_RADIUS_M = 0.776
 
 
-def _clear_dump_dir(path, pattern):
-    """删掉上一次跑留下的 dump 文件，返回删了几个。"""
-    removed = 0
-    for name in os.listdir(path):
-        if not pattern.match(name):
-            continue
-        try:
-            os.remove(os.path.join(path, name))
-            removed += 1
-        except OSError:
-            pass
-    return removed
+def _new_dump_run(path, run_id, metadata):
+    """Keep each run and its actual command together without removing older data."""
+    directory = os.path.join(path, run_id)
+    os.makedirs(directory, exist_ok=True)
+    manifest = os.path.join(directory, "run_manifest.json")
+    # Both dump flags may point to the same root. Their file names differ, and
+    # their shared manifest is written once; existing evidence is never replaced.
+    try:
+        with open(manifest, "x", encoding="utf-8") as handle:
+            json.dump(metadata, handle, ensure_ascii=False, indent=2)
+    except FileExistsError:
+        pass
+    return directory
 
 
 def parse_args():
@@ -183,9 +179,13 @@ def parse_args():
                              "the gate is still closed")
     parser.add_argument("--no-shape-detect", action="store_true",
                         help="Skip geometric card detection entirely; qr stays -1")
+    parser.add_argument("--line-log-dir", default="",
+                        help="Optional per-frame scalar measurement and command logs; "
+                             "each run gets a new directory and source manifest")
     parser.add_argument("--dump-on-loss", default="",
                         help="Directory to write the frames around a bottom-lock "
                              "drop-out or a confidence collapse into. Empty is off. "
+                             "Each run gets a new subdirectory and command manifest. "
                              "Writes both the raw frame and the detector's own "
                              "overlay for the last few frames before the trip and "
                              "the first one after, split by time")
@@ -197,6 +197,7 @@ def parse_args():
     parser.add_argument("--shape-dump", default="",
                         help="Directory to write a frame and its detection dict into, "
                              "on every shape call where a card is in view. Empty is off. "
+                             "Each run gets a new subdirectory; old runs are kept. "
                              "Needs a card to be present, so a lap writes tens of pairs, "
                              "not thousands")
     parser.add_argument("--no-red-detect", action="store_true",
@@ -312,19 +313,24 @@ def parse_args():
                              "centre past the symmetry tolerance / edges never "
                              "paired). 1.0 (default) leaves the gains exactly as "
                              "they are")
-    parser.add_argument("--wz-mode", choices=("continuous", "discrete"),
-                        default="discrete",
-                        help="'discrete' (default since 2026-10-03, the mode the robot "
-                             "runs) replaces only the published wz with two states: "
-                             "zero until |err| crosses --wz-fire-cm, then one "
-                             "--wz-turn-s burst at +--wz-step, cut short once err "
-                             "is back inside --wz-stop-cm, then a forced "
-                             "--wz-gap-s coast. Straights come out straight and "
-                             "curves become a polygon. It only touches the output - "
-                             "SteeringController itself is untouched, and a run "
-                             "without this flag is bit-for-bit the old behaviour. "
-                             "Use connector --max-wz-accel 0 with it, or the slew "
-                             "limiter rounds the edges off each burst")
+    parser.add_argument("--wz-mode", choices=("heading", "continuous", "discrete"),
+                        default="heading",
+                        help="heading (default): ground heading + near offset, variable "
+                             "wz held with vx for >=0.5s. discrete: legacy error-only "
+                             "bursts. continuous: legacy PID. C enforces >=0.5s for "
+                             "all normal walking commands; explicit stops override it")
+    parser.add_argument("--heading-lookahead-cm", type=float, default=50.0,
+                        help="heading mode: forward target plane, cm; beyond near band")
+    parser.add_argument("--heading-right-tolerance-deg", type=float, default=12.0,
+                        help="heading mode: positive target-bearing dead zone, degrees; "
+                             "tolerates body pointing right before left correction")
+    parser.add_argument("--heading-left-tolerance-deg", type=float, default=4.0,
+                        help="heading mode: negative target-bearing dead zone, degrees")
+    parser.add_argument("--heading-corridor-cm", type=float, default=8.0,
+                        help="heading mode: near/forward lateral corridor; independent of angular tolerance")
+    parser.add_argument("--heading-full-scale-deg", type=float, default=20.0,
+                        help="heading mode: degrees beyond gate for full demand before level selection; "
+                             "legacy PID/fire/stop/turn/gap settings do not apply")
     parser.add_argument("--wz-fire-cm", type=float, default=5.0,
                         help="Dead band, cm: inside it the published wz is exactly "
                              "0 - no scaling, no half authority, straight. Below "
@@ -369,23 +375,13 @@ def parse_args():
                              "together and the curve is a continuous turn instead "
                              "of the polygon")
     parser.add_argument("--wz-allow-right", action="store_true",
-                        help="Allow negative wz. Off by default: the track only turns "
-                             "left in the direction of travel, so a right turn is "
-                             "always a correction that overshot, and it pushes the "
-                             "robot out of the bend. With it off the published wz is "
-                             "either 0 or +step, and only "
-                             "while the body is right of the lane centre (err > 0). "
-                             "Left of centre it coasts, which is what turns the "
-                             "corrections into the pulse-then-coast the polygon wants")
+                        help="Enable right turns in legacy discrete mode. "
+                             "Heading mode always enables asymmetric left/right levels")
     parser.add_argument("--anticipation-clip", type=float,
                         default=float(os.getenv("ANTICIPATION_CLIP", "0.5")),
-                        help="Cap on the fusion's inferred terms (lookahead band + "
-                             "curvature + fitted heading + left-curve outward) as a "
-                             "multiple of the near band's own reading. The near band "
-                             "is the only direct measurement of 'am I on the line'; "
-                             "the rest are inference and may add to it but not "
-                             "outvote it. 0.5 by default. 0 disables the cap and "
-                             "restores the old fusion exactly")
+                        help="Legacy option retained for command compatibility. "
+                             "P1 uses a quality-gated geometric preview and no "
+                             "longer clips preview by the near-error magnitude.")
     parser.add_argument("--lane-fit", action="store_true",
                         help="EXPERIMENTAL, and it changes nothing on its own: also "
                              "scan one tall band (20~70 cm instead of the two "
@@ -478,6 +474,19 @@ def parse_args():
         parser.error("need 0 < wz-fire-cm, a finite wz-stop-cm "
                      "(unset = wz-fire-cm, the mirror), 0 < wz-step <= max-wz, "
                      "wz-turn-s > 0, and wz-gap-s >= 0 (0 = no forced coast)")
+    if args.wz_mode == "heading" and args.wz_step > 0.5:
+        parser.error("heading wz-step must be <=0.5: connector wire limit is +/-0.5")
+    if args.wz_mode == "heading" and (args.wz_step < 0.4
+            or (args.max_wz_right is not None and args.max_wz_right < 0.4)):
+        parser.error("heading mode requires wz-step and max-wz-right >=0.4 for corridor correction")
+    heading_values = (args.heading_lookahead_cm, args.heading_right_tolerance_deg,
+                      args.heading_left_tolerance_deg, args.heading_full_scale_deg, args.heading_corridor_cm)
+    if (not all(math.isfinite(v) for v in heading_values)
+            or args.heading_lookahead_cm <= 0 or args.heading_full_scale_deg <= 0
+            or args.heading_corridor_cm <= 0
+            or not 0 <= args.heading_right_tolerance_deg < 90
+            or not 0 <= args.heading_left_tolerance_deg < 90):
+        parser.error("heading lookahead/full-scale must be positive; tolerances in [0,90)")
     return args
 
 
@@ -488,6 +497,7 @@ def fmt(value, spec):
 
 def main():
     args = parse_args()
+    line_log = None
     # Reuse the dual-mode PID defaults/environment overrides of run_robot.py.
     def gains(mode, defaults):
         return tuple(float(os.getenv(f"JETSON_PID_{mode}_{name}", str(value)))
@@ -516,6 +526,14 @@ def main():
             controller, fire_cm=args.wz_fire_cm, stop_cm=args.wz_stop_cm,
             turn_s=args.wz_turn_s, gap_s=args.wz_gap_s, step=args.wz_step,
             allow_right=args.wz_allow_right)
+    elif args.wz_mode == "heading":
+        from heading_steering import HeadingSteeringController
+        controller = HeadingSteeringController(
+            controller, lookahead_cm=args.heading_lookahead_cm,
+            right_tolerance_deg=args.heading_right_tolerance_deg,
+            left_tolerance_deg=args.heading_left_tolerance_deg,
+            full_scale_deg=args.heading_full_scale_deg, max_step=args.wz_step,
+            allow_right=True, corridor_cm=args.heading_corridor_cm)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
     from line_detector_v1_warp import LineDetector
@@ -614,6 +632,15 @@ def main():
             print(f"Body attitude: udp://{args.attitude_bind}:{args.attitude_port}"
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
                   f" 会被机身俯仰实时修正", flush=True)
+        if args.wz_mode == "heading":
+            print(f"[wz] 方向模式：vx/wz 每段至少保持 0.5s（固定）；"
+                  f"前视 {args.heading_lookahead_cm:g}cm，目标方位容忍区 "
+                  f"[-{args.heading_left_tolerance_deg:g}, +{args.heading_right_tolerance_deg:g}]°，"
+                  f"横向走廊 ±{args.heading_corridor_cm:g}cm；"
+                  f"左档 {controller.left_levels}，右档 {controller.right_levels}，另有直行0。"
+                  "观测趋势仅用于提前减小正在执行的转向。"
+                  "旧 PID/bias/fire/stop/turn/gap 参数不参与本模式。"
+                  "需配套新 connector 和 C；停车/失联可立即打断。", flush=True)
         if args.wz_mode == "discrete":
             levels = (f"{{0, ±{args.wz_step}}}" if args.wz_allow_right
                       else f"{{0, +{args.wz_step}}}")
@@ -690,11 +717,38 @@ def main():
         gate_last_log = -math.inf
         qr_odd_seen = set()
         dumped = 0
+        run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}_{time.time_ns()}"
+        dump_metadata = {
+            "run_id": run_id,
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "argv": list(sys.argv),
+            "arguments": vars(args).copy(),
+            "camera_width": width, "camera_height": height,
+        }
+        dump_metadata["measurement_parameters"] = {
+            name: getattr(detector, name) for name in (
+                "lock_width_cv_max", "observation_rmse_max_px", "measurement_quality_min",
+                "measurement_max_age_s", "single_width_max_age_s", "single_quality_max",
+                "filter_tau_s", "shake_filter_tau_s", "preview_gain", "preview_max_cm",
+                "heading_min_points", "heading_min_span_px",
+            ) if isinstance(getattr(detector, name, None), (int, float, bool))
+        }
+        print("[vision] P1 geometry: quality-gated near/preview; elapsed-time EMA; "
+              "legacy --anticipation-clip has no effect", flush=True)
+        if args.shape_dump or args.dump_on_loss or args.line_log_dir:
+            dump_metadata["source_sha256"] = {}
+            for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
+                                "shape_detector.py", "policy_bridge.py",
+                                "discrete_steering.py", "heading_steering.py", "camera_config.py",
+                                "line_telemetry.py"):
+                with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
+                    dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
+        if args.line_log_dir:
+            line_log = LineTelemetry(_new_dump_run(args.line_log_dir, run_id, dump_metadata))
+            print(f"[vision] per-frame log: {line_log.path}", flush=True)
         if args.shape_dump:
-            os.makedirs(args.shape_dump, exist_ok=True)
-            print(f"[shape] {args.shape_dump}: cleared "
-                  f"{_clear_dump_dir(args.shape_dump, SHAPE_DUMP_RE)} files "
-                  f"from the last run", flush=True)
+            args.shape_dump = _new_dump_run(args.shape_dump, run_id, dump_metadata)
+            print(f"[shape] run dump: {args.shape_dump}", flush=True)
         # The frames around a lock drop-out, kept short so the last good frame before
         # the drop is still in the ring when it trips -- that is the one that shows
         # what the detector was looking at while it still agreed with itself.
@@ -704,10 +758,8 @@ def main():
         prev_pair = 0.0
         prev_conf = 0.0
         if args.dump_on_loss:
-            os.makedirs(args.dump_on_loss, exist_ok=True)
-            print(f"[vision] {args.dump_on_loss}: cleared "
-                  f"{_clear_dump_dir(args.dump_on_loss, LOSS_DUMP_RE)} files "
-                  f"from the last run", flush=True)
+            args.dump_on_loss = _new_dump_run(args.dump_on_loss, run_id, dump_metadata)
+            print(f"[vision] run dump: {args.dump_on_loss}", flush=True)
         while not stopped:
             now = time.monotonic()
             if args.max_seconds > 0 and now - start >= args.max_seconds:
@@ -797,7 +849,15 @@ def main():
                     if (window_open or processed < line_pitch_until
                         or last_cmd_vx <= 0.0)
                     else args.camera_pitch_deg)
-            _, _, confidence, visualization, debug = detector.process(frame)
+            # Keep walking memory separate from observations made while stopped.
+            # A re-pose changes the camera geometry and can put the card frame into
+            # the lane search. Still process it for diagnostics and red-bar sensing,
+            # but do not let it train the next walking frame's seed/width/EMA.
+            tracking_before_frame = detector.snapshot_tracking_state()
+            _, _, confidence, visualization, debug = detector.process(
+                frame, dt=processed - previous)
+            if window_open:
+                detector.restore_tracking_state(tracking_before_frame)
             frames += 1
             log_frames += 1
             recognized_this_frame = False
@@ -959,6 +1019,9 @@ def main():
                 if (card_flag and not card_triggered and card_armed
                         and card_reach is not None
                         and card_reach >= card_reach_line):
+                    # The trigger itself was detected only after line processing;
+                    # exclude that potentially card-corrupted frame as well.
+                    detector.restore_tracking_state(tracking_before_frame)
                     card_triggered = True
                     card_armed = False
                     stop_until = processed + args.card_stop_ms / 1000.0
@@ -1106,6 +1169,7 @@ def main():
                 vx, wz = 0.0, 0.0
             else:
                 vx, wz = controller.command(debug, confidence, processed - previous)
+                debug.update(getattr(controller, "diagnostics", {}))
                 # Printed on the transition, not every frame: one line per time the
                 # near band hands over an offset the lane cannot produce. How often
                 # this fires on a real lap is the measurement.
@@ -1143,6 +1207,10 @@ def main():
             # 那个后仰的站姿），读数还能正常观察。
             if args.hold_still:
                 vx, wz = 0.0, 0.0
+                controller.drop_held_command()
+            if args.wz_mode == "heading" and (in_card_window or gate_window_open or args.hold_still):
+                debug.update(steering_reason="external_stop", steering_applied_wz=0.0,
+                             command_hold_remaining_s=0.0)
             last_cmd_vx = vx
             # 门控期间按住直立：策略自己的站姿后仰约 20°，而相机 45° 是在直立时
             # 标定的，几何闸只认 38.6~59° —— 不扳直，阀2 会把每一张卡都拒掉，机器人
@@ -1154,7 +1222,19 @@ def main():
                                              and start_gate is not None
                                              and start_gate.require_shape)),
                            card_tilt=(in_card_window and card_event_id == 0),
+                           **({"command_mode": "held"} if args.wz_mode == "heading" else {}),
                            **event)
+            if line_log is not None:
+                line_log.write(
+                    debug, frame=frames, host_time_ns=time.time_ns(),
+                    process_monotonic_s=processed, confidence=confidence,
+                    vx=vx, wz=wz, mode=args.wz_mode,
+                    card_window=in_card_window, start_gate=gate_window_open,
+                    hold_still=args.hold_still, event_id=card_event_id,
+                    camera_pitch_deg=effective_pitch,
+                    turn_remaining_s=getattr(controller, "turn_left", None),
+                    gap_remaining_s=getattr(controller, "gap_left", None),
+                )
             gate_window_open = start_gate is not None and not start_gate.passed
             if start_gate is not None and processed - gate_last_log >= args.start_gate_log_s:
                 gate_last_log = processed
@@ -1170,12 +1250,20 @@ def main():
                     f"[vision] {log_frames / max(processed - last_log_at, 1e-6):4.0f}Hz "
                     f"vx={vx:+.3f} wz={wz:+.3f} "
                     f"err={debug.get('fused_err_cm', 0.0):+.1f}cm "
+                    f"near={fmt(debug.get('near_error_cm'), '+.1f')}cm "
+                    f"preview={fmt(debug.get('preview_error_cm'), '+.1f')}cm "
+                    f"valid={int(bool(debug.get('measurement_valid', confidence > 0)))} "
+                    f"age={fmt(debug.get('measurement_age_s'), '.3f')}s "
+                    f"lock_w={fmt(debug.get('bottom_lock_weight'), '.2f')} "
                     f"conf={confidence:.2f} qr={visible_qr}"
                     # Same id the connector and policy log, so the three can be
                     # lined up by hand when an event goes missing in the middle.
                     + (f"/ev{card_action}#{card_event_id}" if card_event_id else "")
                     + " | "
-                    f"steer={controller.last_steer:+.2f} eff={controller.last_err_eff:+.1f} "
+                    f"steer={controller.last_steer:+.2f} "
+                    f"eff={controller.last_err_eff:+.1f}{'deg' if args.wz_mode == 'heading' else 'cm'} "
+                    f"ground_ang={fmt(debug.get('heading_control_deg'), '+.1f')} "
+                    f"predict_ang={fmt(debug.get('steering_predicted_heading_deg'), '+.1f')} "
                     f"ang={debug.get('angle_err_deg', 0.0):+.1f} "
                     f"curve={int(bool(debug.get('curve_mode', False)))}"
                     f"/{debug.get('curve_px', 0.0):+.0f} "
@@ -1232,13 +1320,17 @@ def main():
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
     finally:
-        client.close()
-        if attitude is not None:
-            attitude.close()
-        if cap is not None:
-            cap.release()
-        if not args.headless:
-            cv2.destroyAllWindows()
+        try:
+            if line_log is not None:
+                line_log.close()
+        finally:
+            client.close()
+            if attitude is not None:
+                attitude.close()
+            if cap is not None:
+                cap.release()
+            if not args.headless:
+                cv2.destroyAllWindows()
     return 0
 
 

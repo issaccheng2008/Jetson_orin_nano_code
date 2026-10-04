@@ -1,0 +1,95 @@
+{
+  "frames": 571,
+  "frozen_at_zh": "2026-10-04T13:55:17.794711+08:00",
+  "command_levels": {
+    "0.0": 193,
+    "-0.4": 88,
+    "-0.1": 22,
+    "-0.5": 88,
+    "0.4": 128,
+    "0.5": 52
+  },
+  "decisions": {
+    "target_bearing": 26,
+    "no_new_decision": 416,
+    "left_corridor": 41,
+    "right_corridor": 75,
+    "returning_from_left": 13
+  },
+  "command_pair_different_frames": 361,
+  "normal_completed_segments": 25,
+  "normal_short_changes": 0,
+  "geometry_stop_frames": 48,
+  "safety_interruptions": 9,
+  "prior_turning_frames": 166,
+  "levels_turning_frames": 378,
+  "braked_frames": 2,
+  "boundary_forecast_release_frames": [
+    {
+      "video": "WIN_20260919_18_13_53_Pro_flip.mp4",
+      "frame_index": 58,
+      "predicted_demand_deg": 6.991344674377897
+    }
+  ],
+  "boundary_weak_violation_frames": [],
+  "raw_outside_not_inward_weak_command_frames": [
+    {
+      "video": "WIN_20260919_18_10_34_Pro_flip.mp4",
+      "frame_index": 47,
+      "near_cm": 9.744001248932536,
+      "heading_deg": -3.4019400413775784,
+      "wz": -0.1,
+      "reason": "minimum_hold"
+    },
+    {
+      "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+      "frame_index": 49,
+      "near_cm": -20.376275783493043,
+      "heading_deg": 24.57913702266916,
+      "wz": 0.0,
+      "reason": "minimum_hold"
+    },
+    {
+      "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+      "frame_index": 50,
+      "near_cm": -20.531601838273787,
+      "heading_deg": 25.606642325784012,
+      "wz": 0.0,
+      "reason": "minimum_hold"
+    },
+    {
+      "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+      "frame_index": 51,
+      "near_cm": -21.816134869683932,
+      "heading_deg": 27.655835017037784,
+      "wz": 0.0,
+      "reason": "minimum_hold"
+    },
+    {
+      "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+      "frame_index": 52,
+      "near_cm": -22.3996345324286,
+      "heading_deg": 23.913229822129576,
+      "wz": 0.0,
+      "reason": "minimum_hold"
+    },
+    {
+      "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+      "frame_index": 56,
+      "near_cm": -8.026536837070559,
+      "heading_deg": 24.28076950205669,
+      "wz": 0.0,
+      "reason": "minimum_hold"
+    },
+    {
+      "video": "WIN_20260919_18_13_14_Pro_flip.mp4",
+      "frame_index": 163,
+      "near_cm": 10.8452597907646,
+      "heading_deg": -11.925347835932927,
+      "wz": 0.0,
+      "reason": "minimum_hold"
+    }
+  ],
+  "stale_motion": [],
+  "note": "weak_corridor_decision_frames in raw replay summary is a probe of abs(wz)<.4, not an assertion of a bug: forecast re-entry releases to zero intentionally. Raw boundary cases during minimum_hold document latency, not a new-decision violation."
+}

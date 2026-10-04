@@ -13,6 +13,27 @@ class ProcessVisionOutputTests(unittest.TestCase):
         self.assertEqual((result["event_id"], result["event_action"]), (77, 3))
         self.assertEqual(CommandSmoother(1.0, 2.0).update(result, 0.02)["event_id"], 77)
 
+    def test_validated_command_mode_survives_with_shape_event(self) -> None:
+        for mode in ("held", "continuous"):
+            with self.subTest(mode=mode):
+                result = process_vision_output({"vx": 0.5, "wz": 0.5, "qr": 3,
+                                                "command_mode": mode,
+                                                "event_id": 77, "event_action": 3})
+                forwarded = CommandSmoother(1.0, 2.0).update(result, 0.02)
+                self.assertEqual(forwarded["command_mode"], mode)
+                self.assertEqual((forwarded["event_id"], forwarded["event_action"]), (77, 3))
+
+    def test_unknown_or_non_string_modes_are_rejected(self) -> None:
+        for mode in ("", "HOLD", "unknown", None, 1, True, [], {}):
+            with self.subTest(mode=mode):
+                message = {"vx": 0.5, "wz": 0.5, "qr": -1, "command_mode": mode}
+                with self.assertRaises(ValueError):
+                    process_vision_output(message)
+                smoother = CommandSmoother(1.0, 2.0)
+                with self.assertRaises(ValueError):
+                    smoother.update(message, 0.02)
+                self.assertEqual((smoother.vx, smoother.wz), (0.0, 0.0))
+
     def test_forces_lateral_velocity_to_zero(self) -> None:
         result = process_vision_output({"vx": 0.25, "vy": 0.9, "wz": -0.2, "qr": 3})
         self.assertEqual(result, {"vx": 0.25, "vy": 0.0, "wz": -0.2, "qr": 3,
@@ -93,22 +114,93 @@ class CommandSmootherTests(unittest.TestCase):
         self.assertEqual(wzs[24], -0.5)  # 0.5 rad/s at 2.0 rad/s^2
         self.assertEqual(smoother.update(self.TARGET, 0.02)["vx"], 0.4)
 
-    def test_watchdog_zero_is_ramped_to_exact_zero(self) -> None:
+    def test_watchdog_zero_stops_on_first_tick_and_clears_state(self) -> None:
         smoother = CommandSmoother(max_vx_accel=1.0, max_wz_accel=2.0)
-        running = {"vx": 0.4, "vy": 0.0, "wz": -0.5, "qr": 2}
-        for _ in range(30):
-            smoother.update(running, 0.02)
+        running = process_vision_output({"vx": 0.5, "wz": -0.5, "qr": 2,
+                                        "command_mode": "held", "event_id": 77,
+                                        "event_action": 3})
+        smoother.update(running, 0.02)
         stale, fresh, _age = select_output(
             running, last_vision_update=1.0, now=1.30, timeout_s=0.25
         )
         self.assertFalse(fresh)
-        first = smoother.update(stale, 0.02)
-        self.assertNotEqual(first["vx"], 0.0)  # ramped, not stepped
-        self.assertLess(first["vx"], 0.4)
-        for _ in range(30):
-            last = smoother.update(stale, 0.02)
-        self.assertEqual(last, {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1,
-                                "hold_upright": False, "card_tilt": False})
+        first = smoother.update(stale, 0.0)
+        self.assertEqual(first, {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1,
+                                 "hold_upright": False, "card_tilt": False})
+        self.assertEqual((smoother.vx, smoother.wz), (0.0, 0.0))
+        # A continuous restart must start from zero, not the previous left turn.
+        restarted = smoother.update({"vx": 0.5, "wz": 0.5, "qr": -1}, 0.02)
+        self.assertAlmostEqual(restarted["vx"], 0.02)
+        self.assertAlmostEqual(restarted["wz"], 0.04)
+
+    def test_held_commands_keep_full_values_and_publish_on_every_tick(self) -> None:
+        smoother = CommandSmoother(1.0, 2.0)
+        for wz in (0.5, 0.0, -0.5, 0.5):
+            with self.subTest(wz=wz):
+                latest = process_vision_output({"vx": 0.5, "wz": wz, "qr": -1,
+                                                "command_mode": "held"})
+                for tick in range(10):
+                    target, fresh, _ = select_output(latest, 1.0, 1.0+tick*0.02, 0.25)
+                    self.assertTrue(fresh)
+                    result = smoother.update(target, 0.02)
+                    self.assertEqual((result["vx"], result["wz"]), (0.5, wz))
+                    self.assertEqual(result["command_mode"], "held")
+                    self.assertEqual((smoother.vx, smoother.wz), (0.5, wz))
+        # The tag does not extend the ordinary vision watchdog to 0.5 seconds.
+        target, fresh, _ = select_output(latest, 1.0, 1.251, 0.25)
+        self.assertFalse(fresh)
+        self.assertEqual(smoother.update(target, 0.02)["wz"], 0.0)
+
+    def test_held_state_is_used_when_switching_to_continuous_or_legacy(self) -> None:
+        for mode in (None, "continuous"):
+            with self.subTest(mode=mode):
+                smoother = CommandSmoother(1.0, 2.0)
+                smoother.update({"vx": 0.5, "wz": -0.5, "qr": -1,
+                                 "command_mode": "held"}, 0.02)
+                target = {"vx": 0.6, "wz": 0.5, "qr": -1}
+                if mode is not None:
+                    target["command_mode"] = mode
+                result = smoother.update(target, 0.02)
+                self.assertAlmostEqual(result["vx"], 0.52)
+                self.assertAlmostEqual(result["wz"], -0.46)
+                self.assertEqual(result.get("command_mode"), mode)
+
+    def test_continuous_tag_preserves_legacy_acceleration_limits(self) -> None:
+        for mode in (None, "continuous"):
+            with self.subTest(mode=mode):
+                target = {"vx": 0.5, "wz": 0.5, "qr": -1}
+                if mode is not None:
+                    target["command_mode"] = mode
+                result = CommandSmoother(1.0, 2.0).update(target, 0.02)
+                self.assertAlmostEqual(result["vx"], 0.02)
+                self.assertAlmostEqual(result["wz"], 0.04)
+                self.assertEqual(result.get("command_mode"), mode)
+
+    def test_full_stop_and_posture_requests_clear_motion_but_preserve_metadata(self) -> None:
+        for mode in (None, "held", "continuous"):
+            for flag in (None, "hold_upright", "card_tilt"):
+                with self.subTest(mode=mode, flag=flag):
+                    smoother = CommandSmoother(1.0, 2.0)
+                    smoother.update({"vx": 0.5, "wz": -0.5, "qr": -1,
+                                     "command_mode": "held"}, 0.02)
+                    target = {"vx": 0.5 if flag else 0.0,
+                              "wz": 0.5 if flag else 0.0,
+                              "qr": 3, "event_id": 77, "event_action": 3}
+                    if mode is not None:
+                        target["command_mode"] = mode
+                    if flag:
+                        target[flag] = True
+                    result = smoother.update(process_vision_output(target), 0.0)
+                    self.assertEqual((result["vx"], result["wz"]), (0.0, 0.0))
+                    self.assertEqual((smoother.vx, smoother.wz), (0.0, 0.0))
+                    self.assertEqual((result["qr"], result["event_id"], result["event_action"]),
+                                     (3, 77, 3))
+                    self.assertEqual(result.get("command_mode"), mode)
+                    if flag:
+                        self.assertTrue(result[flag])
+                    restarted = smoother.update({"vx": 0.5, "wz": 0.5, "qr": -1,
+                                                 "command_mode": "held"}, 0.02)
+                    self.assertEqual((restarted["vx"], restarted["wz"]), (0.5, 0.5))
 
     def test_qr_passes_through_untouched(self) -> None:
         smoother = CommandSmoother(max_vx_accel=1.0, max_wz_accel=2.0)
