@@ -1368,6 +1368,24 @@ class LineDetector:
         valid = rmse <= self.observation_rmse_max_px
         return math.degrees(math.atan(a * self._asp)) if valid else 0.0, valid, rmse
 
+    def _fit_ground_line(self, gx, gz):
+        """Least-squares x(z) over ground points; positive heading is left.
+
+        None when the points cannot define a direction. Shared by the paired
+        control heading and the single-edge loss fallback.
+        """
+        z_mean, x_mean = float(np.mean(gz)), float(np.mean(gx))
+        dz = gz - z_mean
+        denominator = float(np.dot(dz, dz))
+        if denominator <= 1e-9:
+            return None
+        slope = float(np.dot(dz, gx - x_mean)) / denominator
+        intercept = x_mean - slope * z_mean
+        residual = float(np.sqrt(np.mean((gx - (slope * gz + intercept)) ** 2)))
+        if not all(math.isfinite(v) for v in (slope, intercept, residual)):
+            return None
+        return slope, intercept, residual
+
     def _fit_ground_control_heading(self, results, bottom_lock):
         """Fit actual per-row ground (x,z) coordinates; positive heading is left.
 
@@ -1394,20 +1412,49 @@ class LineDetector:
         out["heading_control_pixel_rmse_px"] = pixel_rmse
         if not pixel_valid:
             return out
-        z_mean, x_mean = float(np.mean(gz)), float(np.mean(gx))
-        dz = gz - z_mean
-        denominator = float(np.dot(dz, dz))
-        if denominator <= 1e-9:
+        fit = self._fit_ground_line(gx, gz)
+        if fit is None:
             return out
-        slope = float(np.dot(dz, gx - x_mean)) / denominator
-        intercept = x_mean - slope * z_mean
-        residual = float(np.sqrt(np.mean((gx - (slope * gz + intercept)) ** 2)))
-        if not all(math.isfinite(v) for v in (slope, intercept, residual)):
-            return out
+        slope, intercept, residual = fit
         out.update(heading_control_deg=-math.degrees(math.atan(slope)),
                    heading_control_valid=True, heading_control_rmse_cm=residual,
                    heading_control_slope_dx_dz=slope,
                    heading_control_intercept_cm=intercept)
+        return out
+
+    def _fit_single_edge_heading(self, near):
+        """Direction of the one boundary still in view, as a loss fallback.
+
+        用近带里"单边 + 近期配对宽度"推出来的中心点做地面直线拟合：这些点平行
+        于那条边界，方向就是单线的方向。只喂丢线兜底（丢掉配对几何时沿着它
+        继续走），不写 heading_control_*，也不参与 curve_mode / preview ——
+        配对几何的契约不变。
+        """
+        out = {"single_edge_valid": False, "single_edge_heading_deg": 0.0,
+               "single_edge_side": near.get("single_side"),
+               "single_edge_rmse_cm": 0.0, "single_edge_z_span_cm": 0.0,
+               "single_edge_points": 0, "single_edge_near_cm": 0.0,
+               "single_edge_z_cm": 0.0}
+        ys = [float(y) for y in near.get("ys_list", [])]
+        xs = [float(x) for x in near.get("centers_list", [])]
+        out["single_edge_points"] = len(ys)
+        if len(ys) < self.heading_min_points or max(ys) - min(ys) < self.heading_min_span_px:
+            return out
+        ground = np.asarray([self._px_to_ground_cm(x, y) for y, x in zip(ys, xs)],
+                            dtype=np.float64)
+        if not np.all(np.isfinite(ground)):
+            return out
+        gx, gz = ground[:, 0], ground[:, 1]
+        out["single_edge_z_span_cm"] = float(np.ptp(gz))
+        fit = self._fit_ground_line(gx, gz)
+        if fit is None:
+            return out
+        slope, _intercept, residual = fit
+        out.update(single_edge_valid=True,
+                   single_edge_heading_deg=-math.degrees(math.atan(slope)),
+                   single_edge_rmse_cm=residual,
+                   single_edge_near_cm=float(near["center_cm"]),
+                   single_edge_z_cm=float(near["dist_cm"]))
         return out
 
     def _derive_narrow_gate(self, red_detected, red_z_cm, start_z_cm):
@@ -1655,6 +1702,10 @@ class LineDetector:
         heading_valid = False
         heading_rmse_px = 0.0
         heading_control = self._fit_ground_control_heading([], {})
+        single_edge = {"single_edge_valid": False, "single_edge_heading_deg": 0.0,
+                       "single_edge_side": None, "single_edge_rmse_cm": 0.0,
+                       "single_edge_z_span_cm": 0.0, "single_edge_points": 0,
+                       "single_edge_near_cm": 0.0, "single_edge_z_cm": 0.0}
         preview_valid = False
         preview_error_cm = 0.0
         lookahead_z_cm = 0.0
@@ -1799,6 +1850,8 @@ class LineDetector:
             angle_err, heading_valid, heading_rmse_px = self._fit_trusted_heading(
                 roi_results, bottom_lock)
             heading_control = self._fit_ground_control_heading(roi_results, bottom_lock)
+            if single_line:
+                single_edge = self._fit_single_edge_heading(near)
             preview_valid = (near is not far and
                              near.get("observation_paired", False) and
                              far.get("observation_paired", False) and heading_valid)
@@ -1970,6 +2023,7 @@ class LineDetector:
             "heading_valid": heading_valid and measurement_valid,
             "heading_fit_rmse_px": heading_rmse_px,
             **heading_control,
+            **single_edge,
             "preview_error_cm": preview_error_cm,
             "preview_valid": preview_valid and measurement_valid,
             "lookahead_z_cm": lookahead_z_cm,

@@ -2,7 +2,10 @@
 
 Policy wz is a command, not a measured angular velocity. Prediction only brakes
 an ongoing correction using observed visual trends; it never assumes wz*T is
-the physical rotation. Explicit stops/loss may interrupt the normal hold.
+the physical rotation. Explicit stops and loss of steering may interrupt the
+normal hold. Invalid geometry clears yaw, preserving the last walking speed.
+When only one boundary is still in view, its direction supplies the heading —
+the walk follows the single line instead of standing still.
 """
 from __future__ import annotations
 
@@ -88,7 +91,22 @@ class HeadingSteeringController:
                                 steering_applied_wz=0.0)
         return self._command
 
+    def _lose_geometry(self):
+        # Geometry loss cannot start walking or undo an external stop. Keep only
+        # the speed actually applied before loss; never substitute configured vx.
+        speed = self._command[0]
+        self._stop("geometry_lost_yaw_zero")
+        self._command = self.inner.hold = (speed, 0.0)
+        return self._command
+
     def _geometry(self, debug):
+        """Paired geometry first; the single-edge direction is the loss fallback."""
+        geometry = self._paired_geometry(debug)
+        if geometry is None:
+            geometry = self._single_edge_geometry(debug)
+        return geometry
+
+    def _paired_geometry(self, debug):
         # New ground fit is preferred. Old P1 recordings remain replayable, with
         # an explicit source tag; an invalid new fit never falls back to stale data.
         if "heading_control_valid" in debug:
@@ -103,6 +121,26 @@ class HeadingSteeringController:
             source = "legacy_pixel_heading"
         near = float(debug.get("near_error_cm", debug["base_err_cm"]))
         z = float(debug.get("near_z_cm", 0.0))
+        return self._bear_from(near, z, angle, source)
+
+    def _single_edge_geometry(self, debug):
+        """只剩一条边界时，沿着这条线的方向走（检测器 single_edge_* 字段）。
+
+        P1 不让单边界供 heading_control / curve —— 那条契约不变；这里是丢线
+        兜底：配对拟合不可用但检测器还看得见一条边（近期配对宽度支撑），就沿
+        着它的方向继续走，而不是站住。位置/方向都用同一带的数据。
+        """
+        if not debug.get("single_edge_valid", False):
+            return None
+        try:
+            angle = float(debug["single_edge_heading_deg"])
+            near = float(debug.get("single_edge_near_cm", 0.0))
+            z = float(debug.get("single_edge_z_cm", 0.0))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return None
+        return self._bear_from(near, z, angle, "single_edge")
+
+    def _bear_from(self, near, z, angle, source):
         if not all(math.isfinite(v) for v in (near, z, angle)):
             return None
         if z < 0 or z >= self.lookahead_cm or abs(angle) >= 90:
@@ -175,9 +213,9 @@ class HeadingSteeringController:
             self._loss_s += dt
             self._samples.clear()
             # Brief missing frames keep the exact pair, never a per-frame fade.
-            # Stale geometry / the existing loss deadline are immediate stops.
+            # Stale geometry / the loss deadline discard yaw, not forward speed.
             if debug.get("measurement_stale", False) or self._loss_s >= self.inner.lost_hold_s:
-                return self._stop("geometry_lost")
+                return self._lose_geometry()
             self.diagnostics.update(steering_reason="brief_loss_hold",
                 command_hold_remaining_s=self.turn_left, steering_applied_wz=self._command[1])
             return self._command

@@ -271,25 +271,79 @@ class HeadingSteeringTests(unittest.TestCase):
         self.assertAlmostEqual(c.command(old, 1., .01)[1], .5)
         self.assertEqual(c.diagnostics["steering_heading_source"], "legacy_pixel_heading")
 
-    def test_brief_loss_preserves_exact_pair_then_loss_deadline_stops(self):
+    def test_brief_loss_preserves_pair_then_deadline_discards_only_yaw(self):
         c = controller()
         first = c.command(detection(30), 1., .01)
         lost = detection(lost_frames=1, measurement_valid=False)
         self.assertEqual(c.command(lost, 0., .05), first)
         self.assertEqual(c.inner.hold, first)
         self.assertEqual(c.diagnostics["steering_reason"], "brief_loss_hold")
-        self.assertEqual(c.command(lost, 0., .151), (0., 0.))
-        self.assertEqual(c.diagnostics["steering_reason"], "geometry_lost")
+        self.assertEqual(c.command(lost, 0., .151), (first[0], 0.))
+        self.assertEqual(c.diagnostics["steering_reason"], "geometry_lost_yaw_zero")
+        self.assertEqual(c.command(lost, 0., 2.), (first[0], 0.))
         self.assertEqual(c.turn_left, 0.)
 
     def test_stale_is_immediate_and_reacquisition_starts_fresh(self):
         c = controller(allow_right=True, inner_options=dict(lost_hold_s=5.))
-        c.command(detection(30), 1., .01)
-        self.assertEqual(c.command(detection(measurement_stale=True), 1., .01), (0., 0.))
-        self.assertEqual(c.inner.hold, (0., 0.))
-        self.assertEqual(c.diagnostics["steering_reason"], "geometry_lost")
+        first = c.command(detection(30), 1., .01)
+        self.assertEqual(c.command(detection(measurement_stale=True), 1., .01), (first[0], 0.))
+        self.assertEqual(c.inner.hold, (first[0], 0.))
+        self.assertEqual(c.diagnostics["steering_reason"], "geometry_lost_yaw_zero")
         self.assertAlmostEqual(c.command(detection(-20), 1., .01)[1], -.4)
         self.assertAlmostEqual(c.turn_left, .5)
+
+    def test_loss_cannot_start_walking_or_replay_speed_after_explicit_stop(self):
+        c = controller()
+        lost = detection(measurement_valid=False, measurement_stale=True)
+        self.assertEqual(c.command(lost, 0., .5), (0., 0.))
+        c.command(detection(30), 1., .01)
+        c.drop_held_command()
+        self.assertEqual(c.command(lost, 0., .5), (0., 0.))
+
+    def test_geometry_loss_preserves_applied_speed_not_latest_configuration(self):
+        c = controller(inner_options=dict(vx=.2))
+        c.command(detection(30), 1., .01)
+        c.inner.vx = .8
+        self.assertEqual(c.command(detection(heading_control_valid=False), 1., .3), (.2, 0.))
+
+    def single_edge(self, heading, **changes):
+        values = dict(heading_control_valid=False, single_edge_valid=True,
+                      single_edge_heading_deg=heading, single_edge_near_cm=0.,
+                      single_edge_z_cm=25.)
+        values.update(changes)
+        return detection(30., near=0., z=25., **values)
+
+    def test_single_edge_direction_supplies_heading_when_the_pair_fit_is_invalid(self):
+        """丢线兜底：配对拟合无效、但检测器还看得见一条边时，沿着这条边的方向走。"""
+        c = controller()
+        output = c.command(self.single_edge(20.), 1., .01)
+        self.assertEqual(c.diagnostics["steering_heading_source"], "single_edge")
+        self.assertAlmostEqual(c.diagnostics["steering_demand_deg"], 10.314104815618196)
+        self.assertEqual(output, (c.inner.vx, .4))
+        self.assertEqual(c.diagnostics["steering_decision"], "right_corridor")
+
+    def test_the_single_edge_sign_sets_the_turn_direction(self):
+        for heading, expected in ((20., .4), (-20., -.4)):
+            with self.subTest(heading=heading):
+                c = controller()
+                self.assertEqual(c.command(self.single_edge(heading), 1., .01)[1], expected)
+
+    def test_paired_geometry_wins_over_the_single_edge_fallback(self):
+        c = controller()
+        output = c.command(self.single_edge(-40., heading_control_valid=True), 1., .01)
+        self.assertEqual(c.diagnostics["steering_heading_source"], "ground_x_z")
+        self.assertEqual(output[1], .4)
+
+    def test_the_single_edge_fallback_shares_the_geometry_gates(self):
+        cases = (dict(single_edge_heading_deg=90.), dict(single_edge_z_cm=50.),
+                 dict(single_edge_heading_deg=float("nan")))
+        for changes in cases:
+            with self.subTest(changes=changes):
+                c = controller()
+                bad = self.single_edge(20., **changes)
+                self.assertEqual(c.command(bad, 1., .01), (0., 0.))
+                self.assertEqual(c.diagnostics["steering_reason"], "brief_loss_hold")
+                self.assertNotIn("steering_heading_source", c.diagnostics)
 
     def test_invalid_clock_and_explicit_reset_cancel_the_contract(self):
         for dt in (0, -1, float("nan"), float("inf")):

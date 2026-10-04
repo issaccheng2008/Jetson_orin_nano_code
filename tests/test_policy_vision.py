@@ -1300,7 +1300,35 @@ class SingleLineTrackingTests(unittest.TestCase):
             self.assertFalse(debug["heading_valid"])
             self.assertFalse(debug["preview_valid"])
             self.assertFalse(debug["curve_mode"])
+            # 单边兜底同样要宽度支撑：没有近期配对帧，连它也拿不到方向。
+            self.assertFalse(debug["single_edge_valid"])
             self.assertEqual(confidence, 0.0)
+
+    def test_the_single_edge_fallback_reads_which_way_the_one_line_goes(self):
+        """丢线兜底用的是单线方向：远处偏左 → 正 heading（左转），镜像同理。"""
+        detector = self._detector()
+        for slope, sign in ((0.6, 1), (-0.6, -1)):
+            with self.subTest(slope=slope):
+                gray = np.zeros((detector.bird_h, detector.bird_w), np.uint8)
+                for y in range(detector.band_low_y0, detector.band_low_y1):
+                    x = int(100 + (y - detector.band_low_y0) * slope)
+                    gray[y, x:x + 10] = 255
+                bgr = np.zeros((detector.bird_h, detector.bird_w, 3), np.uint8)
+                near = detector._scan_band_midline(
+                    gray, bgr, 128, False, 160.0, 140.0,
+                    detector.band_low_y0 / float(detector.bird_h),
+                    detector.band_low_y1 / float(detector.bird_h), 10, 5)
+                self.assertIsNotNone(near)
+                self.assertEqual(near["single_side"], "left")
+                out = detector._fit_single_edge_heading(near)
+                self.assertTrue(out["single_edge_valid"])
+                self.assertEqual(out["single_edge_side"], "left")
+                self.assertEqual(out["single_edge_near_cm"], near["center_cm"])
+                self.assertEqual(out["single_edge_z_cm"], near["dist_cm"])
+                if sign > 0:
+                    self.assertGreater(out["single_edge_heading_deg"], 0.0)
+                else:
+                    self.assertLess(out["single_edge_heading_deg"], 0.0)
 
     def test_a_one_frame_unsupported_edge_does_not_reach_the_bias_gate(self):
         import cv2

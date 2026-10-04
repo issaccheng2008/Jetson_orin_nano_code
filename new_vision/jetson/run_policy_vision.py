@@ -1177,8 +1177,8 @@ def main():
                     if lateral_warned is None:
                         print(f"[vision] near band says "
                               f"{controller.rejected_lateral:+.1f}cm, past the "
-                              f"{args.max_lateral_cm:.1f}cm lane half-width; fading "
-                              f"out then stopping instead of steering on it", flush=True)
+                              f"{args.max_lateral_cm:.1f}cm lane half-width; discarding "
+                              f"steering and retaining previous walking speed", flush=True)
                     lateral_warned = True
                 else:
                     lateral_warned = False
@@ -1241,8 +1241,10 @@ def main():
                 scans = qr_reader.scans if qr_reader is not None else 0
                 rej = qr_reader.geom_rejects if qr_reader is not None else 0
                 cost = qr_reader.last_cost_ms if qr_reader is not None else 0.0
+                gate_state = "等待起步" if gate_window_open else "已放行"
                 print(f"[start-gate] {start_gate.status()} | 扫 {scans} 次/"
-                      f"{rej} 拒 单次 {cost:.0f}ms | 车=站着不动", flush=True)
+                      f"{rej} 拒 单次 {cost:.0f}ms | 门控={gate_state} "
+                      f"vx={vx:+.3f} wz={wz:+.3f}", flush=True)
             if processed - last_log >= 0.5:
                 # Left of the bar is what the robot is doing; right of it is why.
                 # Read only the left if it is behaving.
@@ -1253,6 +1255,7 @@ def main():
                     f"near={fmt(debug.get('near_error_cm'), '+.1f')}cm "
                     f"preview={fmt(debug.get('preview_error_cm'), '+.1f')}cm "
                     f"valid={int(bool(debug.get('measurement_valid', confidence > 0)))} "
+                    f"reason={debug.get('steering_reason', 'legacy')} "
                     f"age={fmt(debug.get('measurement_age_s'), '.3f')}s "
                     f"lock_w={fmt(debug.get('bottom_lock_weight'), '.2f')} "
                     f"conf={confidence:.2f} qr={visible_qr}"
@@ -1263,6 +1266,7 @@ def main():
                     f"steer={controller.last_steer:+.2f} "
                     f"eff={controller.last_err_eff:+.1f}{'deg' if args.wz_mode == 'heading' else 'cm'} "
                     f"ground_ang={fmt(debug.get('heading_control_deg'), '+.1f')} "
+                    f"single={fmt(debug.get('single_edge_heading_deg') if debug.get('single_edge_valid', False) else None, '+.1f')} "
                     f"predict_ang={fmt(debug.get('steering_predicted_heading_deg'), '+.1f')} "
                     f"ang={debug.get('angle_err_deg', 0.0):+.1f} "
                     f"curve={int(bool(debug.get('curve_mode', False)))}"

@@ -183,7 +183,9 @@ class SteeringController:
             valid = valid and bool(debug.get("measurement_valid", True))
             if debug.get("measurement_stale", False):
                 valid = False
-                self.drop_held_command()
+                # Expired geometry withdraws steering immediately. External
+                # stops still use drop_held_command() to clear speed as well.
+                self.hold = (self.hold[0], 0.0)
             self.rejected_lateral = (
                 lateral if valid and self.max_lateral_cm > 0
                 and abs(lateral) > self.max_lateral_cm else None)
