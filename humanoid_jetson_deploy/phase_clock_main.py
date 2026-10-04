@@ -21,10 +21,11 @@ import numpy as np
 
 import config
 from imu_filter import projected_gravity_from_quaternion, validate_stationary_imu_sample
-from main import monotonic_us, send_disable, slew_limit
+from main import monotonic_us, send_disable
 from phase_clock_adapter import DEFAULT_BUNDLE, load_crossing_controller
 from protocol import COMMAND_ENABLE, STATE_ENCODERS_VALID, STATE_FAULT, STATE_IMU_VALID
 from serial_link import SerialLink
+from target_safety import TargetSafety, add_target_safety_arguments
 
 
 class StartCueSocket:
@@ -71,6 +72,7 @@ def parse_args():
     p.add_argument("--max-joint-speed", type=float, default=0.2,
                    help="Maximum absolute encoder speed at the start cue, rad/s")
     p.add_argument("--log", type=Path, default=Path("logs/phase_clock_run.csv"))
+    add_target_safety_arguments(p)
     args = p.parse_args()
     if not all(np.isfinite(v) for v in (args.kp_scale, args.kd_scale,
                                          args.pose_tolerance_deg, args.max_joint_speed)):
@@ -78,6 +80,10 @@ def parse_args():
     if not (0 <= args.kp_scale <= 1 and 0 <= args.kd_scale <= 1
             and args.pose_tolerance_deg > 0 and args.max_joint_speed > 0):
         p.error("gain or initial-pose limits out of range")
+    try:
+        TargetSafety.from_args(args)
+    except ValueError as exc:
+        p.error(str(exc))
     return args
 
 
@@ -90,6 +96,11 @@ def initial_pose_ready(q_policy: np.ndarray, qd_policy: np.ndarray,
 
 def main() -> int:
     args = parse_args()
+    try:
+        target_safety = TargetSafety.from_args(args)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(target_safety.describe(), flush=True)
     config.validate_imu_configuration()
     if args.enable_motors and not (config.CALIBRATION_CONFIRMED
                                    and config.IMU_CALIBRATION_CONFIRMED):
@@ -188,9 +199,7 @@ def main() -> int:
                     target = last_q_target
                     phase, elapsed, tick = -1, 0.0, -1
                     action = None
-                target = config.clamp_policy_target(target)
-                target = slew_limit(target, last_q_target, config.POLICY_DT)
-                target = config.clamp_policy_target_to_current(target, q)
+                target = target_safety.apply(target, last_q_target, q, config.POLICY_DT)
                 last_q_target = target
                 last_q_motor = config.policy_to_motor_position(target)
                 link.send_command(monotonic_us(), last_q_motor, args.kp_scale,

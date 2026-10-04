@@ -36,6 +36,7 @@ from protocol import (
     STATE_IMU_VALID,
 )
 from serial_link import SerialLink
+from target_safety import TargetSafety, add_target_safety_arguments, limit_target_slew
 
 
 def parse_args() -> argparse.Namespace:
@@ -163,7 +164,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable only the live window for headless runs; CSV logging remains enabled",
     )
-    return parser.parse_args()
+    add_target_safety_arguments(parser)
+    args = parser.parse_args()
+    try:
+        TargetSafety.from_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def monotonic_us() -> int:
@@ -186,8 +193,7 @@ CARD_UNTILT_HOLD_S = 0.65
 
 
 def slew_limit(target: np.ndarray, previous: np.ndarray, dt: float) -> np.ndarray:
-    maximum_change = config.MAX_TARGET_SPEED_RAD_S * dt
-    return previous + np.clip(target - previous, -maximum_change, maximum_change)
+    return limit_target_slew(target, previous, dt, config.MAX_TARGET_SPEED_RAD_S)
 
 
 def send_disable(link: SerialLink, q_motor: np.ndarray, estop: bool = False) -> None:
@@ -202,6 +208,10 @@ def send_disable(link: SerialLink, q_motor: np.ndarray, estop: bool = False) -> 
 
 def main() -> int:
     args = parse_args()
+    try:
+        target_safety = TargetSafety.from_args(args)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if args.one_foot_model and (args.fixed_policy or args.policy != "walking"
                                 or args.command_source != "vision"):
         raise SystemExit("--one-foot-model requires walking policy with --command-source vision")
@@ -285,7 +295,7 @@ def main() -> int:
         if args.policy != "walking" or args.command_source != "fixed":
             raise SystemExit("--fixed-policy cannot be combined with one-foot or vision commands")
         try:
-            policy = FixedJointPolicy(args.fixed_policy)
+            policy = FixedJointPolicy(args.fixed_policy, target_safety=target_safety)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
         command_source = None
@@ -375,6 +385,7 @@ def main() -> int:
     # 和步长变（实测：vx 调小反而步频变快），不是 vx/步长。
     print(f"Step: {step_distance_m * 100:.2f} cm (--step-cm), independent of vx; "
           f"the cadence is the policy's own")
+    print(target_safety.describe())
     print(f"Body attitude broadcast: "
           + (f"udp://{args.attitude_bind}:{args.attitude_port} at 10 Hz"
              if attitude is not None else "off"))
@@ -641,9 +652,8 @@ def main() -> int:
                         joint_position_policy=q_policy,
                         joint_velocity_policy=qd_policy,
                     )
-            q_policy_target = config.clamp_policy_target(q_policy_target)
-            q_policy_target = slew_limit(q_policy_target, last_q_policy_target, dt)
-            q_policy_target = config.clamp_policy_target_to_current(q_policy_target, q_policy)
+            q_policy_target = target_safety.apply(
+                q_policy_target, last_q_policy_target, q_policy, dt)
             last_q_policy_target = q_policy_target
             last_q_motor = config.policy_to_motor_position(q_policy_target)
 

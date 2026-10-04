@@ -8,10 +8,11 @@ from pathlib import Path
 import numpy as np
 
 import config
+from target_safety import TargetSafety
 
 
 class FixedJointPolicy:
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, target_safety: TargetSafety | None = None) -> None:
         path = Path(path)
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -34,8 +35,9 @@ class FixedJointPolicy:
             raise ValueError(f"fixed policy frames must each have {config.NUM_JOINTS} angles")
         if not np.isfinite(values).all():
             raise ValueError("fixed policy frames must contain finite angles")
-        lower = config.Q_LOWER + config.JOINT_LIMIT_MARGIN_RAD
-        upper = config.Q_UPPER - config.JOINT_LIMIT_MARGIN_RAD
+        limits = target_safety if target_safety is not None else TargetSafety()
+        lower = limits.safe_lower
+        upper = limits.safe_upper
         if np.any((values < lower) | (values > upper)):
             raise ValueError("fixed policy frame angle exceeds a joint limit")
         self.frames = values
