@@ -47,11 +47,28 @@ NO_TRIM = dict(bias_cm=0.0, bias_straight_cm=0.0)
 
 
 class SteeringTests(unittest.TestCase):
-    def test_left_point_one_requires_heading_cli_switch(self):
+    def test_heading_levels_are_six_cli_tunable_values(self):
         with patch("sys.argv", ["run_policy_vision.py"]):
-            self.assertFalse(run_policy_vision.parse_args().heading_left_0p1)
-        with patch("sys.argv", ["run_policy_vision.py", "--heading-left-0p1"]):
-            self.assertTrue(run_policy_vision.parse_args().heading_left_0p1)
+            args = run_policy_vision.parse_args()
+        self.assertEqual(args.heading_left_wz, [0.37, 0.43, 0.5])
+        self.assertEqual(args.heading_right_wz, [0.3, 0.5])
+        self.assertEqual(args.heading_straight_wz, 0.0)
+        with patch("sys.argv", ["run_policy_vision.py",
+                                "--heading-left-wz", "0.2", "0.45",
+                                "--heading-right-wz", "0.25",
+                                "--heading-straight-wz", "0.05"]):
+            args = run_policy_vision.parse_args()
+        self.assertEqual(args.heading_left_wz, [0.2, 0.45])
+        self.assertEqual(args.heading_right_wz, [0.25])
+        self.assertAlmostEqual(args.heading_straight_wz, 0.05)
+        for argv in (["--heading-left-wz", "0.5", "0.37"],
+                     ["--heading-left-wz", "0.6"],
+                     ["--heading-right-wz", "-0.3"],
+                     ["--heading-straight-wz", "0.4"]):
+            with self.subTest(argv=argv), patch("sys.argv",
+                                                ["run_policy_vision.py"] + argv), \
+                    self.assertRaises(SystemExit):
+                run_policy_vision.parse_args()
 
     def test_sign_units_clamping_and_preview(self):
         # yaw_sign, preview_gain and the centre dead band pinned so this tests the

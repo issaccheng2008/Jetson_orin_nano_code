@@ -336,9 +336,18 @@ def parse_args():
     parser.add_argument("--heading-full-scale-deg", type=float, default=20.0,
                         help="heading mode: degrees beyond gate for full demand before level selection; "
                              "legacy PID/fire/stop/turn/gap settings do not apply")
-    parser.add_argument("--heading-left-0p1", action="store_true",
-                        help="heading mode: enable the +0.1 left-following level; "
-                             "off by default (left levels 0.4/0.5)")
+    parser.add_argument("--heading-left-wz", type=float, nargs="+",
+                        default=[0.37, 0.43, 0.5], metavar="WZ",
+                        help="heading mode: left-turn levels, positive magnitudes in "
+                             "increasing order; the smallest follows a bend, larger "
+                             "ones escalate. Default 0.37 0.43 0.5")
+    parser.add_argument("--heading-right-wz", type=float, nargs="+",
+                        default=[0.3, 0.5], metavar="WZ",
+                        help="heading mode: right-turn levels, positive magnitudes in "
+                             "increasing order, published negated. Default 0.3 0.5")
+    parser.add_argument("--heading-straight-wz", type=float, default=0.0,
+                        help="heading mode: the wz published when no correction is "
+                             "needed; must stay below the smallest turn level")
     parser.add_argument("--wz-fire-cm", type=float, default=5.0,
                         help="Dead band, cm: inside it the published wz is exactly "
                              "0 - no scaling, no half authority, straight. Below "
@@ -484,9 +493,6 @@ def parse_args():
                      "wz-turn-s > 0, and wz-gap-s >= 0 (0 = no forced coast)")
     if args.wz_mode == "heading" and args.wz_step > 0.5:
         parser.error("heading wz-step must be <=0.5: connector wire limit is +/-0.5")
-    if args.wz_mode == "heading" and (args.wz_step < 0.4
-            or (args.max_wz_right is not None and args.max_wz_right < 0.4)):
-        parser.error("heading mode requires wz-step and max-wz-right >=0.4 for corridor correction")
     heading_values = (args.heading_lookahead_cm, args.heading_right_tolerance_deg,
                       args.heading_left_tolerance_deg, args.heading_full_scale_deg, args.heading_corridor_cm)
     if (not all(math.isfinite(v) for v in heading_values)
@@ -495,6 +501,25 @@ def parse_args():
             or not 0 <= args.heading_right_tolerance_deg < 90
             or not 0 <= args.heading_left_tolerance_deg < 90):
         parser.error("heading lookahead/full-scale must be positive; tolerances in [0,90)")
+    ladders = args.heading_left_wz + args.heading_right_wz
+    if (not all(math.isfinite(v) and 0 < v <= 0.5 for v in ladders)
+            or any(a >= b for a, b in zip(args.heading_left_wz, args.heading_left_wz[1:]))
+            or any(a >= b for a, b in zip(args.heading_right_wz, args.heading_right_wz[1:]))):
+        parser.error("heading left/right wz levels must be positive, increasing and "
+                     "<=0.5 (connector wire limit)")
+    if (not math.isfinite(args.heading_straight_wz)
+            or not 0 <= args.heading_straight_wz < min(args.heading_left_wz[0],
+                                                       args.heading_right_wz[0])):
+        parser.error("heading-straight-wz must be in [0, the smallest turn level)")
+    if args.wz_mode == "heading":
+        max_wz_right = args.max_wz if args.max_wz_right is None else args.max_wz_right
+        if args.yaw_sign > 0:
+            left_cap, right_cap = args.wz_step, min(args.wz_step, max_wz_right)
+        else:
+            left_cap, right_cap = min(args.wz_step, max_wz_right), args.wz_step
+        if min(args.heading_left_wz) > left_cap or min(args.heading_right_wz) > right_cap:
+            parser.error("heading caps (wz-step / max-wz-right) must admit the "
+                         "smallest left and right wz levels for corridor correction")
     return args
 
 
@@ -542,7 +567,9 @@ def main():
             left_tolerance_deg=args.heading_left_tolerance_deg,
             full_scale_deg=args.heading_full_scale_deg, max_step=args.wz_step,
             allow_right=True, corridor_cm=args.heading_corridor_cm,
-            light_left=args.heading_left_0p1)
+            left_levels=tuple(args.heading_left_wz),
+            right_levels=tuple(args.heading_right_wz),
+            straight_wz=args.heading_straight_wz)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
     from line_detector_v1_warp import LineDetector
@@ -642,11 +669,15 @@ def main():
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
                   f" 会被机身俯仰实时修正", flush=True)
         if args.wz_mode == "heading":
+            left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
+            right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
             print(f"[wz] 方向模式：vx/wz 每段至少保持 0.5s（固定）；"
                   f"前视 {args.heading_lookahead_cm:g}cm，目标方位容忍区 "
                   f"[-{args.heading_left_tolerance_deg:g}, +{args.heading_right_tolerance_deg:g}]°，"
                   f"横向走廊 ±{args.heading_corridor_cm:g}cm；"
-                  f"左档 {controller.left_levels}，右档 {controller.right_levels}，另有直行0。"
+                  f"左档 {left_text}，右档 {right_text}，直行 {controller.straight_wz:+g}"
+                  f"（共 6 档；--heading-left-wz / --heading-right-wz / "
+                  f"--heading-straight-wz 可调）。"
                   "观测趋势仅用于提前减小正在执行的转向。"
                   "旧 PID/bias/fire/stop/turn/gap 参数不参与本模式。"
                   "需配套新 connector 和 C；停车/失联可立即打断。", flush=True)

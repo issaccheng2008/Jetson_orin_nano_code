@@ -93,7 +93,7 @@ class HeadingIntegrationTests(unittest.TestCase):
         self.assertTrue(all(s[3].get("command_mode") == "held" for s in walking))
         levels = {round(s[2],6) for s in walking}
         self.assertGreaterEqual(len(levels), 3, levels)
-        self.assertTrue(levels <= {0., .4, .5, -.1, -.4, -.5}, levels)
+        self.assertTrue(levels <= {0., .37, .43, .5, -.3, -.5}, levels)
         self.assertTrue(any(wz < 0 for wz in levels), levels)
         start, previous = walking[0][0], walking[0][1:3]
         for now,vx,wz,_ in walking[1:]:
