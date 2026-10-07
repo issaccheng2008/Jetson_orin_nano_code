@@ -256,7 +256,7 @@ def parse_args():
                              "when the attitude broadcaster does not report STM32 "
                              "re-pose status. Current deployments wait for DONE instead.")
     parser.add_argument("--card-settle-ms", type=float,
-                        default=float(os.getenv("CARD_SETTLE_MS", "300")),
+                        default=float(os.getenv("CARD_SETTLE_MS", "100")),
                         help="Wait this long after STM32 confirms card re-pose DONE "
                              "before taking the first shape vote. With an older "
                              "attitude broadcaster, add it to --card-tilt-ms instead.")
