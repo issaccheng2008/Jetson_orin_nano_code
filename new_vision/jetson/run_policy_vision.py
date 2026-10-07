@@ -418,6 +418,10 @@ def parse_args():
                              "--lane-fit-far-cm. Only adds fields to the log, so the "
                              "'far minus near' separation can be measured on dumps "
                              "before anything is built on it")
+    parser.add_argument("--lane-fit-segments", action="store_true",
+                        help="Diagnostic only: fit separate 20-32, 32-44, 44-56 cm "
+                             "ground-space segments from paired observations. Enables "
+                             "--lane-fit and adds fit_seg_* telemetry; does not change vx/wz")
     parser.add_argument("--lane-fit-near-cm", type=float, default=25.0,
                         help="Where to read the near point off the fitted centre line")
     parser.add_argument("--lane-fit-far-cm", type=float, default=50.0,
@@ -670,7 +674,8 @@ def main():
         if args.no_red_detect:
             detector.red_detect_enable = False
         detector.anticipation_clip = args.anticipation_clip
-        detector.lane_fit_enable = args.lane_fit
+        detector.lane_fit_enable = args.lane_fit or args.lane_fit_segments
+        detector.lane_segments_enable = args.lane_fit_segments
         detector.lane_fit_near_cm = args.lane_fit_near_cm
         detector.lane_fit_far_cm = args.lane_fit_far_cm
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
@@ -1431,10 +1436,11 @@ def main():
                 last_log = processed
                 last_log_at = processed
                 log_frames = 0
-                if args.lane_fit:
+                if args.lane_fit or args.lane_fit_segments:
                     # 只读诊断：整条车道拟合读出来的两点中心（px，相对画面中心）。
-                    # "远 − 近" 是判断能不能拿它分直道/弯道的唯一依据。按检测器自己的
-                    # LUT 反算，车在正中、对准切线时：直道 0；R=0.776m 的圆弧上前视
+                    # "远 − 近" 只是整条曲线的一个粗略诊断；分段模式还分别记录
+                    # 三个地面距离范围的局部方向。按检测器自己的 LUT 反算，
+                    # 车在正中、对准切线时：直道 0；R=0.776m 的圆弧上前视
                     # 45cm 处车道中心偏 14cm=55px、65cm 处偏 35cm=120px，而拟合对
                     # 检测器自身读数的实测误差只有 5~11px。top 是链条真正爬到的地面
                     # 距离 —— 它小于 far-cm 时 far 那一点就是外推，代码会直接不给值
@@ -1449,6 +1455,15 @@ def main():
                         print(f"[lane-fit] 拟合不出（pts={debug.get('fit_pts', 0)}, "
                               f"top={debug.get('fit_top_cm') or 0:.0f}cm）",
                               flush=True)
+                if args.lane_fit_segments:
+                    print(f"[lane-segments] anchored={int(bool(debug.get('fit_seg_anchored')))} "
+                          f"segments={debug.get('fit_seg_count', 0)} "
+                          f"near={fmt(debug.get('fit_seg0_heading_deg'), '+.1f')}° "
+                          f"mid={fmt(debug.get('fit_seg1_heading_deg'), '+.1f')}° "
+                          f"far={fmt(debug.get('fit_seg2_heading_deg'), '+.1f')}° "
+                          f"change={fmt(debug.get('fit_seg_heading_change_deg'), '+.1f')}° "
+                          f"pattern={debug.get('fit_seg_pattern', 'insufficient_support')}",
+                          flush=True)
             if not args.headless:
                 cv2.putText(frame, f"vx={vx:+.3f} wz={wz:+.3f} Q=quit", (10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)

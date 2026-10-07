@@ -277,6 +277,9 @@ class LineDetector:
         self.lane_fit_near_cm = 25.0     # 读第一个点的地面距离
         self.lane_fit_far_cm = 50.0      # 读第二个点；再远在最紧的弯上读不到（见下）
         self.lane_fit_min_pts = 8        # 少于这个点数就不拟合
+        # Optional three-segment ground-path diagnostic. It never changes the
+        # legacy low/mid observation or the published steering command.
+        self.lane_segments_enable = False
         self.curve_smooth_alpha = 0.85   # ~6-frame EMA, for telling a curve from jitter
         self.curve_angle_deg = 8.0       # fitted heading past which one band is a curve
         # 车偏得这么远就强制进弯道模式：这是**转向策略**的门槛，不是"锁可不可信"
@@ -949,7 +952,7 @@ class LineDetector:
         #    在没有成对行的情况下那是编出来的宽度，回灌给下一段会把配对门一起带歪。
         #    成对行不够就不回灌，沿用上一次的。
         y_top = max(1, self._row_at_cm(self.lane_fit_top_cm))
-        ys_all, cx_all, modes_all = [], [], []
+        ys_all, cx_all, modes_all, widths_all = [], [], [], []
         center, width = hint_x, lane_width_hint
         win_step = max(1, self.lane_fit_seg // 2)
         y_hi = self.bird_h - 1
@@ -971,10 +974,12 @@ class LineDetector:
                 yl = res.get("ys_list", [])
                 cl = res.get("centers_list", [])
                 ml = res.get("modes_list", [])
+                wl = res.get("widths_list", [])
                 if yl:
                     ys_all.extend(yl)
                     cx_all.extend(cl)
                     modes_all.extend(ml if len(ml) == len(yl) else [1] * len(yl))
+                    widths_all.extend(wl if len(wl) == len(yl) else [res["lane_width_px"]] * len(yl))
                     if len(ml) == len(yl) and sum(m >= 2 for m in ml) >= max(3, len(yl) // 2):
                         width = float(res["lane_width_px"])
             if y_lo <= y_top:
@@ -982,17 +987,24 @@ class LineDetector:
             y_hi = y_lo + win_step
         ys = np.asarray(ys_all, dtype=np.float64)
         cx = np.asarray(cx_all, dtype=np.float64)
+        widths = np.asarray(widths_all, dtype=np.float64)
         keep = np.asarray(modes_all, dtype=np.int32) >= 2
         # 只留"两条边界都真的看见"的行。单线盲推（_infer_center_from_single_run）
         # 是按**画面正中**判边、再横挪半个车道得出来的，弯道远端外侧线跑出鸟瞰图
         # 之后它能差 130px —— 一个这样的点就够把整条二次曲线拖歪：合成 R=77.6cm
         # 的圆弧上，top_cm 从 60 放到 65（多收进 row 102~148 那批单线点），
         # far=65cm 的读数从 −120px 变成 +115px，符号都反了。
-        ys, cx = ys[keep], cx[keep]
+        ys, cx, widths = ys[keep], cx[keep], widths[keep]
         # 扫到多远：真正要看的诊断量。上面那些行没出点时，这里会明显偏小。
         top_cm = float(self._lut_z_cm[int(ys.min())]) if len(ys) else None
         out = {"fit_pts": int(len(ys)), "fit_pair_pts": int(keep.sum()),
                "fit_top_cm": top_cm}
+        if self.lane_segments_enable:
+            from lane_segments import describe_lane_segments
+            out.update(describe_lane_segments(
+                ys, cx, widths, self._lut_z_cm,
+                self._lut_cm_per_px * self.lateral_scale,
+                self.center_x, self.lane_width_true_cm))
         if len(ys) < self.lane_fit_min_pts or ys.max() - ys.min() < 40.0:
             return out
         coeff = np.polyfit(ys, cx, 2)
@@ -1850,6 +1862,19 @@ class LineDetector:
             angle_err, heading_valid, heading_rmse_px = self._fit_trusted_heading(
                 roi_results, bottom_lock)
             heading_control = self._fit_ground_control_heading(roi_results, bottom_lock)
+            if self.lane_segments_enable:
+                lane_fit["fit_seg_anchored"] = False
+                if (near.get("observation_paired", False)
+                        and heading_control["heading_control_valid"]
+                        and lane_fit.get("fit_seg_valid")
+                        and lane_fit.get("fit_seg0_valid")):
+                    seg_z = lane_fit["fit_seg0_z_cm"]
+                    seg_x = lane_fit["fit_seg0_x_cm"]
+                    seg_h = math.radians(lane_fit["fit_seg0_heading_deg"])
+                    predicted_near = seg_x - (near_z_cm - seg_z) * math.tan(seg_h)
+                    disagreement = abs(predicted_near - near_err_cm)
+                    lane_fit["fit_seg_near_disagreement_cm"] = disagreement
+                    lane_fit["fit_seg_anchored"] = disagreement <= 6.0
             if single_line:
                 single_edge = self._fit_single_edge_heading(near)
             preview_valid = (near is not far and
