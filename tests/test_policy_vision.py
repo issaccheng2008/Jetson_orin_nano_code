@@ -3113,6 +3113,63 @@ class StartGateIntegrationTests(unittest.TestCase):
         self.assertIn("start gate released", out.getvalue())
         self.assertNotIn("识别到图卡（投票）", out.getvalue())
 
+    def test_policy_launch_waits_for_ready_before_the_same_first_step(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        clock = [0.0]
+        camera, reads = self._camera(frame, clock, 24)
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"circle": 1}
+        shape.update.return_value = (None, {
+            "presence": True, "card_found": True, "presence_cy_frac": 0.9,
+            "shape": "circle",
+        })
+        reading = SimpleNamespace(payload="1", strategy="raw", edge_px=83.0,
+                                  cost_ms=70.0)
+
+        def ready_after_start():
+            return reads[0] >= 9
+
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--start-gate", "both", "--start-policy-on-gate",
+                               "--qr-every", "1", "--shape-every", "1",
+                               "--attitude-port", "0"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch("qr_reader.QrReader") as qr_cls,
+            patch("policy_gate_launcher.PolicyGateLauncher") as launcher_cls,
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            qr_cls.return_value.decode.side_effect = (
+                lambda _: reading if reads[0] >= 6 else None)
+            qr_cls.return_value.scans = 1
+            qr_cls.return_value.geom_rejects = 0
+            qr_cls.return_value.last_cost_ms = 70.0
+            launcher = launcher_cls.return_value
+            launcher.started = False
+            launcher.process.poll.return_value = None
+            launcher.start.side_effect = lambda: setattr(launcher, "started", True)
+            launcher.ready.side_effect = ready_after_start
+            self.assertEqual(run_policy_vision.main(), 0)
+
+        launcher.start.assert_called_once()
+        launcher.close.assert_called_once()
+        published = client_cls.return_value.publish.call_args_list
+        self.assertTrue(all(call.args[:2] == (0.0, 0.0) for call in published[:9]))
+        moving = [call for call in published if call.args[0] > 0]
+        self.assertGreaterEqual(len(moving), 5)
+        self.assertTrue(all(call.args[:2] == (0.2, 0.0) for call in moving))
+        events = [call for call in published if call.kwargs.get("event_id")]
+        self.assertTrue(events, msg=[(call.args[:3], call.kwargs) for call in published])
+        self.assertEqual(events[0].kwargs["event_action"], 1)
+        self.assertEqual(events[0].args[:2], (0.0, 0.0))
+
     def test_the_qr_is_only_read_every_n_frames(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         clock = [0.0]
@@ -3171,6 +3228,7 @@ class StartGateIntegrationTests(unittest.TestCase):
 
     def test_the_gate_options_are_validated(self):
         for extra in (["--start-gate", "shape", "--no-shape-detect"],
+                      ["--start-policy-on-gate"],
                       ["--start-gate", "qr", "--qr-every", "0"],
                       ["--start-gate", "qr", "--start-gate-qr-payload", " "],
                       ["--start-gate", "both", "--qr-upscale", "0.5"],

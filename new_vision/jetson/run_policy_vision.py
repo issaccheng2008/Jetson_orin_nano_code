@@ -160,6 +160,13 @@ def parse_args():
     parser.add_argument("--start-gate-shape-frames", type=int, default=2,
                         help="Consecutive detection calls naming the same shape "
                              "before the second valve latches")
+    parser.add_argument("--start-policy-on-gate", action="store_true",
+                        help="After both start valves pass, launch the enabled walking "
+                             "policy and wait for its STM32-ready marker before moving")
+    parser.add_argument("--start-policy-model",
+                        default="humanoid_jetson_deploy/policy(13).onnx")
+    parser.add_argument("--start-policy-port", default="/dev/ttyACM0")
+    parser.add_argument("--start-policy-max-seconds", type=float, default=1200.0)
     parser.add_argument("--qr-every", type=int, default=5,
                         help="Decode a QR every N frames while the first valve is "
                              "still waiting. The decoder is CPU-only and costs tens "
@@ -468,6 +475,11 @@ def parse_args():
         parser.error("start-gate-qr-payload must not be empty")
     if args.start_gate_shape_frames < 1:
         parser.error("start-gate-shape-frames must be at least 1")
+    if args.start_policy_on_gate and args.start_gate != "both":
+        parser.error("start-policy-on-gate requires --start-gate both")
+    if (not math.isfinite(args.start_policy_max_seconds)
+            or args.start_policy_max_seconds <= 0):
+        parser.error("start-policy-max-seconds must be positive")
     if args.qr_every < 1:
         parser.error("qr-every must be at least 1")
     if not math.isfinite(args.qr_upscale) or args.qr_upscale < 1:
@@ -604,6 +616,12 @@ def main():
                                  max_edge_px=args.qr_max_edge_px,
                                  upscale=args.qr_upscale,
                                  max_side=args.qr_max_side)
+    policy_launcher = None
+    if args.start_policy_on_gate:
+        from policy_gate_launcher import PolicyGateLauncher
+        policy_launcher = PolicyGateLauncher(args.start_policy_model,
+                                             args.start_policy_port,
+                                             args.start_policy_max_seconds)
 
     # 机身姿态只喂给图卡，不喂巡线。走路时俯仰以 1.7Hz 摆 30~40°，低通过的
     # 滞后值描述不了当前这一帧，喂进 IPM 反而更糟；巡线那边靠车道宽锚定解决，
@@ -754,6 +772,7 @@ def main():
         # 释放的那一帧走的就是停车窗口关闭走过的同一条路。
         gate_window_open = start_gate is not None
         gate_released = False
+        start_released = False
         gate_last_log = -math.inf
         qr_odd_seen = set()
         # Competition start: classify the first card while stationary, walk for one
@@ -808,6 +827,15 @@ def main():
             print(f"[vision] run dump: {args.dump_on_loss}", flush=True)
         while not stopped:
             now = time.monotonic()
+            if (policy_launcher is not None and start_released
+                    and policy_launcher.process is not None
+                    and policy_launcher.process.poll() is not None):
+                status = policy_launcher.process.returncode
+                if status != 0:
+                    raise RuntimeError(f"policy exited with code {status}; "
+                                       f"see {policy_launcher.log_path}")
+                print("[start-gate] policy process ended; vision is stopping", flush=True)
+                break
             if args.max_seconds > 0 and now - start >= args.max_seconds:
                 break
             ok, frame = cap.read()
@@ -1142,19 +1170,23 @@ def main():
                               f"    连续 {start_gate.shape_streak} 帧", flush=True)
                         print("=" * 68 + "\n", flush=True)
                 if start_gate.passed and gate_window_open:
-                    gate_released = True
-                    if args.start_gate == "both":
-                        startup_first_card = shape_numbers[start_gate.last_shape]
-                        startup_first_card_pending = True
-                        startup_first_card_lock = True
-                        startup_move_until = 0.0  # set when the first nonzero command is sent
-                        card_armed = False
-                        print(f"[start-gate] 二维码和首卡均已锁存："
-                              f"{start_gate.last_shape} -> {startup_first_card}; "
-                              "先直行 0.5s，再停车直接执行首卡（不等近距触发/二次投票）",
-                              flush=True)
-                    else:
-                        card_armed = True
+                    if policy_launcher is not None and not policy_launcher.started:
+                        policy_launcher.start()
+                    if policy_launcher is None or policy_launcher.ready():
+                        gate_released = True
+                        start_released = True
+                        if args.start_gate == "both":
+                            startup_first_card = shape_numbers[start_gate.last_shape]
+                            startup_first_card_pending = True
+                            startup_first_card_lock = True
+                            startup_move_until = 0.0  # set when the first nonzero command is sent
+                            card_armed = False
+                            print(f"[start-gate] 二维码和首卡均已锁存："
+                                  f"{start_gate.last_shape} -> {startup_first_card}; "
+                                  "先直行 0.5s，再停车直接执行首卡（不等近距触发/二次投票）",
+                                  flush=True)
+                        else:
+                            card_armed = True
             if (startup_first_card_pending and startup_move_until > 0.0
                     and not gate_window_open
                     and processed >= startup_move_until):
@@ -1311,7 +1343,7 @@ def main():
                     turn_remaining_s=getattr(controller, "turn_left", None),
                     gap_remaining_s=getattr(controller, "gap_left", None),
                 )
-            gate_window_open = start_gate is not None and not start_gate.passed
+            gate_window_open = start_gate is not None and not start_released
             if start_gate is not None and processed - gate_last_log >= args.start_gate_log_s:
                 gate_last_log = processed
                 scans = qr_reader.scans if qr_reader is not None else 0
@@ -1405,6 +1437,8 @@ def main():
                 line_log.close()
         finally:
             client.close()
+            if policy_launcher is not None:
+                policy_launcher.close()
             if attitude is not None:
                 attitude.close()
             if cap is not None:

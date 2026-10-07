@@ -35,13 +35,29 @@ from protocol import (
     COMMAND_ENABLE,
     COMMAND_ESTOP,
     STATE_ENCODERS_VALID,
+    STATE_COMMAND_FRESH,
     STATE_FAULT,
     STATE_IMU_VALID,
+    STATE_MOTORS_ENABLED,
 )
 from serial_link import SerialLink
 from target_safety import TargetSafety, add_target_safety_arguments, limit_target_slew
 from control_diagnostics import ControlDiagnostics, add_diagnostic_arguments, receive_metadata
 from walking_command_hold import WalkingCommandHold
+
+
+def write_startup_ready_if_confirmed(path: str | None, state_flags: int,
+                                     command_written: bool, step: int) -> bool:
+    """Signal vision only after STM32 reports a fresh enabled command."""
+    required = STATE_COMMAND_FRESH | STATE_MOTORS_ENABLED
+    if (not path or step < 1 or not command_written
+            or (state_flags & required) != required):
+        return False
+    marker = Path(path)
+    temporary = marker.with_name(marker.name + ".tmp")
+    temporary.write_text("ready\n", encoding="ascii")
+    os.replace(temporary, marker)
+    return True
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,6 +85,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shape-lift-seconds", type=float, default=3.0,
                         help="Vision card one-foot model duration (default 3 seconds)")
     parser.add_argument("--port", default="/dev/ttyACM0", help="STM32 serial device")
+    parser.add_argument("--startup-ready-file", default=None,
+                        help="Optional one-shot ready marker for the vision start gate")
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument(
         "--command-source",
@@ -295,6 +313,10 @@ def main() -> int:
     if args.one_foot_model and (not np.isfinite(args.shape_lift_seconds)
                                 or args.shape_lift_seconds < 3.0):
         raise SystemExit("--shape-lift-seconds must be at least 3 seconds")
+    if args.startup_ready_file and (args.policy != "walking"
+                                    or args.command_source != "vision"
+                                    or not args.enable_motors):
+        raise SystemExit("--startup-ready-file requires enabled walking vision mode")
     config.validate_imu_configuration()
     if args.enable_motors and (
         not config.CALIBRATION_CONFIRMED or not config.IMU_CALIBRATION_CONFIRMED
@@ -541,6 +563,7 @@ def main() -> int:
         tilt_release_at = 0.0
         held_observation = None
         last_action_tx = -float("inf")
+        startup_ready_sent = False
 
         def link_loss_recovery(exc: Exception, where: str) -> None:
             """掉线后的统一恢复：重连，并把节拍和命令保持重新起表。"""
@@ -871,6 +894,14 @@ def main() -> int:
                 diagnostics.write(**diagnostic_values,
                     send_result="written" if send_result is True else "not_written" if send_result is False else "unknown",
                     send_done_monotonic_s=time.monotonic_ns() * 1e-9)
+            # The vision process is still publishing zero speed while this process
+            # loads the model and opens USB. Release its 0.5 s first step only after
+            # the STM32 has acknowledged a fresh enabled command in a state frame.
+            if (not startup_ready_sent and write_startup_ready_if_confirmed(
+                    args.startup_ready_file, state.status_flags,
+                    send_result is True, step)):
+                startup_ready_sent = True
+                print("[start-gate] policy ready; enabled COMMAND acknowledged by STM32", flush=True)
             if args.fixed_policy:
                 response_deadline = time.monotonic() + 0.05
                 response = link.get_latest_state(max_age_s=0.05)
