@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import subprocess
 import sys
 import tempfile
@@ -15,11 +16,31 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 class PolicyGateLauncher:
     def __init__(self, model: str, port: str, max_seconds: float,
-                 ready_timeout_s: float = 30.0) -> None:
+                 ready_timeout_s: float = 30.0,
+                 policy_python: str | None = None) -> None:
         self.model = model
         self.port = port
         self.max_seconds = max_seconds
         self.ready_timeout_s = ready_timeout_s
+        preferred_python = (Path(policy_python).expanduser() if policy_python
+                            else REPO_ROOT / ".venv/bin/python")
+        preflight_runtime = bool(policy_python) or preferred_python.is_file()
+        if not policy_python and not preferred_python.is_file():
+            preferred_python = Path(sys.executable)
+        if not preferred_python.is_file() or not os.access(preferred_python, os.X_OK):
+            raise RuntimeError(f"policy Python is not executable: {preferred_python}")
+        self.policy_python = str(preferred_python)
+        self.onnxruntime_version = "not preflighted"
+        if preflight_runtime:
+            probe = subprocess.run(
+                [self.policy_python, "-c",
+                 "import onnxruntime; print(onnxruntime.__version__)"],
+                cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+            if probe.returncode != 0:
+                detail = (probe.stderr or probe.stdout).strip()
+                raise RuntimeError(f"policy Python cannot import onnxruntime: "
+                                   f"{self.policy_python}: {detail}")
+            self.onnxruntime_version = probe.stdout.strip()
         self.process: subprocess.Popen | None = None
         self.tee: subprocess.Popen | None = None
         self.ready_file: Path | None = None
@@ -43,7 +64,7 @@ class PolicyGateLauncher:
         self.log_path = records / f"main_{stamp}.log"
         self.ready_file = Path(tempfile.gettempdir()) / f"policy_ready_{uuid.uuid4().hex}"
         command = [
-            sys.executable, "-u", "humanoid_jetson_deploy/main.py",
+            self.policy_python, "-u", "humanoid_jetson_deploy/main.py",
             "--policy", "walking", "--model", self.model,
             "--one-foot-model", "humanoid_jetson_deploy/policy-one-foot-standing.onnx",
             "--port", self.port, "--command-source", "vision",
@@ -65,7 +86,8 @@ class PolicyGateLauncher:
         finally:
             self.process.stdout.close()
         self.started_at = time.monotonic()
-        print(f"[start-gate] C started pid={self.process.pid}; log={self.log_path}", flush=True)
+        print(f"[start-gate] C started pid={self.process.pid}; python={self.policy_python}; "
+              f"onnxruntime={self.onnxruntime_version}; log={self.log_path}", flush=True)
 
     def ready(self) -> bool:
         if self.process is None:
