@@ -44,12 +44,58 @@ class PolicyGateLauncherTests(unittest.TestCase):
                 self.assertEqual(command[command.index("--udp-command-port") + 1], "5005")
                 self.assertEqual(command[command.index("--startup-ready-file") + 1],
                                  str(launcher.ready_file))
+                self.assertEqual(popen.call_args_list[1].args[0],
+                                 ["tee", str(launcher.log_path), str(launcher.live_log_path)])
                 self.assertFalse(launcher.ready())
                 launcher.ready_file.write_text("ready\n")
                 self.assertTrue(launcher.ready())
                 launcher.close()
                 policy.terminate.assert_called_once()
                 self.assertFalse(launcher.ready_file.exists())
+
+    def test_policy_failure_reports_recent_child_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "humanoid_jetson_deploy").mkdir()
+            (root / "humanoid_jetson_deploy/policy(13).onnx").touch()
+            (root / "humanoid_jetson_deploy/policy-one-foot-standing.onnx").touch()
+            policy = Mock(pid=1234, stdout=io.BytesIO())
+            policy.poll.return_value = 1
+            tee = Mock()
+            with (patch.object(policy_gate_launcher, "REPO_ROOT", root),
+                  patch.object(policy_gate_launcher.subprocess, "Popen",
+                               side_effect=[policy, tee])):
+                launcher = policy_gate_launcher.PolicyGateLauncher(
+                    "humanoid_jetson_deploy/policy(13).onnx", "/dev/ttyACM0", 1200)
+                launcher.start()
+                launcher.log_path.write_text("startup\nFAULT: USB write timeout\n")
+                with self.assertRaisesRegex(RuntimeError, "FAULT: USB write timeout") as error:
+                    launcher.ready()
+                self.assertIn(str(launcher.log_path), str(error.exception))
+                tee.wait.assert_called_with(timeout=1.0)
+                launcher.close()
+
+    def test_real_child_stream_reaches_both_logs_and_error_report(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "humanoid_jetson_deploy").mkdir()
+            (root / "humanoid_jetson_deploy/policy(13).onnx").touch()
+            (root / "humanoid_jetson_deploy/policy-one-foot-standing.onnx").touch()
+            (root / "humanoid_jetson_deploy/main.py").write_text(
+                "import sys\nprint('policy startup', flush=True)\n"
+                "print('FAULT: simulated failure', file=sys.stderr, flush=True)\n"
+                "raise SystemExit(1)\n")
+            with patch.object(policy_gate_launcher, "REPO_ROOT", root):
+                launcher = policy_gate_launcher.PolicyGateLauncher(
+                    "humanoid_jetson_deploy/policy(13).onnx", "/dev/null", 1200)
+                launcher.start()
+                launcher.process.wait(timeout=5)
+                with self.assertRaisesRegex(RuntimeError, "FAULT: simulated failure"):
+                    launcher.ready()
+                self.assertEqual(launcher.log_path.read_text(),
+                                 launcher.live_log_path.read_text())
+                self.assertIn("policy startup", launcher.log_path.read_text())
+                launcher.close()
 
     def test_ready_marker_requires_stm32_fresh_enabled_feedback(self):
         with tempfile.TemporaryDirectory() as folder:

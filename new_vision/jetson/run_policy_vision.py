@@ -839,8 +839,7 @@ def main():
                     and policy_launcher.process.poll() is not None):
                 status = policy_launcher.process.returncode
                 if status != 0:
-                    raise RuntimeError(f"policy exited with code {status}; "
-                                       f"see {policy_launcher.log_path}")
+                    raise RuntimeError(policy_launcher.exit_report(status))
                 print("[start-gate] policy process ended; vision is stopping", flush=True)
                 break
             if args.max_seconds > 0 and now - start >= args.max_seconds:
