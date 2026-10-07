@@ -66,6 +66,27 @@ class ProtocolTests(unittest.TestCase):
         np.testing.assert_allclose(result[0].joint_position, source.joint_position)
         np.testing.assert_allclose(result[0].accel_m_s2, source.accel_m_s2)
         np.testing.assert_allclose(result[0].orientation_wxyz, source.orientation_wxyz)
+        self.assertIsNone(result[0].command_rx_count)
+        self.assertIsNone(result[0].system_control_cycle)
+
+    def test_state_counters_round_trip_and_legacy_state_still_decodes(self):
+        old = StatePacket(1, 10, np.zeros(12), np.zeros(12), np.zeros(3),
+                          np.zeros(3), np.array([1.0, 0.0, 0.0, 0.0]), 29)
+        current = StatePacket(2, 20, np.zeros(12), np.zeros(12), np.zeros(3),
+                              np.zeros(3), np.array([1.0, 0.0, 0.0, 0.0]), 29,
+                              command_rx_count=0xFFFFFFFF, system_control_cycle=1234)
+        self.assertEqual(len(pack_state(old)), 154)
+        self.assertEqual(len(pack_state(current)), 162)
+        stream = pack_state(old) + pack_state(current)
+        decoder = FrameDecoder()
+        result = []
+        for offset in range(0, len(stream), 7):
+            result.extend(decoder.feed(stream[offset:offset + 7]))
+        self.assertEqual(len(result), 2)
+        self.assertIsNone(result[0].command_rx_count)
+        self.assertEqual(result[1].command_rx_count, 0xFFFFFFFF)
+        self.assertEqual(result[1].system_control_cycle, 1234)
+        self.assertEqual(decoder.format_errors, 0)
 
     def test_command_round_trip_with_noise_prefix(self):
         source = CommandPacket(

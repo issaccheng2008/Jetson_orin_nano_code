@@ -14,7 +14,7 @@ import numpy as np
 import config
 from walking_command_hold import MIN_WALKING_COMMAND_HOLD_S
 
-SCHEMA = "control_target_trace_v2"
+SCHEMA = "control_target_trace_v3"
 SCALARS = ["schema", "run_id", "row_index", "step", "host_unix_s", "read_monotonic_s", "elapsed_s",
            "policy_mode", "target_source", "phase", "phase_tick", "dt_s", "infer_ms",
            "state_sequence", "state_timestamp_us", "state_flags", "state_receive_monotonic_s",
@@ -32,7 +32,8 @@ IMU_GROUPS = ["received_accel", "received_gyro", "reference_accel_policy", "refe
 HEADER = (SCALARS + [f"{group}_{name}" for group in JOINT_GROUPS for name in config.JOINT_NAMES]
           + [f"{group}_{axis}" for group in IMU_GROUPS for axis in "xyz"]
           + [f"received_orientation_{axis}" for axis in "wxyz"]
-          + [f"observation_{i}" for i in range(49)])
+          + [f"observation_{i}" for i in range(49)]
+          + ["stm32_command_rx_count", "stm32_system_control_cycle"])
 
 
 def _json_value(value):
@@ -64,7 +65,10 @@ def source_identity(path, role):
 
 def state_snapshot(state):
     return dict(sequence=int(state.sequence), timestamp_us=getattr(state, "timestamp_us", None),
-                flags=int(state.status_flags), q_packet=np.asarray(state.joint_position).tolist(),
+                flags=int(state.status_flags),
+                command_rx_count=getattr(state, "command_rx_count", None),
+                system_control_cycle=getattr(state, "system_control_cycle", None),
+                q_packet=np.asarray(state.joint_position).tolist(),
                 qd_packet=np.asarray(state.joint_velocity).tolist(),
                 accel_packet=np.asarray(state.accel_m_s2).tolist(), gyro_packet=np.asarray(state.gyro_rad_s).tolist(),
                 orientation_wxyz=np.asarray(state.orientation_wxyz).tolist())
@@ -140,7 +144,9 @@ class ControlDiagnostics:
               reference_gravity, observation, receive_info=None, velocity_command=None, **scalars):
         record = dict(schema=SCHEMA, run_id=self.run_id, row_index=self.rows_written, host_unix_s=time.time(),
                       state_sequence=int(state.sequence), state_timestamp_us=getattr(state, "timestamp_us", None),
-                      state_flags=int(state.status_flags), dt_s=trace.dt if trace is not None else None)
+                      state_flags=int(state.status_flags), dt_s=trace.dt if trace is not None else None,
+                      stm32_command_rx_count=getattr(state, "command_rx_count", None),
+                      stm32_system_control_cycle=getattr(state, "system_control_cycle", None))
         record.update(receive_info or {})
         record.update(scalars)
         if trace is not None and motor_target is not None:
@@ -184,8 +190,9 @@ class ControlDiagnostics:
             raise RuntimeError("Diagnostic log is already closed")
         self.writer.writerow(row)
         self.rows_written += 1
-        # Batch flush; this is not fsync and is not a hard realtime guarantee.
-        if self.rows_written % 50 == 0:
+        # Keep the last 100 ms of counters available after a serial write stall.
+        # This is a userspace flush, not a hard realtime or disk durability guarantee.
+        if self.rows_written % 5 == 0 or record.get("send_result") in ("link_lost", "error"):
             self.file.flush()
 
     @staticmethod

@@ -46,6 +46,9 @@ STATE_COMMAND_FRESH = 1 << 4
 HEADER = struct.Struct("<HBBHH")
 CRC = struct.Struct("<H")
 STATE_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "f" * NUM_JOINTS + "3f3f4fI")
+# The STM32 diagnostic branch appends two counters to the version-2 state
+# payload. Accept both lengths so Nano can be deployed before STM32 is flashed.
+STATE_PAYLOAD_WITH_COUNTERS = struct.Struct(STATE_PAYLOAD.format + "II")
 COMMAND_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "ffI")
 ACTION_REQUEST_PAYLOAD = struct.Struct("<IB")
 ACTION_STATUS_PAYLOAD = struct.Struct("<IBB")
@@ -61,6 +64,8 @@ class StatePacket:
     gyro_rad_s: np.ndarray
     orientation_wxyz: np.ndarray
     status_flags: int
+    command_rx_count: int | None = None
+    system_control_cycle: int | None = None
 
 
 @dataclass(frozen=True)
@@ -112,7 +117,10 @@ def pack_state(packet: StatePacket) -> bytes:
     accel = np.asarray(packet.accel_m_s2, dtype=np.float32).reshape(3)
     gyro = np.asarray(packet.gyro_rad_s, dtype=np.float32).reshape(3)
     orientation = np.asarray(packet.orientation_wxyz, dtype=np.float32).reshape(4)
-    payload = STATE_PAYLOAD.pack(
+    has_counters = packet.command_rx_count is not None or packet.system_control_cycle is not None
+    if has_counters and (packet.command_rx_count is None or packet.system_control_cycle is None):
+        raise ValueError("Both STM32 counters must be present in an extended state")
+    values = (
         packet.timestamp_us & 0xFFFFFFFF,
         *q,
         *qd,
@@ -121,6 +129,12 @@ def pack_state(packet: StatePacket) -> bytes:
         *orientation,
         packet.status_flags & 0xFFFFFFFF,
     )
+    if has_counters:
+        payload = STATE_PAYLOAD_WITH_COUNTERS.pack(
+            *values, packet.command_rx_count & 0xFFFFFFFF,
+            packet.system_control_cycle & 0xFFFFFFFF)
+    else:
+        payload = STATE_PAYLOAD.pack(*values)
     return _pack_frame(MSG_STATE, packet.sequence, payload)
 
 
@@ -160,7 +174,14 @@ def pack_action_status(packet: ActionStatusPacket) -> bytes:
 
 
 def decode_state(sequence: int, payload: bytes) -> StatePacket:
-    values = STATE_PAYLOAD.unpack(payload)
+    if len(payload) == STATE_PAYLOAD.size:
+        values = STATE_PAYLOAD.unpack(payload)
+        has_counters = False
+    elif len(payload) == STATE_PAYLOAD_WITH_COUNTERS.size:
+        values = STATE_PAYLOAD_WITH_COUNTERS.unpack(payload)
+        has_counters = True
+    else:
+        raise ValueError("Unknown state payload size")
     i = 1
     q = np.array(values[i : i + NUM_JOINTS], dtype=np.float32)
     i += NUM_JOINTS
@@ -171,7 +192,10 @@ def decode_state(sequence: int, payload: bytes) -> StatePacket:
     gyro = np.array(values[i : i + 3], dtype=np.float32)
     i += 3
     orientation = np.array(values[i : i + 4], dtype=np.float32)
-    return StatePacket(sequence, values[0], q, qd, accel, gyro, orientation, values[-1])
+    i += 4
+    return StatePacket(sequence, values[0], q, qd, accel, gyro, orientation, values[i],
+                       values[i + 1] if has_counters else None,
+                       values[i + 2] if has_counters else None)
 
 
 def decode_command(sequence: int, payload: bytes) -> CommandPacket:
@@ -230,7 +254,8 @@ class FrameDecoder:
 
             payload = frame[HEADER.size : HEADER.size + payload_len]
             try:
-                if message_type == MSG_STATE and payload_len == STATE_PAYLOAD.size:
+                if message_type == MSG_STATE and payload_len in (
+                        STATE_PAYLOAD.size, STATE_PAYLOAD_WITH_COUNTERS.size):
                     decoded.append(decode_state(sequence, payload))
                 elif message_type == MSG_COMMAND and payload_len == COMMAND_PAYLOAD.size:
                     decoded.append(decode_command(sequence, payload))

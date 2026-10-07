@@ -104,6 +104,25 @@ class ControlDiagnosticsTests(unittest.TestCase):
             self.assertEqual(manifest["target_limits"]["max_deviation_deg"], 10)
             self.assertIn("not raw", manifest["received_data_semantics"])
 
+    def test_stm32_counters_reach_csv_and_fault_row_is_flushed(self):
+        with tempfile.TemporaryDirectory() as folder, redirect_stdout(io.StringIO()):
+            logger = self.make_logger(folder)
+            legacy = self.values()
+            logger.write(**legacy)
+            extended = self.values()
+            extended["state"].command_rx_count = 457
+            extended["state"].system_control_cycle = 449
+            extended.update(step=1, send_result="link_lost", send_error="Write timeout")
+            logger.write(**extended)
+            # Read before close: the failure row must survive a process left
+            # waiting for a USB reconnect.
+            rows = read_rows(logger.csv_path)
+            self.assertEqual(rows[0]["stm32_command_rx_count"], "")
+            self.assertEqual(rows[1]["stm32_command_rx_count"], "457")
+            self.assertEqual(rows[1]["stm32_system_control_cycle"], "449")
+            self.assertEqual(rows[1]["send_result"], "link_lost")
+            logger.close()
+
     def test_absent_fixed_action_and_46_width_are_unambiguous(self):
         with tempfile.TemporaryDirectory() as folder, redirect_stdout(io.StringIO()):
             logger = self.make_logger(folder)
