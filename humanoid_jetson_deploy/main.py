@@ -566,6 +566,13 @@ def main() -> int:
         last_q_motor = first_state.joint_position.copy()
         last_q_policy_target = config.motor_to_policy_position(last_q_motor)
         print(f"Received STM32 state packet, sequence={first_state.sequence}")
+        if getattr(first_state, "command_rx_count", None) is None:
+            print("WARNING: STM32 diagnostic counters unavailable in STATE frames; "
+                  "flash firmware with the extended 152-byte payload before a counter run",
+                  flush=True)
+        else:
+            print(f"STM32 diagnostic counters: received_commands={first_state.command_rx_count} "
+                  f"control_cycles={first_state.system_control_cycle}", flush=True)
         if not getattr(args, "no_control_diagnostics", False):
             sources = ({"fixed_joint_frames": args.fixed_policy} if args.fixed_policy else
                        {"onefoot46" if args.policy == "one-foot" else "walking49": args.model})
