@@ -173,6 +173,12 @@ def parse_args() -> argparse.Namespace:
              "So this sets the stride the policy is asked for, not the resulting "
              "speed",
     )
+    parser.add_argument(
+        "--forward-ankle-bias-rad", type=float, default=0.08,
+        help="Ankle pitch bias while the walking policy receives vx > 0: "
+             "protocol joint 4 += this value, joint 10 -= this value. "
+             "Zero speed, one-foot actions, and upright hold use no bias; 0 disables it",
+    )
     parser.add_argument("--kp-scale", type=float, default=1.0)
     parser.add_argument("--kd-scale", type=float, default=1.0)
     parser.add_argument("--enable-motors", action="store_true")
@@ -210,6 +216,8 @@ def parse_args() -> argparse.Namespace:
         TargetSafety.from_args(args)
     except ValueError as exc:
         parser.error(str(exc))
+    if not np.isfinite(args.forward_ankle_bias_rad) or args.forward_ankle_bias_rad < 0.0:
+        parser.error("--forward-ankle-bias-rad must be finite and nonnegative")
     return args
 
 
@@ -234,6 +242,22 @@ CARD_UNTILT_HOLD_S = 0.65
 
 def slew_limit(target: np.ndarray, previous: np.ndarray, dt: float) -> np.ndarray:
     return limit_target_slew(target, previous, dt, config.MAX_TARGET_SPEED_RAD_S)
+
+
+def apply_forward_ankle_bias(target: np.ndarray, velocity_command: np.ndarray | None,
+                             walking_policy_active: bool, bias_rad: float) -> np.ndarray:
+    """Move the former STM32 motor-side ankle trim into the Nano target path.
+
+    STM32 reverses the signs of protocol joints 4 and 10 before motor output.
+    Thus +bias at 4 and -bias at 10 reproduce motor targets -bias and +bias.
+    This runs before the existing absolute, slew, and feedback-window limits.
+    """
+    biased = np.asarray(target, dtype=np.float32).copy()
+    if (walking_policy_active and velocity_command is not None
+            and float(velocity_command[0]) > 0.0 and bias_rad > 0.0):
+        biased[4] += bias_rad
+        biased[10] -= bias_rad
+    return biased
 
 
 def reconnect_link(link: SerialLink, port: str, baud: int,
@@ -500,6 +524,8 @@ def main() -> int:
     # 和步长变（实测：vx 调小反而步频变快），不是 vx/步长。
     print(f"Step: {step_distance_m * 100:.2f} cm (--step-cm), independent of vx; "
           f"the cadence is the policy's own")
+    print(f"Forward ankle pitch bias: {args.forward_ankle_bias_rad:g} rad "
+          "(--forward-ankle-bias-rad; applied only to walking vx > 0)")
     print(target_safety.describe())
     print(f"Body attitude broadcast: "
           + (f"udp://{args.attitude_bind}:{args.attitude_port} at 10 Hz"
@@ -846,6 +872,13 @@ def main() -> int:
                     diagnostic_lift = command_values["lift_command"]
                 else:
                     diagnostic_velocity = velocity_command.copy()
+            q_policy_target = apply_forward_ankle_bias(
+                q_policy_target,
+                velocity_command if not args.fixed_policy and args.policy == "walking" else None,
+                not args.fixed_policy and args.policy == "walking"
+                and not upright_hold and step_policy is policy,
+                args.forward_ankle_bias_rad,
+            )
             q_policy_target, target_trace = target_safety.apply_with_trace(
                 q_policy_target, last_q_policy_target, q_policy, dt)
             last_q_policy_target = q_policy_target
