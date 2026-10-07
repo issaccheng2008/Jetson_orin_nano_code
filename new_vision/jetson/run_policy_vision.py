@@ -36,6 +36,7 @@ CARD_NAMES_ZH = {
 # 赛道中线半径（m），文档 §3。只用来在启动横幅里打一行参考："跟住一个弯需要
 # 多少角速度"（ω = vx / R）。**脉冲幅度不按它推** —— 0.4/0.5 是实车量出来的好值。
 LANE_RADIUS_M = 0.776
+STARTUP_FIRST_WALK_S = 1.0
 
 
 def card_action_stop_s(action, hold_ms):
@@ -779,12 +780,14 @@ def main():
         start_released = False
         gate_last_log = -math.inf
         qr_odd_seen = set()
-        # Competition start: classify the first card while stationary, walk for one
-        # complete policy command interval, then act on that latched classification.
+        # Competition start: classify the first card while stationary, walk briefly,
+        # then act on that latched classification. Keep its ordinary stop gate closed
+        # until it has been left behind and the next card approaches from afar.
         startup_move_until = 0.0
         startup_first_card = -1
         startup_first_card_pending = False
         startup_first_card_lock = False
+        startup_first_card_clear_calls = 0
         dumped = 0
         run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}_{time.time_ns()}"
         dump_metadata = {
@@ -1072,7 +1075,6 @@ def main():
                         card_flag = False
                         card_triggered = False
                         card_action_triggered = False
-                        startup_first_card_lock = False
                         # 卡走了，票也跟着作废。不清的话：窗口关闭后
                         # card_event_id 归零、这里又把 card_action_triggered 归零，
                         # 兜底分支就会拿着上一批旧票再投一次 —— 实机是刚起步又停下。
@@ -1087,8 +1089,26 @@ def main():
                 # robot just drove past is still in frame past the line, and stopped the
                 # robot a second time mid-curve. A card already past the line has not
                 # been approached, so it cannot fire.
-                if card_reach is not None and card_reach < card_reach_line:
+                if (not startup_first_card_lock and card_reach is not None
+                        and card_reach < card_reach_line):
                     card_armed = True
+                # The first card can disappear from a few frames while the robot is
+                # stopped for its action, then reappear close up. Count its departure
+                # only after the action window and walking have resumed. Even then,
+                # a cleared lock cannot inherit an old far-range arm: the next card
+                # must be seen far away on a later detection call before it can stop.
+                if startup_first_card_lock:
+                    if (not startup_first_card_pending and processed >= card_until
+                            and last_cmd_vx > 0.0
+                            and not bool(card_dbg.get("presence"))):
+                        startup_first_card_clear_calls += 1
+                        if startup_first_card_clear_calls >= args.card_clear_calls:
+                            startup_first_card_lock = False
+                            startup_first_card_clear_calls = 0
+                            card_armed = False
+                            print("[start-gate] 首卡已离开；下一张卡须从远处重新接近", flush=True)
+                    else:
+                        startup_first_card_clear_calls = 0
                 # 门控期间不许开火。card_armed 的初值是 True，而起点那张卡本来就
                 # 在触发线以内（--card-trigger-dist-cm 43，卡在 40cm 内），不按住
                 # 的话机器人还没起步就会停车、重摆、出 event。只动 card_armed ——
@@ -1183,11 +1203,12 @@ def main():
                             startup_first_card = shape_numbers[start_gate.last_shape]
                             startup_first_card_pending = True
                             startup_first_card_lock = True
+                            startup_first_card_clear_calls = 0
                             startup_move_until = 0.0  # set when the first nonzero command is sent
                             card_armed = False
                             print(f"[start-gate] 二维码和首卡均已锁存："
                                   f"{start_gate.last_shape} -> {startup_first_card}; "
-                                  "先直行 0.5s，再停车直接执行首卡（不等近距触发/二次投票）",
+                                  "先直行 1.0s，再停车直接执行首卡（不等近距触发/二次投票）",
                                   flush=True)
                         else:
                             card_armed = True
@@ -1201,6 +1222,7 @@ def main():
                 card_triggered = True
                 card_action_triggered = True
                 card_armed = False
+                startup_first_card_clear_calls = 0
                 card_action = startup_first_card
                 card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
                 card_until = processed + card_action_stop_s(card_action, args.card_hold_ms)
@@ -1274,10 +1296,10 @@ def main():
                 # command before the first frame that does call it.
                 vx, wz = 0.0, 0.0
             elif startup_first_card_pending:
-                # Symbolic first step: exactly one >=0.5 s walking command, with
-                # no line steering while the known first card is so close.
+                # Symbolic first walk: hold straight for one second, with no line
+                # steering while the known first card is so close.
                 if startup_move_until == 0.0:
-                    startup_move_until = processed + 0.5
+                    startup_move_until = processed + STARTUP_FIRST_WALK_S
                 vx, wz = args.vx, 0.0
             else:
                 vx, wz = controller.command(debug, confidence, processed - previous)

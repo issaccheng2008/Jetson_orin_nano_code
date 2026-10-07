@@ -3046,7 +3046,7 @@ class StartGateIntegrationTests(unittest.TestCase):
     def test_the_gate_holds_the_robot_then_hands_the_card_logic_back(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         clock = [0.0]
-        camera, reads = self._camera(frame, clock, 20)
+        camera, reads = self._camera(frame, clock, 26)
         detector = Mock()
         detector.process.return_value = (0, 0, 0.9, None, detection())
         # 宽 200px 的框已在线内：首卡必须走锁存形状的短步路径，不能再等近距触发。
@@ -3095,9 +3095,9 @@ class StartGateIntegrationTests(unittest.TestCase):
                 self.assertTrue(published[index].kwargs["hold_upright"])
                 self.assertFalse(published[index].kwargs["card_tilt"])
                 self.assertNotIn("event_id", published[index].kwargs)
-        # 释放后先直行约 0.5 秒，再停车发门控阶段锁存的编号。
+        # 释放后先直行约 1 秒，再停车发门控阶段锁存的编号。
         moving = [call for call in published if call.args[0] > 0]
-        self.assertGreaterEqual(len(moving), 5)
+        self.assertGreaterEqual(len(moving), 10)
         self.assertTrue(all(call.args[:2] == (0.2, 0.0) for call in moving))
         self.assertTrue(all("event_id" not in call.kwargs for call in moving))
         events = [call for call in published if call.kwargs.get("event_id")]
@@ -3112,6 +3112,65 @@ class StartGateIntegrationTests(unittest.TestCase):
         self.assertIn("阀2 通过", out.getvalue())
         self.assertIn("start gate released", out.getvalue())
         self.assertNotIn("识别到图卡（投票）", out.getvalue())
+
+    def test_first_card_reappearing_near_does_not_stop_again(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        clock = [0.0]
+        camera, reads = self._camera(frame, clock, 65)
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"circle": 1, "square": 2}
+
+        def card_reading(*_args, **_kwargs):
+            index = reads[0]
+            if 2 <= index <= 5 or 18 <= index <= 24 or index == 56:
+                return None, {"presence": True, "card_found": True,
+                              "presence_cy_frac": 0.9, "shape": "circle"}
+            if index == 57:
+                return None, {"presence": True, "card_found": True,
+                              "presence_cy_frac": 0.2, "shape": "square"}
+            if index >= 58:
+                return None, {"presence": True, "card_found": True,
+                              "presence_cy_frac": 0.9, "shape": "square"}
+            return None, {"presence": False, "card_found": False,
+                          "presence_cy_frac": None, "shape": None}
+
+        shape.update.side_effect = card_reading
+        reading = SimpleNamespace(payload="1", strategy="raw", edge_px=83.0,
+                                  cost_ms=70.0)
+        out = io.StringIO()
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless",
+                               "--start-gate", "both", "--qr-every", "1",
+                               "--shape-every", "1", "--card-every-stopped", "1",
+                               "--card-trigger-frac", "0.5",
+                               "--card-vote-frames", "1", "--card-stop-ms", "500",
+                               "--card-hold-ms", "500", "--card-tilt-ms", "0",
+                               "--card-settle-ms", "0", "--attitude-port", "0"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch("qr_reader.QrReader") as qr_cls,
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            patch("cv2.imshow", side_effect=AssertionError("headless must not open windows")),
+            contextlib.redirect_stdout(out),
+        ):
+            qr_cls.return_value.decode.side_effect = (
+                lambda _: reading if reads[0] >= 6 else None)
+            qr_cls.return_value.scans = 1
+            qr_cls.return_value.geom_rejects = 0
+            qr_cls.return_value.last_cost_ms = 70.0
+            self.assertEqual(run_policy_vision.main(), 0)
+
+        published = client_cls.return_value.publish.call_args_list
+        unique_events = {call.kwargs["event_id"]: call.kwargs["event_action"]
+                         for call in published if call.kwargs.get("event_id")}
+        self.assertEqual(set(unique_events.values()), {1, 2})
+        self.assertEqual(out.getvalue().count("停车读卡"), 1)
+        self.assertIn("首卡已离开", out.getvalue())
 
     def test_policy_launch_waits_for_ready_before_the_same_first_step(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
