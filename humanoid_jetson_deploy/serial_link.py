@@ -10,6 +10,7 @@ from config import command_gains
 from protocol import (
     ActionRequestPacket, ActionStatusPacket, CommandPacket, FrameDecoder,
     StatePacket, pack_action_request, pack_command,
+    StartupControlPacket, pack_startup_control,
 )
 
 
@@ -127,6 +128,12 @@ class SerialLink:
         with self._write_lock:
             packet = ActionRequestPacket(self._sequence, event_id, action_id)
             self.serial.write(pack_action_request(packet))
+            self._sequence = (self._sequence + 1) & 0xFFFF
+
+    def send_startup_control(self, flags: int) -> None:
+        """Set startup LED/arming only; this never sends a motor COMMAND."""
+        with self._write_lock:
+            self.serial.write(pack_startup_control(StartupControlPacket(self._sequence, flags)))
             self._sequence = (self._sequence + 1) & 0xFFFF
 
     def get_action_status(self, event_id: int) -> int:

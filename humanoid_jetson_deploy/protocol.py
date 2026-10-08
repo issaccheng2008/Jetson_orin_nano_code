@@ -18,6 +18,7 @@ MSG_STATE = 1
 MSG_COMMAND = 2
 MSG_ACTION_REQUEST = 3
 MSG_ACTION_STATUS = 4
+MSG_STARTUP_CONTROL = 5
 ACTION_ACCEPTED = 1
 ACTION_DONE = 2
 ACTION_BUSY = 3
@@ -42,6 +43,11 @@ STATE_FAULT = 1 << 1
 STATE_IMU_VALID = 1 << 2
 STATE_ENCODERS_VALID = 1 << 3
 STATE_COMMAND_FRESH = 1 << 4
+STATE_START_BUTTON = 1 << 5
+STATE_STARTUP_ACTIVE = 1 << 6
+
+STARTUP_ARM = 1 << 0
+STARTUP_CARD_READY = 1 << 1
 
 HEADER = struct.Struct("<HBBHH")
 CRC = struct.Struct("<H")
@@ -53,6 +59,7 @@ STATE_PAYLOAD_WITH_COUNTERS = struct.Struct(STATE_PAYLOAD.format + "II")
 COMMAND_PAYLOAD = struct.Struct("<I" + "f" * (3 * NUM_JOINTS) + "I")
 ACTION_REQUEST_PAYLOAD = struct.Struct("<IB")
 ACTION_STATUS_PAYLOAD = struct.Struct("<IBB")
+STARTUP_CONTROL_PAYLOAD = struct.Struct("<B")
 
 
 @dataclass(frozen=True)
@@ -92,6 +99,12 @@ class ActionStatusPacket:
     event_id: int
     action_id: int
     status: int
+
+
+@dataclass(frozen=True)
+class StartupControlPacket:
+    sequence: int
+    flags: int
 
 
 def crc16_ccitt(data: bytes, initial: int = 0xFFFF) -> int:
@@ -155,6 +168,13 @@ def pack_command(packet: CommandPacket) -> bytes:
         packet.command_flags & 0xFFFFFFFF,
     )
     return _pack_frame(MSG_COMMAND, packet.sequence, payload)
+
+
+def pack_startup_control(packet: StartupControlPacket) -> bytes:
+    if packet.flags < 0 or packet.flags & ~(STARTUP_ARM | STARTUP_CARD_READY):
+        raise ValueError("Unknown startup control flags")
+    return _pack_frame(MSG_STARTUP_CONTROL, packet.sequence,
+                       STARTUP_CONTROL_PAYLOAD.pack(packet.flags))
 
 
 # action_id values that may go on the wire.
@@ -223,11 +243,11 @@ class FrameDecoder:
         self.format_errors = 0
 
     def feed(self, data: bytes) -> Iterable[
-        StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket
+        StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket | StartupControlPacket
     ]:
         self.buffer.extend(data)
         decoded: list[
-            StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket
+            StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket | StartupControlPacket
         ] = []
 
         while True:
@@ -272,6 +292,11 @@ class FrameDecoder:
                     decoded.append(ActionRequestPacket(sequence, *ACTION_REQUEST_PAYLOAD.unpack(payload)))
                 elif message_type == MSG_ACTION_STATUS and payload_len == ACTION_STATUS_PAYLOAD.size:
                     decoded.append(ActionStatusPacket(sequence, *ACTION_STATUS_PAYLOAD.unpack(payload)))
+                elif message_type == MSG_STARTUP_CONTROL and payload_len == STARTUP_CONTROL_PAYLOAD.size:
+                    flags = STARTUP_CONTROL_PAYLOAD.unpack(payload)[0]
+                    if flags & ~(STARTUP_ARM | STARTUP_CARD_READY):
+                        raise ValueError("Unknown startup control flags")
+                    decoded.append(StartupControlPacket(sequence, flags))
                 else:
                     raise ValueError("Unknown message type or payload size")
             except (ValueError, struct.error):

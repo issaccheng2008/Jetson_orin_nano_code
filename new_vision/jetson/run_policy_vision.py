@@ -143,13 +143,16 @@ def parse_args():
                         help="How long after the card window closes the live pitch "
                              "keeps going to the line detector. The body takes about "
                              "2 s to walk out of the leaning stand pose")
-    parser.add_argument("--start-gate", choices=("off", "qr", "shape", "both"),
+    parser.add_argument("--start-gate", choices=("off", "qr", "shape", "both", "button"),
                         default="off",
                         help="Hold the robot at vx=wz=0 until the start valves pass. "
                              "'qr' = a QR code decoded to --start-gate-qr-payload; "
                              "'shape' = the first card classified to a shape on "
                              "--start-gate-shape-frames consecutive detection calls; "
-                             "'both' = the competition setting. While held the body is "
+                             "'both' = the competition setting; 'button' = STM32 PC2 "
+                             "starts gait, with optional first-card PA3 indication. "
+                             "In button mode gait is not launched while waiting. "
+                             "In the other gate modes, while held the body is "
                              "also asked to stand upright: the policy's own stopped "
                              "pose leans back about 20 deg and the card geometry is "
                              "calibrated at the install angle, so without that the "
@@ -162,7 +165,7 @@ def parse_args():
                         help="Consecutive detection calls naming the same shape "
                              "before the second valve latches")
     parser.add_argument("--start-policy-on-gate", action="store_true",
-                        help="After both start valves pass, launch the enabled walking "
+                        help="After the both/button start gate passes, launch the enabled walking "
                              "policy and wait for its STM32-ready marker before moving")
     parser.add_argument("--start-policy-model",
                         default="humanoid_jetson_deploy/policy_49_max.onnx",
@@ -484,14 +487,16 @@ def parse_args():
         parser.error("dump-on-loss-ring must be at least 1")
     if not math.isfinite(args.dump_on_loss_cooldown) or args.dump_on_loss_cooldown < 0:
         parser.error("dump-on-loss-cooldown must be finite and nonnegative")
-    if args.start_gate in ("shape", "both") and args.no_shape_detect:
-        parser.error("start-gate shape/both needs shape detection")
+    if args.start_gate in ("shape", "both", "button") and args.no_shape_detect:
+        parser.error("start-gate shape/both/button needs shape detection")
     if args.start_gate in ("qr", "both") and not args.start_gate_qr_payload.strip():
         parser.error("start-gate-qr-payload must not be empty")
     if args.start_gate_shape_frames < 1:
         parser.error("start-gate-shape-frames must be at least 1")
-    if args.start_policy_on_gate and args.start_gate != "both":
-        parser.error("start-policy-on-gate requires --start-gate both")
+    if args.start_policy_on_gate and args.start_gate not in ("both", "button"):
+        parser.error("start-policy-on-gate requires --start-gate both or button")
+    if args.start_gate == "button" and not args.start_policy_on_gate:
+        parser.error("start-gate button requires --start-policy-on-gate")
     if (not math.isfinite(args.start_policy_max_seconds)
             or args.start_policy_max_seconds <= 0):
         parser.error("start-policy-max-seconds must be positive")
@@ -637,7 +642,7 @@ def main():
                                  max_edge_px=args.qr_max_edge_px,
                                  upscale=args.qr_upscale,
                                  max_side=args.qr_max_side)
-    policy_launcher = None
+    policy_launcher = startup_button_link = None
     if args.start_policy_on_gate:
         from policy_gate_launcher import PolicyGateLauncher
         policy_launcher = PolicyGateLauncher(args.start_policy_model,
@@ -645,6 +650,9 @@ def main():
                                              args.start_policy_max_seconds,
                                              policy_python=args.start_policy_python,
                                              one_foot_model=args.start_policy_one_foot_model)
+    if args.start_gate == "button":
+        from startup_button_link import StartupButtonLink
+        startup_button_link = StartupButtonLink(args.start_policy_port)
 
     # 机身姿态只喂给图卡，不喂巡线。走路时俯仰以 1.7Hz 摆 30~40°，低通过的
     # 滞后值描述不了当前这一帧，喂进 IPM 反而更糟；巡线那边靠车道宽锚定解决，
@@ -759,9 +767,13 @@ def main():
                   f"参考：--vx {args.vx} 下跟住一个弯要 {args.vx / LANE_RADIUS_M:.3f} "
                   f"rad/s（只是参考，幅度不跟着它走）。触发看原始 err=", flush=True)
         if start_gate is not None:
-            print(f"[start-gate] {args.start_gate}：站住不动，直到两个阀都过；"
-                  f"期间机身按住直立（否则后仰 20°，几何闸会把每张卡都 "
-                  f"rej=ground）。", flush=True)
+            if args.start_gate == "button":
+                print("[button-start] 等待PC2按钮；首卡识别后PA3亮灯，未亮灯也可按按钮启动。"
+                      "等待期间不启动步态，不发送电机COMMAND。", flush=True)
+            else:
+                print(f"[start-gate] {args.start_gate}：站住不动，直到两个阀都过；"
+                      f"期间机身按住直立（否则后仰 20°，几何闸会把每张卡都 "
+                      f"rej=ground）。", flush=True)
             if start_gate.require_qr:
                 print(f"             阀1 qr_every={args.qr_every} "
                       f"payload={args.start_gate_qr_payload!r} "
@@ -1207,6 +1219,7 @@ def main():
             # 同帧"这种时序上说不清的状态。
             if start_gate is not None:
                 if (start_gate.require_shape and not start_gate.shape_passed
+                        and not (args.start_gate == "button" and start_gate.button_passed)
                         and card_dbg and card_dbg.get("shape")):
                     if start_gate.observe_shape(card_dbg["shape"]):
                         print("\n" + "=" * 68, flush=True)
@@ -1215,20 +1228,28 @@ def main():
                               f"（{start_gate.last_shape}）"
                               f"    连续 {start_gate.shape_streak} 帧", flush=True)
                         print("=" * 68 + "\n", flush=True)
+                if (startup_button_link is not None
+                        and start_gate.observe_button(startup_button_link.poll(start_gate.shape_passed))):
+                    print("[button-start] 收到PC2按钮；交接串口并启动步态。", flush=True)
                 if start_gate.passed and gate_window_open:
                     if policy_launcher is not None and not policy_launcher.started:
+                        if startup_button_link is not None:
+                            startup_button_link.close()
+                            startup_button_link = None
                         policy_launcher.start()
                     if policy_launcher is None or policy_launcher.ready():
                         gate_released = True
                         start_released = True
-                        if args.start_gate == "both":
+                        if args.start_gate in ("both", "button") and start_gate.shape_passed:
                             startup_first_card = shape_numbers[start_gate.last_shape]
                             startup_first_card_pending = True
                             startup_first_card_lock = True
                             startup_first_card_clear_calls = 0
                             startup_move_until = 0.0  # set when the first nonzero command is sent
                             card_armed = False
-                            print(f"[start-gate] 二维码和首卡均已锁存："
+                            release_source = ("按钮已按下、首卡已锁存" if args.start_gate == "button"
+                                              else "二维码和首卡均已锁存")
+                            print(f"[start-gate] {release_source}："
                                   f"{start_gate.last_shape} -> {startup_first_card}; "
                                   "先直行 1.0s，再停车直接执行首卡（不等近距触发/二次投票）",
                                   flush=True)
@@ -1505,6 +1526,11 @@ def main():
             if line_log is not None:
                 line_log.close()
         finally:
+            if startup_button_link is not None:
+                try:
+                    startup_button_link.close()
+                except (OSError, RuntimeError) as exc:
+                    print(f"[button-start] closing startup serial: {exc}", flush=True)
             client.close()
             if policy_launcher is not None:
                 policy_launcher.close()

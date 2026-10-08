@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-MODES = ("off", "qr", "shape", "both")
+MODES = ("off", "qr", "shape", "both", "button")
 
 
 class StartGate:
@@ -26,7 +26,9 @@ class StartGate:
         self.expected_qr = str(expected_qr).strip()
         self.shape_confirm = int(shape_confirm)
         self.require_qr = mode in ("qr", "both")
-        self.require_shape = mode in ("shape", "both")
+        # In button mode shape recognition drives the lamp, never permission to walk.
+        self.require_shape = mode in ("shape", "both", "button")
+        self.button_passed = False
         self.qr_passed = False
         self.shape_passed = False
         self.last_qr = None
@@ -35,8 +37,16 @@ class StartGate:
 
     @property
     def passed(self):
+        if self.mode == "button":
+            return self.button_passed
         return ((not self.require_qr or self.qr_passed)
                 and (not self.require_shape or self.shape_passed))
+
+    def observe_button(self, pressed):
+        if self.mode != "button" or self.button_passed or not pressed:
+            return False
+        self.button_passed = True
+        return True
 
     def observe_qr(self, payload):
         """返回本帧是否锁存了阀1。None = 这一帧没解码，什么都不算。"""
@@ -64,6 +74,9 @@ class StartGate:
         return True
 
     def status(self):
+        if self.mode == "button":
+            card = self.last_shape if self.shape_passed else "未识别（仍可按按钮）"
+            return f"按钮={'已按下' if self.button_passed else '等待PC2'} | 首卡={card}"
         qr = "不需要" if not self.require_qr else (
             "已过" if self.qr_passed else f"等二维码 最近={self.last_qr}")
         shape = "不需要" if not self.require_shape else (

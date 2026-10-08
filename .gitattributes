@@ -4,3 +4,5 @@
 # 2026-10-03 在板子上就是这么炸的（12 个文本文件，Windows 上看不出来，
 # 因为工作区还是 CRLF）。这一包必须原样存。
 humanoid_jetson_deploy/models/phase_clock_model_850/** -text
+scripts/*.sh text eol=lf
+config/*.env.example text eol=lf
