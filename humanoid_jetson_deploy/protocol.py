@@ -49,7 +49,8 @@ STATE_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "f" * NUM_JOINTS + "3f3f
 # The STM32 diagnostic branch appends two counters to the version-2 state
 # payload. Accept both lengths so Nano can be deployed before STM32 is flashed.
 STATE_PAYLOAD_WITH_COUNTERS = struct.Struct(STATE_PAYLOAD.format + "II")
-COMMAND_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "ffI")
+# Absolute PD values in joint_target wire order. Old 64-byte commands are rejected.
+COMMAND_PAYLOAD = struct.Struct("<I" + "f" * (3 * NUM_JOINTS) + "I")
 ACTION_REQUEST_PAYLOAD = struct.Struct("<IB")
 ACTION_STATUS_PAYLOAD = struct.Struct("<IBB")
 
@@ -73,8 +74,8 @@ class CommandPacket:
     sequence: int
     timestamp_us: int
     joint_target: np.ndarray
-    kp_scale: float
-    kd_scale: float
+    kp: np.ndarray
+    kd: np.ndarray
     command_flags: int
 
 
@@ -140,11 +141,17 @@ def pack_state(packet: StatePacket) -> bytes:
 
 def pack_command(packet: CommandPacket) -> bytes:
     q = np.asarray(packet.joint_target, dtype=np.float32).reshape(NUM_JOINTS)
+    kp = np.asarray(packet.kp, dtype=np.float64).reshape(NUM_JOINTS)
+    kd = np.asarray(packet.kd, dtype=np.float64).reshape(NUM_JOINTS)
+    if (not np.isfinite(kp).all() or not np.isfinite(kd).all()
+            or np.any(kp < 0) or np.any(kp > 500)
+            or np.any(kd < 0) or np.any(kd > 5)):
+        raise ValueError("absolute gains must be finite with KP in [0, 500] and KD in [0, 5]")
     payload = COMMAND_PAYLOAD.pack(
         packet.timestamp_us & 0xFFFFFFFF,
         *q,
-        float(packet.kp_scale),
-        float(packet.kd_scale),
+        *kp,
+        *kd,
         packet.command_flags & 0xFFFFFFFF,
     )
     return _pack_frame(MSG_COMMAND, packet.sequence, payload)
@@ -201,7 +208,9 @@ def decode_state(sequence: int, payload: bytes) -> StatePacket:
 def decode_command(sequence: int, payload: bytes) -> CommandPacket:
     values = COMMAND_PAYLOAD.unpack(payload)
     q = np.array(values[1 : 1 + NUM_JOINTS], dtype=np.float32)
-    return CommandPacket(sequence, values[0], q, values[-3], values[-2], values[-1])
+    kp = np.array(values[1 + NUM_JOINTS : 1 + 2 * NUM_JOINTS], dtype=np.float32)
+    kd = np.array(values[1 + 2 * NUM_JOINTS : 1 + 3 * NUM_JOINTS], dtype=np.float32)
+    return CommandPacket(sequence, values[0], q, kp, kd, values[-1])
 
 
 class FrameDecoder:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 
+from config import command_gains
 
 from protocol import (
     ActionRequestPacket, ActionStatusPacket, CommandPacket, FrameDecoder,
@@ -97,12 +98,13 @@ class SerialLink:
         deadlock is not. Callers that pass nothing keep the old blocking
         behaviour.
         """
+        kp, kd = command_gains(kp_scale, kd_scale)
         packet = CommandPacket(
             sequence=self._sequence,
             timestamp_us=timestamp_us,
             joint_target=joint_target,
-            kp_scale=kp_scale,
-            kd_scale=kd_scale,
+            kp=kp,
+            kd=kd,
             command_flags=command_flags,
         )
         frame = pack_command(packet)

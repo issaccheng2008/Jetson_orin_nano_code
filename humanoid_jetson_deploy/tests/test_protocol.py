@@ -93,17 +93,18 @@ class ProtocolTests(unittest.TestCase):
             sequence=7,
             timestamp_us=99,
             joint_target=np.linspace(-1.0, 1.0, 12, dtype=np.float32),
-            kp_scale=0.5,
-            kd_scale=0.25,
+            kp=np.linspace(10.0, 35.0, 12),
+            kd=np.linspace(0.25, 1.5, 12),
             command_flags=COMMAND_ENABLE,
         )
         decoded = list(FrameDecoder().feed(b"line noise" + pack_command(source)))
         self.assertEqual(len(decoded), 1)
         np.testing.assert_allclose(decoded[0].joint_target, source.joint_target)
-        self.assertAlmostEqual(decoded[0].kp_scale, 0.5)
+        np.testing.assert_allclose(decoded[0].kp, source.kp)
+        np.testing.assert_allclose(decoded[0].kd, source.kd)
 
     def test_crc_error_is_rejected_and_next_frame_recovers(self):
-        source = CommandPacket(1, 2, np.zeros(12), 1.0, 1.0, 0)
+        source = CommandPacket(1, 2, np.zeros(12), np.ones(12), np.ones(12), 0)
         damaged = bytearray(pack_command(source))
         damaged[20] ^= 0x40
         decoder = FrameDecoder()
@@ -116,9 +117,9 @@ class ProtocolTests(unittest.TestCase):
             0, 0, np.zeros(12), np.zeros(12), np.zeros(3), np.zeros(3),
             np.array([1.0, 0.0, 0.0, 0.0]), 0
         )
-        command = CommandPacket(0, 0, np.zeros(12), 0.0, 0.0, 0)
+        command = CommandPacket(0, 0, np.zeros(12), np.zeros(12), np.zeros(12), 0)
         self.assertEqual(len(pack_state(state)), 154)
-        self.assertEqual(len(pack_command(command)), 74)
+        self.assertEqual(len(pack_command(command)), 162)
 
 
 if __name__ == "__main__":

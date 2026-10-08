@@ -6,6 +6,29 @@ import numpy as np
 
 
 NUM_JOINTS = 12
+# 电机 PD 基准，直接下发 STM32；不再在下位机乘 1.5/2.0。
+# 顺序与 joint_target 的线序一致：左腿六项，再右腿六项；每腿依次为
+# 髋 pitch、髋 roll、髋 yaw、膝 pitch、踝 pitch、踝 roll。
+JOINT_KP = np.array([
+    35.0, 30.0, 20.0, 35.0, 30.0, 12.0,  # 左腿
+    35.0, 30.0, 20.0, 35.0, 30.0, 12.0,  # 右腿
+], dtype=np.float32)
+JOINT_KD = np.array([
+    1.5, 1.2, 1.0, 1.5, 1.6, 0.7,  # 左腿
+    1.5, 1.2, 1.0, 1.5, 1.6, 0.7,  # 右腿
+], dtype=np.float32)
+GAIN_SCALE = 1.0  # 全部 KP/KD 的统一倍率，例如 1.2 表示同时增加 20%。
+
+
+def command_gains(kp_scale: float, kd_scale: float) -> tuple[np.ndarray, np.ndarray]:
+    """Apply the common multiplier and existing caller-specific P/D scales."""
+    scales = np.asarray([GAIN_SCALE, kp_scale, kd_scale], dtype=np.float64)
+    if not np.isfinite(scales).all() or np.any(scales < 0):
+        raise ValueError("gain scales must be finite and non-negative")
+    return (np.asarray(JOINT_KP, dtype=np.float64) * GAIN_SCALE * kp_scale,
+            np.asarray(JOINT_KD, dtype=np.float64) * GAIN_SCALE * kd_scale)
+
+
 OBS_DIM = 49
 ACTION_DIM = 12
 POLICY_HZ = 50.0

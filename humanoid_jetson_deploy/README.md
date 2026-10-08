@@ -81,9 +81,30 @@ All multi-byte values are little-endian. Floating-point fields are IEEE-754 `flo
 | Payload | variable | Packed state or command structure |
 | CRC | 2 | CRC-16/CCITT-FALSE over version through the end of payload |
 
-The state payload is 144 bytes and its complete frame is 154 bytes. The command payload is 64 bytes and its complete frame is 74 bytes. The Python and STM32 implementations use the same packed layouts and CRC algorithm.
+The state payload is 144 bytes (154-byte frame), or 152 bytes (162-byte frame) with the two STM32 diagnostic counters. The command payload is now 152 bytes (162-byte frame): `timestamp_us` (`uint32`), `joint_target[12]`, `kp[12]`, `kd[12]` (`float32`), and `command_flags` (`uint32`). Gains are absolute values in the same wire order as the targets. Update both Jetson and STM32 together: old 64-byte commands are rejected. Feedback and action frames are unchanged; `stm32_demo/` is an older reference, not the matching firmware.
 
-At 200 state frames/s and 50 command frames/s, the total framed traffic is approximately 34.5 kB/s, comfortably within USB full-speed CDC capacity.
+At 200 extended state frames/s and 50 command frames/s, total framed traffic is approximately 40.5 kB/s, within USB full-speed CDC capacity.
+
+## KPKD 调参（上位机统一配置）
+
+修改本目录 `config.py` 的 `JOINT_KP`、`JOINT_KD`，然后重启上位机进程，无需重新编译下位机。两组数组各有 12 项，按 STM32 线序排列：左腿六关节、右腿六关节，每腿依次为髋 pitch、髋 roll、髋 yaw、膝 pitch、踝 pitch、踝 roll。索引与 `joint_target` 一致；增益无需取反。
+
+默认直接使用下位机 `上位机改kpkd` 分支的原始基准，不保留原桥接层的 KP×1.5、KD×2.0：
+
+| 每腿关节 | KP | KD |
+|---|---:|---:|
+| 髋 pitch | 35 | 1.5 |
+| 髋 roll | 30 | 1.2 |
+| 髋 yaw | 20 | 1.0 |
+| 膝 pitch | 35 | 1.5 |
+| 踝 pitch | 30 | 1.6 |
+| 踝 roll | 12 | 0.7 |
+
+将 `GAIN_SCALE = 1.0` 改成 `1.2`，即可让全部 KP 和 KD 同时乘 1.2。也可以单独修改数组某一项，例如 `JOINT_KP[7]` 对应右髋 roll。
+
+既有调用参数 `--kp-scale` 和 `--kd-scale` 继续生效，默认均为 1：最终 KP = `JOINT_KP × GAIN_SCALE × kp_scale`，最终 KD = `JOINT_KD × GAIN_SCALE × kd_scale`。因此旧启动命令如果显式传了较小倍率，现在会实际降低电机增益。`GAIN_SCALE` 可以大于 1，但最终值必须在电机范围内：KP 为 0～500，KD 为 0～5；负值、NaN、Inf 和越界值会被拒绝，不会静默截断。
+
+每帧都携带最终 KP/KD，下位机校验后直接传给电机，不再乘固定倍率。下位机在尚未收到上位机控制包时的上电归位 `Action_Goto` 保留原行为，其本地参数不受这个配置影响。
 
 ## Walking model compatibility
 
