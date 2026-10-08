@@ -174,7 +174,7 @@ def parse_args() -> argparse.Namespace:
              "speed",
     )
     parser.add_argument(
-        "--forward-ankle-bias-rad", type=float, default=0.05,
+        "--forward-ankle-bias-rad", type=float, default=0.0,
         help="Ankle pitch bias while the walking policy receives vx > 0: "
              "protocol joint 4 += this value, joint 10 -= this value. "
              "Zero speed, one-foot actions, and upright hold use no bias; 0 disables it",
