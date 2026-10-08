@@ -1,4 +1,4 @@
-"""Describe a measured lane with local ground-space segments, for diagnostics.
+"""Describe a measured lane with local ground-space segments.
 
 Only paired boundary observations are accepted. Each segment is fitted on its
 own; a distant false pair cannot bend the near segment or create an extrapolated
@@ -64,6 +64,8 @@ def describe_lane_segments(ys, centres_px, widths_px, z_by_row,
             continue
         mid_z = float(np.median(zz[inliers]))
         result.update({prefix + "valid": True, prefix + "z_cm": mid_z,
+                       prefix + "z_min_cm": float(zz[inliers].min()),
+                       prefix + "z_max_cm": float(zz[inliers].max()),
                        prefix + "x_cm": float(slope * mid_z + intercept),
                        prefix + "heading_deg": heading,
                        prefix + "normal_width_cm": width_median,

@@ -48,6 +48,13 @@ class LaneSegmentTests(unittest.TestCase):
         self.assertEqual(result["fit_seg_pattern"], "left_bend")
         self.assertGreater(result["fit_seg_heading_change_deg"], 15)
 
+    def test_segment_depth_limits_are_actual_observations_not_bin_edges(self):
+        result = self.describe(lambda z: np.zeros_like(z))
+        for i, (lo, hi) in enumerate(((20., 32.), (32., 44.), (44., 56.))):
+            self.assertGreaterEqual(result[f'fit_seg{i}_z_min_cm'], lo)
+            self.assertLess(result[f'fit_seg{i}_z_max_cm'], hi)
+            self.assertGreater(result[f'fit_seg{i}_z_max_cm'] - result[f'fit_seg{i}_z_min_cm'], 4.)
+
     def test_outliers_and_wrong_pair_width(self):
         slope = -math.tan(math.radians(20))
         result = self.describe(lambda z: slope * (z - 40), outlier=True)

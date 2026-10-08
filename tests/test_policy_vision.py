@@ -2204,13 +2204,13 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         self.assertFalse(published[0].kwargs["card_tilt"])
         self.assertTrue(published[1].kwargs["card_tilt"])
         # The trigger lands on read 2. The legacy path waits 1000ms plus the new
-        # 300ms settling margin before looking at a card again.
+        # 100ms settling margin before looking at a card again (policy49 a8f5b4d).
         # and the every-other-frame cadence picks up from the first read at or after
         # the window. Asserted against the tilt being ten reads long rather than a
         # fixed index: the mocked clock accumulates 0.1 and lands either side of the
         # boundary. With --card-tilt-ms 0 the same harness looks from read 4.
         inside = [i for i in seen if i > 3]
-        self.assertEqual(inside[:5], [16, 18, 20, 22, 24])
+        self.assertEqual(inside[:5], [14, 16, 18, 20, 22])
 
     def test_votes_start_only_after_stm32_done_plus_settle_time(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)

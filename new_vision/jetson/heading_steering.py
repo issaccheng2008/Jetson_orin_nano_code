@@ -171,9 +171,13 @@ class HeadingSteeringController:
     def _cap(self, direction):
         return min(self.max_step, self.inner.max_wz_right) if direction*self.yaw_sign < 0 else self.max_step
 
+    def _target_distance_cm(self):
+        """Target depth for spatial gates; subclasses may use measured support."""
+        return self.lookahead_cm
+
     def _map_angle(self, demand):
         # Angular tolerance may be widened, but never widen the spatial corridor.
-        corridor_angle = math.degrees(math.atan2(self.corridor_cm, self.lookahead_cm))
+        corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
         positive_gate = min(self.right_tolerance_deg, corridor_angle)
         negative_gate = min(self.left_tolerance_deg, corridor_angle)
         if demand >= positive_gate and demand > 0:
@@ -189,7 +193,7 @@ class HeadingSteeringController:
         candidate = self._map_angle(demand)
         # Already pointing toward the line: do not keep turning just to erase
         # residual position error. Straight walking lets that error converge.
-        corridor_angle = math.degrees(math.atan2(self.corridor_cm, self.lookahead_cm))
+        corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
         projected_inside = abs(demand) <= corridor_angle
         if near < 0 and heading < 0 and demand > 0 and projected_inside:
             return self.straight_wz, "returning_from_right"
@@ -280,7 +284,7 @@ class HeadingSteeringController:
             forecast = self._map_angle(predicted)
             reduced = min(abs(current), abs(candidate), abs(forecast)) if candidate*forecast > 0 else 0.0
             if decision in ("right_corridor", "left_corridor"):
-                corridor_angle = math.degrees(math.atan2(self.corridor_cm, self.lookahead_cm))
+                corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
                 near_boundary = (filtered_near <= -self.corridor_cm if candidate > 0
                                  else filtered_near >= self.corridor_cm)
                 # A re-entry brake may fade to the straight level, but a
