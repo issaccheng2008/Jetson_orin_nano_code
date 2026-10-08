@@ -2,6 +2,7 @@
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -59,6 +60,30 @@ class ButtonAutostartTests(unittest.TestCase):
             for wrapper in ('connector', 'vision'):
                 output = self.run_bash(f'{checkout.as_posix()}/scripts/run_button_{wrapper}.sh', cwd=REPO)
                 self.assertEqual(output.strip(), f'CWD={expected}')
+
+    def test_vision_wrapper_passes_configured_mode_and_defaults_old_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            config = checkout / 'config/button_start.env'
+            # Copy the real template but omit the new setting to represent an
+            # existing installed file, which git pull deliberately preserves.
+            old_config = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                   if not line.startswith('WZ_MODE=')) + '\n'
+            for mode in (None, 'heading', 'segments', 'segment'):
+                with self.subTest(mode=mode):
+                    config.write_text(old_config + (f'WZ_MODE={mode}\n' if mode else ''))
+                    result = subprocess.run([BASH, 'scripts/run_button_vision.sh', '--dry-run'],
+                                            cwd=checkout, text=True, capture_output=True)
+                    if mode == 'segment':
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn('WZ_MODE', result.stderr)
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        args = shlex.split(result.stdout)
+                        self.assertEqual(args[args.index('--wz-mode') + 1], mode or 'heading')
 
 
 if __name__ == '__main__':
