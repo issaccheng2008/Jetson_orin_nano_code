@@ -1,6 +1,6 @@
 # Command timing experiment implementation plan
 
-**Goal:** Test one timing change on top of policy49-button-test: initially ce79df7, synchronized to 6201468 before delivery.
+**Goal:** Test one timing change on top of policy49-button-test: initially ce79df7, last synchronized to button-base f58ac0d.
 **Architecture:** Change the heading/segments applied-command gate and the walking model-input gate together. Keep geometry, three-frame segment confirmation, command levels, camera parameters, PD profiles, models, button startup and stop precedence unchanged. Preserve the original 0.5 s trend window and prediction horizon independently of minimum command hold.
 **Tech stack:** Python, pytest/unittest, local UDP tests; no robot hardware.
 
@@ -17,3 +17,5 @@ This worktree implements experiment 1: default normal minimum hold is zero in B 
 Delivery: commit/push only this experiment to its own branch and verify base ancestry and remote SHA. Do not operate robot motors.
 
 - [x] Synchronize both published experiments with button-base 6201468 using non-rewriting merges; full regression rerun: 470 passed, 869 subtests passed, 2 Bash tests skipped, 1 Linux tee test deselected on Windows.
+
+- [x] Sync button-base f58ac0d configurable WZ_MODE into both experiments; defaults and branch-specific timing retained. Full regression: 470 passed, 869 subtests passed, 3 Bash tests skipped, 1 Linux tee test deselected on Windows.
