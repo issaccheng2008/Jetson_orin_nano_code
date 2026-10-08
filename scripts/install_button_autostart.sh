@@ -44,7 +44,7 @@ StartLimitIntervalSec=0
 Type=exec
 User=$target_user
 Group=$target_group
-WorkingDirectory=$(unit_quote "$BUTTON_REPO_DIR")
+# Both wrappers change to REPO_DIR before executing Python.
 Environment=PYTHONUNBUFFERED=1
 Environment=$(unit_quote "BUTTON_CONFIG=$BUTTON_CONFIG")
 ExecStart=/bin/bash $(unit_quote "$BUTTON_REPO_DIR/scripts/run_button_$component.sh")
@@ -71,7 +71,7 @@ if [[ "$mode" = --dry-run ]]; then
         render_unit "$component"
     done
     printf '\nPreflight on install/check: required scripts and both models; vision imports numpy/cv2/serial; policy imports onnxruntime/serial.\n'
-    printf 'Install then daemon-reload and enable both services. No service is started during installation.\n'
+    printf 'Verify units, install, then daemon-reload and enable both services. No service is started during installation.\n'
     exit 0
 fi
 
@@ -93,10 +93,14 @@ if [[ "$mode" = --check ]]; then
     exit 0
 fi
 command -v systemctl >/dev/null || { printf 'systemctl is required.\n' >&2; exit 1; }
+command -v systemd-analyze >/dev/null || { printf 'systemd-analyze is required to verify service files.\n' >&2; exit 1; }
 unit_dir="$(mktemp -d)"
 trap 'rm -f -- "$unit_dir/humanoid-button-connector.service" "$unit_dir/humanoid-button-vision.service"; rmdir -- "$unit_dir"' EXIT
 for component in connector vision; do
     render_unit "$component" > "$unit_dir/humanoid-button-$component.service"
+done
+systemd-analyze verify "$unit_dir/humanoid-button-connector.service" "$unit_dir/humanoid-button-vision.service"
+for component in connector vision; do
     sudo install -m 0644 "$unit_dir/humanoid-button-$component.service" "/etc/systemd/system/humanoid-button-$component.service"
 done
 sudo systemctl daemon-reload
