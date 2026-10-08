@@ -165,7 +165,11 @@ def parse_args():
                         help="After both start valves pass, launch the enabled walking "
                              "policy and wait for its STM32-ready marker before moving")
     parser.add_argument("--start-policy-model",
-                        default="humanoid_jetson_deploy/policy(13).onnx")
+                        default="humanoid_jetson_deploy/policy_49_max.onnx",
+                        help="Walking ONNX model for the automatically started policy")
+    parser.add_argument("--start-policy-one-foot-model",
+                        default="humanoid_jetson_deploy/policy-one-foot-standing_old.onnx",
+                        help="One-foot ONNX model for vision cards 3/4 in the automatically started policy")
     parser.add_argument("--start-policy-python", default=None,
                         help="Python executable for the walking policy; defaults to "
                              "the repository .venv/bin/python when available")
@@ -639,7 +643,8 @@ def main():
         policy_launcher = PolicyGateLauncher(args.start_policy_model,
                                              args.start_policy_port,
                                              args.start_policy_max_seconds,
-                                             policy_python=args.start_policy_python)
+                                             policy_python=args.start_policy_python,
+                                             one_foot_model=args.start_policy_one_foot_model)
 
     # 机身姿态只喂给图卡，不喂巡线。走路时俯仰以 1.7Hz 摆 30~40°，低通过的
     # 滞后值描述不了当前这一帧，喂进 IPM 反而更糟；巡线那边靠车道宽锚定解决，

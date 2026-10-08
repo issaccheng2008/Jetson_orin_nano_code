@@ -17,8 +17,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 class PolicyGateLauncher:
     def __init__(self, model: str, port: str, max_seconds: float,
                  ready_timeout_s: float = 30.0,
-                 policy_python: str | None = None) -> None:
+                 policy_python: str | None = None,
+                 one_foot_model: str = "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx") -> None:
         self.model = model
+        self.one_foot_model = one_foot_model
         self.port = port
         self.max_seconds = max_seconds
         self.ready_timeout_s = ready_timeout_s
@@ -56,7 +58,7 @@ class PolicyGateLauncher:
         if self.started:
             return
         model = REPO_ROOT / self.model
-        one_foot = REPO_ROOT / "humanoid_jetson_deploy/policy-one-foot-standing.onnx"
+        one_foot = REPO_ROOT / self.one_foot_model
         if not model.is_file() or not one_foot.is_file():
             raise RuntimeError(f"policy model missing: {model if not model.is_file() else one_foot}")
         records = REPO_ROOT / "records"
@@ -68,7 +70,7 @@ class PolicyGateLauncher:
         command = [
             self.policy_python, "-u", "humanoid_jetson_deploy/main.py",
             "--policy", "walking", "--model", self.model,
-            "--one-foot-model", "humanoid_jetson_deploy/policy-one-foot-standing.onnx",
+            "--one-foot-model", self.one_foot_model,
             "--port", self.port, "--command-source", "vision",
             "--udp-command-port", "5005",
             "--diagnostic-log-dir", "records/control_diagnostics",
