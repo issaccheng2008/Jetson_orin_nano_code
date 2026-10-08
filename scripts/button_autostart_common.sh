@@ -13,6 +13,7 @@ load_button_config() {
     # Older installed configs lack this setting; preserve their heading behavior.
     WZ_MODE=heading
     LOST_HOLD_S=0.2
+    WZ_BIAS=0
     source "$BUTTON_CONFIG"
     case "$WZ_MODE" in
         heading|segments|continuous|discrete) ;;

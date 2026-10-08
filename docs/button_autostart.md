@@ -31,6 +31,28 @@ vi 的编辑、保存退出和参数生效步骤见 [参数修改与 vi 保存�
 
 ## 启动、停止与检查
 
+### 角速度偏置
+
+在 `config/button_start.env` 中添加或修改 `WZ_BIAS=0.1`，connector 会给每条运动指令的 `wz` 加 `0.1 rad/s` 后发给 Nano；`WZ_BIAS=-0.1` 表示减 `0.1`，`WZ_BIAS=0` 关闭补偿。已有配置未写此项时默认 0。该设置只调整角速度，不改变前进速度的处理。
+
+前进时，视觉发 `wz=0`，偏置 `0.1` 后得到 `0.1`；`0.2` 得到 `0.3`，`-0.2` 得到 `-0.1`。加完偏置后限制在 `[-0.5, 0.5]`，所以 `0.45 + 0.1` 最终发 `0.5`。原地转向指令也会补偿；完整停车 (`vx=0, wz=0`)、读卡站稳/倾斜请求、视觉通信超时及 connector 退出时仍发零速度。偏置只在接收时加一次，50 Hz 转发不会重复累加。
+
+修改后需重启 connector。它重启时会停止依赖它的 vision 和步态进程，因此再启动 vision，并重新按 PC2：
+
+```bash
+bash scripts/run_button_connector.sh --dry-run # 确认输出含 --wz-bias 0.1
+sudo systemctl restart humanoid-button-connector.service
+sudo systemctl start humanoid-button-vision.service
+```
+
+手动运行时，在原 connector 命令后增加参数，例如：
+
+```bash
+python -u connector.py --vision-port 5006 --policy-port 5005 --max-wz-accel 0 --wz-bias 0.1
+```
+
+启动日志会显示 `wz_bias=+0.1 rad/s`。这是新增的偏置参数；视觉的 `heading-left-wz` / `heading-right-wz` 档位校验仍要求正数、递增且不超过 0.5，偏置不能解决不合法档位导致的启动错误。
+
 首次安装只启用下次开机启动。台架准备好后，可以手动启动 vision，systemd 会先启动 connector：
 
 ```bash

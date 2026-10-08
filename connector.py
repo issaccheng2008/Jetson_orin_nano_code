@@ -40,7 +40,7 @@ def _command_mode(message: dict[str, Any]) -> str | None:
     return mode
 
 
-def process_vision_output(message: dict[str, Any]) -> dict[str, Any]:
+def process_vision_output(message: dict[str, Any], wz_bias: float = 0.0) -> dict[str, Any]:
     """Example hook for converting vision output into a policy command.
 
     Replace or extend this function later for QR-specific behavior, obstacle
@@ -48,6 +48,7 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, Any]:
     by ``CommandSmoother``).  For now it:
 
     * validates finite numeric inputs;
+    * offsets moving yaw commands before clamping (stops/posture are exempt);
     * clamps commands to the ranges used during policy training;
     * always forces target lateral velocity ``vy`` to zero; and
     * forwards the currently visible QR value (or ``-1``); and
@@ -60,6 +61,8 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, Any]:
     qr = int(message.get("qr", -1))
     if not math.isfinite(vx) or not math.isfinite(wz):
         raise ValueError("vx and wz must be finite")
+    if not math.isfinite(wz_bias):
+        raise ValueError("wz bias must be finite")
     if qr not in (-1, 1, 2, 3, 4, 5, 6):
         qr = -1
 
@@ -76,6 +79,12 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, Any]:
         # joints, so a rig uses one or the other, never both.
         "card_tilt": bool(message.get("card_tilt", False)),
     }
+    # Apply once per received packet, not on each 50 Hz publication. Walking
+    # straight (vx > 0, wz == 0) gets compensation; a full stop stays zero.
+    # Posture requests are stopped downstream by CommandSmoother.
+    if (not result["hold_upright"] and not result["card_tilt"]
+            and (result["vx"] != 0.0 or wz != 0.0)):
+        result["wz"] = clamp(wz + wz_bias, -0.5, 0.5)
     if mode is not None:
         result["command_mode"] = mode
     if "event_id" in message or "event_action" in message:
@@ -188,6 +197,13 @@ def parse_args() -> argparse.Namespace:
              "this limiter as a triangle that never reaches its target",
     )
     parser.add_argument(
+        "--wz-bias",
+        type=float,
+        default=0.0,
+        help="Signed yaw-rate offset in rad/s, applied before +/-0.5 clamping. "
+             "Full stops, posture requests and stale-vision zeroes stay stopped.",
+    )
+    parser.add_argument(
         "--log-every",
         type=int,
         default=25,
@@ -213,6 +229,8 @@ def main() -> int:
         raise SystemExit("max-vx-accel must be finite and positive")
     if not math.isfinite(args.max_wz_accel) or args.max_wz_accel < 0.0:
         raise SystemExit("max-wz-accel must be finite and nonnegative (0 = no limit)")
+    if not math.isfinite(args.wz_bias):
+        raise SystemExit("wz-bias must be finite")
 
     receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     receiver.setblocking(False)
@@ -235,7 +253,8 @@ def main() -> int:
 
     print(
         f"Connector: vision udp://{args.vision_bind}:{args.vision_port} -> "
-        f"policy udp://{args.policy_host}:{args.policy_port} at {args.publish_hz:.1f} Hz"
+        f"policy udp://{args.policy_host}:{args.policy_port} at {args.publish_hz:.1f} Hz; "
+        f"wz_bias={args.wz_bias:+g} rad/s"
     )
 
     try:
@@ -250,7 +269,7 @@ def main() -> int:
                     decoded = json.loads(payload.decode("utf-8"))
                     if not isinstance(decoded, dict):
                         raise ValueError("message must be a JSON object")
-                    latest = process_vision_output(decoded)
+                    latest = process_vision_output(decoded, wz_bias=args.wz_bias)
                     last_vision_update = time.monotonic()
                     vision_update += 1
                 except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError) as exc:

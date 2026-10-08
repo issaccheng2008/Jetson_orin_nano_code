@@ -18,6 +18,23 @@ class ButtonAutostartTests(unittest.TestCase):
         return subprocess.run([BASH, *args], cwd=cwd, text=True,
                               capture_output=True, check=True).stdout
 
+    def test_connector_wrapper_passes_bias_and_defaults_old_config_to_zero(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot with spaces'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            old_config = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                   if not line.startswith('WZ_BIAS=')) + '\n'
+            for bias in (None, '0.1', '-0.1'):
+                with self.subTest(bias=bias):
+                    (checkout / 'config/button_start.env').write_text(
+                        old_config + (f'WZ_BIAS={bias}\n' if bias else ''))
+                    args = shlex.split(self.run_bash('scripts/run_button_connector.sh', '--dry-run', cwd=checkout))
+                    self.assertIn('--wz-bias', args)
+                    self.assertEqual(args[args.index('--wz-bias') + 1], bias or '0')
+                    self.assertEqual(args[args.index('--max-wz-accel') + 1], '0')
+
     def test_rendered_service_working_directory_is_absolute(self):
         # systemd parses WorkingDirectory as a whole path, without shell unquoting.
         for name in ('robot', 'robot with spaces'):
