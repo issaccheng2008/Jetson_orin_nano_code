@@ -25,6 +25,8 @@ vi 的编辑、保存退出和参数生效步骤见 [参数修改与 vi 保存�
 
 默认模型是 `humanoid_jetson_deploy/policy_49_max.onnx` 和 `policy-one-foot-standing_old.onnx`，可以分别修改 `WALKING_MODEL`、`ONE_FOOT_MODEL`。配置还保留当前视觉命令：heading 模式、vx 0.2、max-wz 0.5、wz-step 0.3、lookahead 50 cm、corridor 5 cm、右容差 9°、左容差 4°、full scale 15°、左转档位 0.3/0.4/0.5、卡片触发距离 30 cm、shape-every 2。策略单次最长运行默认 1200 秒，可修改 `POLICY_MAX_SECONDS`。UDP 端口固定 connector 输入 5006、策略输入 5005；connector 使用 `--max-vx-accel 1 --max-wz-accel 0`。
 
+转向模式由 `WZ_MODE` 设置：`WZ_MODE=heading` 使用原航向控制，`WZ_MODE=segments` 使用分段控制（自动启用分段观测）。已有 `config/button_start.env` 不会被更新覆盖；缺少此项时默认 heading，需要切换就手动添加 `WZ_MODE=segments` 并重启 vision 服务。可用 `bash scripts/run_button_vision.sh --dry-run` 核对实际传入的模式，无需重新安装服务。
+
 ## 启动、停止与检查
 
 首次安装只启用下次开机启动。台架准备好后，可以手动启动 vision，systemd 会先启动 connector：
