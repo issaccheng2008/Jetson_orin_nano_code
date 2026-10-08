@@ -39,6 +39,8 @@ def bend(z):
 
 def controller(**options):
     inner = options.pop('inner_options', {})
+    # Keep baseline geometry regressions under their original timing policy.
+    options.setdefault('fast_release', False)
     return SegmentSteeringController(SteeringController(**inner), **options)
 
 

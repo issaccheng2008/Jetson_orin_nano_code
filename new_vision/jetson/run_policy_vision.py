@@ -339,11 +339,13 @@ def parse_args():
     parser.add_argument("--wz-mode", choices=("heading", "segments", "continuous", "discrete"),
                         default="heading",
                         help="heading (default): ground heading + near offset, variable "
-                             "wz held with vx for >=0.5s. segments: measured lane target "
+                             "wz increases/reversals held with vx for >=0.5s; same-sign "
+                             "yaw reductions may apply early. segments: measured lane target "
                              "with heading fallback and comparison telemetry; automatically "
                              "enables lane-fit-segments. discrete: legacy error-only "
                              "bursts. continuous: legacy PID. C enforces >=0.5s for "
-                             "all normal walking commands; explicit stops override it")
+                             "increases/reversals; this branch permits earlier yaw "
+                             "reductions at unchanged forward speed; stops override it")
     parser.add_argument("--heading-lookahead-cm", type=float, default=50.0,
                         help="heading mode: forward target plane, cm; beyond near band")
     parser.add_argument("--heading-right-tolerance-deg", type=float, default=12.0,
@@ -721,7 +723,7 @@ def main():
         if args.wz_mode in ("heading", "segments"):
             left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
-            print(f"[wz] 方向模式：vx/wz 每段至少保持 0.5s（固定）；"
+            print(f"[wz] 方案二：正常升档/换向保持至少 0.5s，同向降档/归零可提前；"
                   f"前视 {args.heading_lookahead_cm:g}cm，目标方位容忍区 "
                   f"[-{args.heading_left_tolerance_deg:g}, +{args.heading_right_tolerance_deg:g}]°，"
                   f"横向走廊 ±{args.heading_corridor_cm:g}cm；"

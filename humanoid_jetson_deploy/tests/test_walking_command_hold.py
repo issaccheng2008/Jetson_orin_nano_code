@@ -20,10 +20,15 @@ from protocol import STATE_ENCODERS_VALID, STATE_IMU_VALID
 from walking_command_hold import MIN_WALKING_COMMAND_HOLD_S, WalkingCommandHold
 
 
+def legacy_hold():
+    """Keep strict baseline regressions separate from experimental defaults."""
+    return WalkingCommandHold(fast_release=False)
+
+
 class WalkingCommandHoldTests(unittest.TestCase):
     def test_fixed_duration_pair_latest_request_and_exact_boundary(self):
         self.assertEqual(MIN_WALKING_COMMAND_HOLD_S, .5)
-        hold = WalkingCommandHold()
+        hold = legacy_hold()
         first = [.2, 0, .5]
         np.testing.assert_allclose(hold.apply(first, 10), first)
         np.testing.assert_allclose(hold.apply([.4, 0, 0], 10.1), first)
@@ -34,7 +39,7 @@ class WalkingCommandHoldTests(unittest.TestCase):
         np.testing.assert_allclose(hold.apply(first, 11), first)
 
     def test_repeat_does_not_extend_hold_and_zero_preempts_and_restart_is_fresh(self):
-        hold = WalkingCommandHold()
+        hold = legacy_hold()
         hold.apply([.2, 0, .5], 10)
         hold.apply([.2, 0, .5], 10.49)
         np.testing.assert_allclose(hold.apply([.4, 0, -.5], 10.5), [.4, 0, -.5])
@@ -44,7 +49,7 @@ class WalkingCommandHoldTests(unittest.TestCase):
         self.assertAlmostEqual(hold.remaining(10.52), .5)
 
     def test_clearing_takeover_and_ownership(self):
-        hold = WalkingCommandHold()
+        hold = legacy_hold()
         requested = np.array([.2, 0, .5], dtype=np.float32)
         returned = hold.apply(requested, 10)
         requested[:] = 99
@@ -55,7 +60,7 @@ class WalkingCommandHoldTests(unittest.TestCase):
         self.assertAlmostEqual(hold.remaining(10.1), .5)
 
     def test_invalid_command_and_clock_are_not_accepted(self):
-        hold = WalkingCommandHold()
+        hold = legacy_hold()
         for command in ([.1, 0], [.1, 0, np.nan], [.1, 0, np.inf]):
             with self.assertRaises(ValueError):
                 hold.apply(command, 10)
@@ -73,7 +78,7 @@ class WalkingCommandHoldTests(unittest.TestCase):
         source.qr, source.event_id, source.event_action = -1, 0, -1
         source.hold_upright = source.card_tilt = False
         source.last_update, source.timeout_s = 10., .25
-        hold = WalkingCommandHold()
+        hold = legacy_hold()
         with patch.object(main.time, "monotonic", return_value=10.1):
             hold.apply(source.get_snapshot().velocity, 10.1)
         with patch.object(main.time, "monotonic", return_value=10.3):
@@ -81,10 +86,10 @@ class WalkingCommandHoldTests(unittest.TestCase):
         np.testing.assert_array_equal(stopped, np.zeros(3))
         self.assertIsNone(hold.applied)
 
-    def run_main(self, times, requests, *, hold_upright=None, onefoot_at=None):
+    def run_main(self, times, requests, *, hold_upright=None, onefoot_at=None, command_hold=None):
         seen = []
         clock = SimpleNamespace(now=9.)
-        hold = WalkingCommandHold()
+        hold = legacy_hold() if command_hold is None else command_hold
         robot_state = SimpleNamespace(sequence=1, timestamp_us=123,
             status_flags=STATE_IMU_VALID | STATE_ENCODERS_VALID,
             joint_position=config.policy_to_motor_position(config.Q_DEFAULT), joint_velocity=np.zeros(12),

@@ -1,4 +1,4 @@
-"""Keep each normal walking command constant for at least 0.5 host seconds."""
+"""Experiment 2: hold increases/reversals, permit early yaw reductions."""
 
 import math
 
@@ -9,7 +9,8 @@ MIN_WALKING_COMMAND_HOLD_S = 0.5
 
 
 class WalkingCommandHold:
-    def __init__(self):
+    def __init__(self, fast_release=True):
+        self.fast_release = bool(fast_release)
         self.clear()
 
     def clear(self):
@@ -42,8 +43,12 @@ class WalkingCommandHold:
             self.clear()
             return requested.copy()
         self.latest_request = requested.copy()
+        early_release = (self.fast_release and self.applied is not None
+                         and np.array_equal(self.latest_request[:2], self.applied[:2])
+                         and self.latest_request[2]*self.applied[2] >= 0.
+                         and abs(self.latest_request[2]) < abs(self.applied[2]))
         if self.applied is None or (self.remaining(now) == 0. and
-                                    not np.array_equal(self.latest_request, self.applied)):
+                                    not np.array_equal(self.latest_request, self.applied)) or early_release:
             self.applied = self.latest_request.copy()
             self.applied_at = now
         # Repeated identical packets do not extend the minimum duration.

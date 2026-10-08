@@ -82,7 +82,11 @@ class SegmentIntegrationTests(unittest.TestCase):
         for row in rows[1:]:
             current = row['vx'], row['wz']
             if current != previous:
-                self.assertGreaterEqual(row['process_monotonic_s'] - start, .5-1e-9)
+                early_release = (current[0] == previous[0]
+                                 and current[1]*previous[1] >= 0.
+                                 and abs(current[1]) < abs(previous[1]))
+                if not early_release:
+                    self.assertGreaterEqual(row['process_monotonic_s'] - start, .5-1e-9)
                 start, previous = row['process_monotonic_s'], current
 
     def test_segments_require_valid_levels_and_corridor(self):

@@ -1,4 +1,4 @@
-"""Geometry-based steering with asymmetric command levels and a fixed 0.5 s hold.
+"""Experiment 2: 0.5 s normal hold, with earlier same-direction yaw reductions.
 
 Policy wz is a command, not a measured angular velocity. Prediction only brakes
 an ongoing correction using observed visual trends; it never assumes wz*T is
@@ -22,7 +22,7 @@ class HeadingSteeringController:
                  left_tolerance_deg=4.0, full_scale_deg=20.0, max_step=0.5,
                  allow_right=True, corridor_cm=8.0,
                  left_levels=(0.37, 0.43, 0.5), right_levels=(0.3, 0.5),
-                 straight_wz=0.0):
+                 straight_wz=0.0, fast_release=True):
         values = (lookahead_cm, right_tolerance_deg, left_tolerance_deg,
                   full_scale_deg, max_step, corridor_cm, straight_wz)
         if not all(math.isfinite(v) for v in values):
@@ -50,6 +50,7 @@ class HeadingSteeringController:
         self.allow_right = bool(allow_right)
         self.corridor_cm = float(corridor_cm)
         self.straight_wz = float(straight_wz)
+        self.fast_release = bool(fast_release)
         # These are geometric left/right magnitudes; yaw_sign maps them onto
         # the robot wire convention. Caps remove levels, never create new ones.
         self.left_levels = tuple(v for v in left_levels if v <= self._cap(+1))
@@ -265,12 +266,13 @@ class HeadingSteeringController:
         self.diagnostics.update(steering_left_offset_confirmed=left_offset_confirmed,
                                 steering_left_offset_release_cm=LEFT_OFFSET_RELEASE_CM)
         self.inner.last_err_eff = filtered  # Units explicitly renamed in entry-point logging.
-        if self._started is not None and self._clock-self._started < COMMAND_HOLD_S:
+        holding = self._started is not None and self._clock-self._started < COMMAND_HOLD_S
+        if holding and not self.fast_release:
             self.diagnostics.update(steering_reason="minimum_hold",
                 command_hold_remaining_s=self.turn_left, steering_applied_wz=self._command[1])
             return self._command
         candidate, decision = self._decision(filtered, filtered_near, filtered_heading)
-        # After the existing half-second hold, confirmed left position takes
+        # Subject to this branch's command timing, confirmed left position takes
         # priority over a distant leftward target. Only veto geometric left yaw;
         # forward speed and the original right-recovery decision stay intact.
         if left_offset_confirmed and candidate > 0:
@@ -301,12 +303,21 @@ class HeadingSteeringController:
             self.diagnostics["steering_braked"] = (abs(candidate) < abs(previous_candidate)
                                                    and abs(candidate) <= abs(current))
         selected = (self.inner.vx, candidate*self.yaw_sign)
+        early_release = (holding and self.fast_release
+                         and selected[0] == self._command[0]
+                         and selected[1]*self._command[1] >= 0.
+                         and abs(selected[1]) < abs(self._command[1]))
+        if holding and not early_release:
+            self.diagnostics.update(steering_reason="minimum_hold", steering_braked=False,
+                command_hold_remaining_s=self.turn_left, steering_applied_wz=self._command[1])
+            return self._command
         changed = selected != self._command or self._started is None
         if changed:
             self._started = self._clock
             self._samples = [self._samples[-1]]  # No response estimate across action changes.
         self._command = self.inner.hold = selected
         self.inner.last_steer = selected[1]
-        self.diagnostics.update(steering_reason="new_block" if changed else "continue_block",
+        self.diagnostics.update(steering_reason=("early_yaw_release" if early_release else
+                                                "new_block" if changed else "continue_block"),
             command_hold_remaining_s=self.turn_left, steering_applied_wz=selected[1])
         return selected

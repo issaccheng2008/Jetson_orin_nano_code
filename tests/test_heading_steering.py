@@ -24,6 +24,9 @@ def detection(heading=30., near=0., z=0., **changes):
 
 def controller(**changes):
     inner_options = changes.pop("inner_options", {})
+    # Preserve baseline geometry/strict-hold regressions explicitly; separate
+    # experiment tests exercise the changed branch defaults.
+    changes.setdefault("fast_release", False)
     return HeadingSteeringController(SteeringController(**inner_options), **changes)
 
 

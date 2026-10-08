@@ -98,7 +98,11 @@ class HeadingIntegrationTests(unittest.TestCase):
         start, previous = walking[0][0], walking[0][1:3]
         for now,vx,wz,_ in walking[1:]:
             if (vx,wz) != previous:
-                self.assertGreaterEqual(now-start, .5-1e-9)
+                early_release = ((vx,wz)[0] == previous[0]
+                                 and (vx,wz)[1]*previous[1] >= 0.
+                                 and abs((vx,wz)[1]) < abs(previous[1]))
+                if not early_release:
+                    self.assertGreaterEqual(now-start, .5-1e-9)
                 start,previous = now,(vx,wz)
         self.assertEqual(sent[-1][1:3], (0.,0.))
 
