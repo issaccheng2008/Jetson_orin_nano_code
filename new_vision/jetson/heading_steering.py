@@ -122,6 +122,9 @@ class HeadingSteeringController:
             geometry = self._single_edge_geometry(debug)
         return geometry
 
+    def _allow_geometry_without_legacy_reading(self, debug):
+        return False
+
     def _paired_geometry(self, debug):
         # New ground fit is preferred. Old P1 recordings remain replayable, with
         # an explicit source tag; an invalid new fit never falls back to stale data.
@@ -175,6 +178,13 @@ class HeadingSteeringController:
         """Target depth for spatial gates; subclasses may use measured support."""
         return self.lookahead_cm
 
+    def _veto_left_for_offset(self, confirmed, candidate, near):
+        """Legacy left-offset release; opt-in controllers may use path context."""
+        return confirmed and candidate > 0
+
+    def _after_trend_brake(self, candidate, near):
+        return candidate
+
     def _map_angle(self, demand):
         # Angular tolerance may be widened, but never widen the spatial corridor.
         corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
@@ -226,7 +236,9 @@ class HeadingSteeringController:
         self._clock += dt
         reading = self.inner.read_detection(debug, confidence, dt)
         try:
-            geometry = self._geometry(debug) if reading is not None else None
+            geometry = (self._geometry(debug) if
+                        reading is not None or self._allow_geometry_without_legacy_reading(debug)
+                        else None)
         except (KeyError, TypeError, ValueError, OverflowError):
             geometry = None
         if geometry is None:
@@ -273,7 +285,7 @@ class HeadingSteeringController:
         # After the existing half-second hold, confirmed left position takes
         # priority over a distant leftward target. Only veto geometric left yaw;
         # forward speed and the original right-recovery decision stay intact.
-        if left_offset_confirmed and candidate > 0:
+        if self._veto_left_for_offset(left_offset_confirmed, candidate, filtered_near):
             candidate, decision = self.straight_wz, "left_offset_release"
         self.diagnostics["steering_decision"] = decision
         self.diagnostics["steering_corridor_cm"] = self.corridor_cm
@@ -300,6 +312,7 @@ class HeadingSteeringController:
             candidate = math.copysign(reduced, candidate) if reduced else self.straight_wz
             self.diagnostics["steering_braked"] = (abs(candidate) < abs(previous_candidate)
                                                    and abs(candidate) <= abs(current))
+        candidate = self._after_trend_brake(candidate, filtered_near)
         selected = (self.inner.vx, candidate*self.yaw_sign)
         changed = selected != self._command or self._started is None
         if changed:
