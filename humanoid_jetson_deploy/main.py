@@ -534,7 +534,7 @@ def main() -> int:
     print(f"Opening {args.port} (line coding {args.baud}; native USB CDC ignores physical baud)")
     print("MOTORS ENABLED" if args.enable_motors else "DRY RUN: command enable flag is OFF")
     if not args.fixed_policy and args.policy == "walking":
-        print("Walking vx/wz minimum hold: 0.5 s at model input; stops and takeovers preempt")
+        print("Experiment 1: no normal vx/wz minimum hold at model input; stops and takeovers preempt")
     print(f"Motor-position and IMU log: {position_logger.path}")
     if position_plot is not None:
         print("Motor/IMU window opened (knee motors and IMU data selected by default)")

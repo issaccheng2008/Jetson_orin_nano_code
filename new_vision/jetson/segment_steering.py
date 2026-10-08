@@ -1,7 +1,7 @@
 """Opt-in steering toward a measured lane target, with heading fallback.
 
-The same heading state machine owns the applied command, including its half-
-second hold. The second controller only logs comparison commands; it never
+The same heading state machine owns the applied command and this branch's
+timing policy. The second controller only logs comparison commands; it never
 publishes, owns a socket, or influences the applied controller's state.
 """
 from __future__ import annotations

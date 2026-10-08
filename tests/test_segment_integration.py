@@ -82,7 +82,8 @@ class SegmentIntegrationTests(unittest.TestCase):
         for row in rows[1:]:
             current = row['vx'], row['wz']
             if current != previous:
-                self.assertGreaterEqual(row['process_monotonic_s'] - start, .5-1e-9)
+                # No minimum delay; sensor filtering and levels still apply.
+                self.assertGreater(row['process_monotonic_s'] - start, 0.)
                 start, previous = row['process_monotonic_s'], current
 
     def test_segments_require_valid_levels_and_corridor(self):

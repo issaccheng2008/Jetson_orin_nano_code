@@ -24,6 +24,9 @@ def detection(heading=30., near=0., z=0., **changes):
 
 def controller(**changes):
     inner_options = changes.pop("inner_options", {})
+    # Preserve baseline geometry/strict-hold regressions explicitly; separate
+    # experiment tests exercise the changed branch defaults.
+    changes.setdefault("min_hold_s", .5)
     return HeadingSteeringController(SteeringController(**inner_options), **changes)
 
 
@@ -125,7 +128,7 @@ class HeadingSteeringTests(unittest.TestCase):
         self.assertAlmostEqual(c.diagnostics["steering_demand_deg"], 10.314104815618196)
 
     def test_normal_speed_and_yaw_pair_hold_half_second(self):
-        self.assertEqual(COMMAND_HOLD_S, .5)
+        self.assertEqual(controller().min_hold_s, .5)
         c = controller(allow_right=True)
         initial = c.command(detection(30), 1., .01)
         self.assertAlmostEqual(initial[1], .5)

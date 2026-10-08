@@ -98,7 +98,8 @@ class HeadingIntegrationTests(unittest.TestCase):
         start, previous = walking[0][0], walking[0][1:3]
         for now,vx,wz,_ in walking[1:]:
             if (vx,wz) != previous:
-                self.assertGreaterEqual(now-start, .5-1e-9)
+                # No minimum delay; sensor filtering and levels still apply.
+                self.assertGreater(now-start, 0.)
                 start,previous = now,(vx,wz)
         self.assertEqual(sent[-1][1:3], (0.,0.))
 

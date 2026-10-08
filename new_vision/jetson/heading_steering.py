@@ -1,4 +1,4 @@
-"""Geometry-based steering with asymmetric command levels and a fixed 0.5 s hold.
+"""Geometry-based steering; experiment 1 removes normal minimum command hold.
 
 Policy wz is a command, not a measured angular velocity. Prediction only brakes
 an ongoing correction using observed visual trends; it never assumes wz*T is
@@ -12,7 +12,9 @@ from __future__ import annotations
 import math
 from statistics import median
 
-COMMAND_HOLD_S = 0.5  # Training contract: intentionally not a CLI parameter.
+COMMAND_HOLD_S = 0.0  # Experiment 1: update on each accepted visual decision.
+TREND_WINDOW_S = 0.5  # Observation history is independent of command timing.
+PREDICTION_HORIZON_S = 0.5  # Preserve the baseline visual braking forecast.
 LEFT_OFFSET_RELEASE_CM = 4.0  # Positive near offset: robot is left of the lane.
 LEFT_OFFSET_CONFIRM_FRAMES = 2
 
@@ -22,13 +24,15 @@ class HeadingSteeringController:
                  left_tolerance_deg=4.0, full_scale_deg=20.0, max_step=0.5,
                  allow_right=True, corridor_cm=8.0,
                  left_levels=(0.37, 0.43, 0.5), right_levels=(0.3, 0.5),
-                 straight_wz=0.0):
+                 straight_wz=0.0, min_hold_s=COMMAND_HOLD_S):
         values = (lookahead_cm, right_tolerance_deg, left_tolerance_deg,
-                  full_scale_deg, max_step, corridor_cm, straight_wz)
+                  full_scale_deg, max_step, corridor_cm, straight_wz, min_hold_s)
         if not all(math.isfinite(v) for v in values):
             raise ValueError("heading settings must be finite")
         if lookahead_cm <= 0 or full_scale_deg <= 0 or corridor_cm <= 0:
             raise ValueError("lookahead, full scale and corridor must be positive")
+        if min_hold_s < 0:
+            raise ValueError("minimum command hold must be nonnegative")
         if not 0 <= left_tolerance_deg < 90 or not 0 <= right_tolerance_deg < 90:
             raise ValueError("angular tolerances must be in [0, 90)")
         if not 0 < max_step <= inner.max_wz:
@@ -50,6 +54,7 @@ class HeadingSteeringController:
         self.allow_right = bool(allow_right)
         self.corridor_cm = float(corridor_cm)
         self.straight_wz = float(straight_wz)
+        self.min_hold_s = float(min_hold_s)
         # These are geometric left/right magnitudes; yaw_sign maps them onto
         # the robot wire convention. Caps remove levels, never create new ones.
         self.left_levels = tuple(v for v in left_levels if v <= self._cap(+1))
@@ -80,7 +85,7 @@ class HeadingSteeringController:
     def rejected_lateral(self): return self.inner.rejected_lateral
     @property
     def turn_left(self):
-        return (max(0.0, COMMAND_HOLD_S - (self._clock - self._started))
+        return (max(0.0, self.min_hold_s - (self._clock - self._started))
                 if self._started is not None else 0.0)
     @property
     def gap_left(self): return 0.0
@@ -250,27 +255,27 @@ class HeadingSteeringController:
                                     if near >= LEFT_OFFSET_RELEASE_CM else 0)
         left_offset_confirmed = self._left_offset_frames >= LEFT_OFFSET_CONFIRM_FRAMES
         self._samples.append((self._clock, demand, angle, near))
-        self._samples = [s for s in self._samples if self._clock-s[0] <= COMMAND_HOLD_S+1e-9]
+        self._samples = [s for s in self._samples if self._clock-s[0] <= TREND_WINDOW_S+1e-9]
         filtered = median(s[1] for s in self._samples[-3:])
         filtered_near = median(s[3] for s in self._samples[-3:])
         filtered_heading = median(s[2] for s in self._samples[-3:])
         rate, angle_rate = self._trend(1), self._trend(2)
-        predicted = filtered + COMMAND_HOLD_S*rate if rate is not None else filtered
+        predicted = filtered + PREDICTION_HORIZON_S*rate if rate is not None else filtered
         self.diagnostics.update(steering_heading_source=source, steering_near_cm=near,
             steering_near_z_cm=z, steering_heading_deg=angle,
             steering_demand_deg=demand, steering_filtered_demand_deg=filtered,
             steering_predicted_demand_deg=predicted, steering_demand_rate_deg_s=rate,
-            steering_predicted_heading_deg=(angle+COMMAND_HOLD_S*angle_rate if angle_rate is not None else angle),
+            steering_predicted_heading_deg=(angle+PREDICTION_HORIZON_S*angle_rate if angle_rate is not None else angle),
             steering_prediction_valid=rate is not None, steering_braked=False)
         self.diagnostics.update(steering_left_offset_confirmed=left_offset_confirmed,
                                 steering_left_offset_release_cm=LEFT_OFFSET_RELEASE_CM)
         self.inner.last_err_eff = filtered  # Units explicitly renamed in entry-point logging.
-        if self._started is not None and self._clock-self._started < COMMAND_HOLD_S:
+        if self._started is not None and self._clock-self._started < self.min_hold_s:
             self.diagnostics.update(steering_reason="minimum_hold",
                 command_hold_remaining_s=self.turn_left, steering_applied_wz=self._command[1])
             return self._command
         candidate, decision = self._decision(filtered, filtered_near, filtered_heading)
-        # After the existing half-second hold, confirmed left position takes
+        # Subject to this branch's command timing, confirmed left position takes
         # priority over a distant leftward target. Only veto geometric left yaw;
         # forward speed and the original right-recovery decision stay intact.
         if left_offset_confirmed and candidate > 0:

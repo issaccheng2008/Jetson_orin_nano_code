@@ -1,15 +1,18 @@
-"""Keep each normal walking command constant for at least 0.5 host seconds."""
+"""Experiment 1: no minimum duration for normal walking model commands."""
 
 import math
 
 import numpy as np
 
 
-MIN_WALKING_COMMAND_HOLD_S = 0.5
+MIN_WALKING_COMMAND_HOLD_S = 0.0
 
 
 class WalkingCommandHold:
-    def __init__(self):
+    def __init__(self, min_hold_s=MIN_WALKING_COMMAND_HOLD_S):
+        if not math.isfinite(min_hold_s) or min_hold_s < 0:
+            raise ValueError("minimum command hold must be finite and nonnegative")
+        self.min_hold_s = float(min_hold_s)
         self.clear()
 
     def clear(self):
@@ -26,7 +29,7 @@ class WalkingCommandHold:
 
     def remaining(self, now):
         now = self._time(now)
-        return (max(0., self.applied_at + MIN_WALKING_COMMAND_HOLD_S - now)
+        return (max(0., self.applied_at + self.min_hold_s - now)
                 if self.applied_at is not None else 0.)
 
     def apply(self, requested, now):
