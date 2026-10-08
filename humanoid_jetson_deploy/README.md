@@ -102,7 +102,7 @@ At 200 extended state frames/s and 50 command frames/s, total framed traffic is 
 
 可以单独修改数组某一项，例如 `JOINT_KP[7]` 对应右髋 roll。原来的统一 `GAIN_SCALE` 已移除，使用下面三档各自的 KP/KD 倍率调节。
 
-`main.py` 根据最终送入行走策略的速度指令，自动选择 `config.py` 中 `MOTION_GAIN_SCALES` 的一组 `(KP倍率, KD倍率)`。三组默认都为 `(1.0, 1.0)`，可以分别修改六个数：
+`main.py` 根据最终送入行走策略的速度指令，自动选择 `config.py` 中 `MOTION_GAIN_SCALES` 的一组 `(KP倍率, KD倍率)`。站立默认 `(1.0, 1.0)`，直走和转向默认均为 `(1.5, 2.0)`，可以分别修改六个数：
 
 | 配置项 | 选择条件 |
 |---|---|
@@ -112,13 +112,13 @@ At 200 extended state frames/s and 50 command frames/s, total framed traffic is 
 
 这里的线速度包含 vx/vy，角速度为 wz，绝对值不超过 `1e-6` 视为零。选择依据是速度保持/停车逻辑处理后的指令，使用 0.5 秒保持中的转向指令时，增益也继续使用转向档；停车指令生效即切站立档。依据不是 IMU 或编码器测得的实际速度。
 
-例如，只让直走恢复 KP×1.5、KD×2.0，配置为：
+当前默认配置：站立维持基准，直走和转向均为 KP×1.5、KD×2.0：
 
 ```python
 MOTION_GAIN_SCALES = {
     "standing": (1.0, 1.0),
     "straight": (1.5, 2.0),
-    "turning": (1.0, 1.0),
+    "turning": (1.5, 2.0),
 }
 ```
 

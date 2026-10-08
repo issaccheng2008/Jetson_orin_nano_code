@@ -28,10 +28,16 @@ class MotionGainTests(unittest.TestCase):
                 with self.subTest(command=command):
                     self.assertEqual(config.motion_gain_scales(command), expected)
 
-    def test_defaults_leave_all_three_modes_at_original_baseline(self):
+    def test_defaults_keep_standing_at_baseline_and_raise_walking_gains(self):
         self.assertTrue(hasattr(config, "motion_gain_scales"), "motion gain selection is required")
-        for command in ([0, 0, 0], [.2, 0, 0], [.2, 0, .3]):
-            self.assertEqual(config.motion_gain_scales(command), (1, 1))
+        sender = gain_tests.ActuatorGainTests()
+        for command, expected in (([0, 0, 0], (1, 1)), ([.2, 0, 0], (1.5, 2)),
+                                  ([.2, 0, .3], (1.5, 2))):
+            scales = config.motion_gain_scales(command)
+            self.assertEqual(scales, expected)
+            packet, _, _ = sender.send(*scales)
+            np.testing.assert_allclose(packet.kp, config.JOINT_KP * expected[0])
+            np.testing.assert_allclose(packet.kd, config.JOINT_KD * expected[1])
 
     def test_each_profile_reaches_absolute_wire_gains_without_extra_multiplier(self):
         sender = gain_tests.ActuatorGainTests()
@@ -67,6 +73,7 @@ class MotionGainTests(unittest.TestCase):
         with patch.object(main, "parse_args", return_value=args), patch.object(main.signal, "signal"), \
                 patch.object(main, "HumanoidPolicy", return_value=policy), \
                 patch.object(main, "SerialLink", return_value=link), patch.object(main, "PositionCsvLogger"), \
+                patch.object(config, "MOTION_GAIN_SCALES", {mode: (1, 1) for mode in config.MOTION_GAIN_SCALES}), \
                 contextlib.redirect_stdout(io.StringIO()):
             try:
                 result = main.main()
