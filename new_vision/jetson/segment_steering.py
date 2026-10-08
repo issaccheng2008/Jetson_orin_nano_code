@@ -13,6 +13,7 @@ from heading_steering import HeadingSteeringController
 from lane_segments import SEGMENTS_CM
 
 CONFIRM_FRAMES = 3
+MAX_CONFIRMATION_GAP_S = 0.5
 MAX_JOIN_CM = 6.0
 MAX_DEPTH_GAP_CM = 4.0
 MAX_HEADING_STEP_DEG = 35.0
@@ -143,8 +144,10 @@ class SegmentSteeringController(HeadingSteeringController):
     def command(self, debug, confidence, dt):
         self._segment_diagnostics = dict(segment_control_active=False,
                                          segment_gate_reason='measurement_unavailable')
-        # A delayed frame must not count as consecutive fresh confirmation.
-        if isinstance(dt, (int, float)) and dt > .25:
+        # A fresh frame at 4 Hz can arrive just over 0.25 s after the previous
+        # one. Freshness is checked independently by read_detection; only a
+        # longer gap breaks continuity between otherwise qualified targets.
+        if isinstance(dt, (int, float)) and dt > MAX_CONFIRMATION_GAP_S:
             self._confirmation = 0
             self._previous_target = None
         actual = super().command(debug, confidence, dt)

@@ -27,6 +27,8 @@ vi 的编辑、保存退出和参数生效步骤见 [参数修改与 vi 保存�
 
 转向模式由 `WZ_MODE` 设置：`WZ_MODE=heading` 使用原航向控制，`WZ_MODE=segments` 使用分段控制（自动启用分段观测）。已有 `config/button_start.env` 不会被更新覆盖；缺少此项时默认 heading，需要切换就手动添加 `WZ_MODE=segments` 并重启 vision 服务。可用 `bash scripts/run_button_vision.sh --dry-run` 核对实际传入的模式，无需重新安装服务。
 
+短暂方向丢失时的命令保持由 `LOST_HOLD_S` 设置，未写时仍默认 0.2 秒；过期观测仍会取消角速度。在 heading/segments 中，`WZ_STEP=0.3` 是档位上限，会挡住配置的更高档位；改为 `0.5` 才允许现有 0.37/0.4/0.5 档位参与选择。关于转弯偏少的原因、调参顺序和逐帧统计命令，见 [转弯占空比分析与测试方案](转弯占空比分析与测试方案.md)。
+
 ## 启动、停止与检查
 
 首次安装只启用下次开机启动。台架准备好后，可以手动启动 vision，systemd 会先启动 connector：

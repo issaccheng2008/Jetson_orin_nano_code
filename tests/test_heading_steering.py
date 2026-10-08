@@ -28,6 +28,16 @@ def controller(**changes):
 
 
 class HeadingSteeringTests(unittest.TestCase):
+    def test_longer_brief_loss_hold_preserves_yaw_but_does_not_override_stale(self):
+        c = controller(inner_options=dict(lost_hold_s=.5))
+        first = c.command(detection(30., z=25.), 1., .01)
+        no_direction = detection(heading_control_valid=False, measurement_age_s=0.)
+        self.assertEqual(c.command(no_direction, 1., .3), first)
+        self.assertEqual(c.diagnostics['steering_reason'], 'brief_loss_hold')
+        self.assertEqual(c.command(no_direction, 1., .201), (.2, 0.))
+        c.command(detection(30., z=25.), 1., .01)
+        self.assertEqual(c.command(detection(measurement_stale=True), 0., .01), (.2, 0.))
+
     def test_default_ladders_are_the_six_published_levels(self):
         for yaw_sign in (-1, 1):
             with self.subTest(yaw_sign=yaw_sign):

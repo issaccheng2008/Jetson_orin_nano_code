@@ -1438,6 +1438,8 @@ def main():
                     f"preview={fmt(debug.get('preview_error_cm'), '+.1f')}cm "
                     f"valid={int(bool(debug.get('measurement_valid', confidence > 0)))} "
                     f"reason={debug.get('steering_reason', 'legacy')} "
+                    f"decision={debug.get('steering_decision', '-')} "
+                    f"braked={int(bool(debug.get('steering_braked', False)))} "
                     f"age={fmt(debug.get('measurement_age_s'), '.3f')}s "
                     f"lock_w={fmt(debug.get('bottom_lock_weight'), '.2f')} "
                     f"conf={confidence:.2f} qr={visible_qr}"
@@ -1448,6 +1450,10 @@ def main():
                     f"steer={controller.last_steer:+.2f} "
                     f"eff={controller.last_err_eff:+.1f}{'deg' if args.wz_mode in ('heading', 'segments') else 'cm'} "
                     f"ground_ang={fmt(debug.get('heading_control_deg'), '+.1f')} "
+                    f"geom={int(bool(debug.get('heading_control_valid', False)))} "
+                    f"pts={debug.get('heading_control_points', 0)} "
+                    f"rmse={fmt(debug.get('heading_control_pixel_rmse_px'), '.1f')}px "
+                    f"near_z={fmt(debug.get('near_z_cm'), '.1f')}cm "
                     f"single={fmt(debug.get('single_edge_heading_deg') if debug.get('single_edge_valid', False) else None, '+.1f')} "
                     f"predict_ang={fmt(debug.get('steering_predicted_heading_deg'), '+.1f')} "
                     f"ang={debug.get('angle_err_deg', 0.0):+.1f} "
@@ -1510,6 +1516,7 @@ def main():
                           flush=True)
                 if args.wz_mode == "segments":
                     print(f"[segment-control] active={int(bool(debug.get('segment_control_active')))} "
+                          f"confirm={debug.get('segment_confirm_frames', 0)} "
                           f"target={fmt(debug.get('segment_target_z_cm'), '.1f')}cm "
                           f"bearing={fmt(debug.get('segment_target_bearing_deg'), '+.1f')}° "
                           f"actual={wz:+.3f} heading_shadow={fmt(debug.get('segment_shadow_wz'), '+.3f')} "
