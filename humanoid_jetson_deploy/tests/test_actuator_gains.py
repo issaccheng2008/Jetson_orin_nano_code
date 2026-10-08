@@ -38,12 +38,13 @@ class ActuatorGainTests(unittest.TestCase):
         self.assertEqual(packet.command_flags, COMMAND_ENABLE)
         self.assertEqual(packet.sequence, 7)
 
-    def test_common_multiplier_and_existing_separate_scales(self):
-        self.assertTrue(hasattr(config, "GAIN_SCALE"), "one common gain multiplier is required")
-        with patch.object(config, "GAIN_SCALE", 1.25):
-            packet, _, _ = self.send(0.5, 0.25)
-        np.testing.assert_allclose(packet.kp, np.array([35, 30, 20, 35, 30, 12] * 2) * 1.25 * 0.5)
-        np.testing.assert_allclose(packet.kd, np.array([1.5, 1.2, 1, 1.5, 1.6, 0.7] * 2) * 1.25 * 0.25)
+    def test_separate_scales_multiply_only_the_baseline(self):
+        packet, _, _ = self.send(1.5, 2.0)
+        np.testing.assert_allclose(packet.kp, np.array([35, 30, 20, 35, 30, 12] * 2) * 1.5)
+        np.testing.assert_allclose(packet.kd, np.array([1.5, 1.2, 1, 1.5, 1.6, 0.7] * 2) * 2.0)
+
+    def test_no_additional_common_multiplier(self):
+        self.assertFalse(hasattr(config, "GAIN_SCALE"), "remove the extra common multiplier")
 
     def test_one_joint_can_be_tuned_independently(self):
         self.assertTrue(hasattr(config, "JOINT_KP"), "editable per-joint gains are required")
@@ -60,11 +61,9 @@ class ActuatorGainTests(unittest.TestCase):
         np.testing.assert_array_equal(packet.kd, np.zeros(12))
 
     def test_invalid_multiplier_is_rejected_before_write(self):
-        self.assertTrue(hasattr(config, "GAIN_SCALE"), "one common gain multiplier is required")
-        for value in (-1, float("nan"), float("inf")):
-            with self.subTest(value=value), patch.object(config, "GAIN_SCALE", value):
-                with self.assertRaises(ValueError):
-                    self.send()
+        for scales in ((-1, 1), (1, float("nan")), (float("inf"), 1)):
+            with self.subTest(scales=scales), self.assertRaises(ValueError):
+                self.send(*scales)
 
     def test_invalid_absolute_gains_are_rejected(self):
         self.assertIn("kp", CommandPacket.__dataclass_fields__, "absolute gains are required")

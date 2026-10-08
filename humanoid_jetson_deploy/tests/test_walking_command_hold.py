@@ -143,6 +143,7 @@ class WalkingCommandHoldTests(unittest.TestCase):
             with next(Path(folder).glob("*.csv")).open(newline="") as handle:
                 rows = list(csv.DictReader(handle))
             self.assertIsNone(hold.applied)  # fault/disable never leaves a live contract
+            self.sent_gain_scales = [call.args[2:4] for call in link.send_command.call_args_list[:len(times)]]
             return seen, rows
 
     def test_real_main_policy_observation_pair_stays_constant_until_half_second(self):
@@ -173,6 +174,23 @@ class WalkingCommandHoldTests(unittest.TestCase):
         self.assertEqual(len(seen), 2)
         self.assertEqual(rows[1]["command_hold_reason"], "onefoot_takeover")
         np.testing.assert_allclose(seen[-1][1][9:11], [.4, -.5])
+
+    def test_gains_follow_executed_held_command_and_stop_immediately(self):
+        self.assertTrue(hasattr(config, "MOTION_GAIN_SCALES"), "three PD profiles are required")
+        profiles = {"standing": (1.5, 2), "straight": (1.2, 1.4), "turning": (.8, 1.8)}
+        with patch.object(config, "MOTION_GAIN_SCALES", profiles):
+            self.run_main([0, .1, .5, .6, .7],
+                          [[.2, 0, .5], [.3, 0, 0], [.3, 0, 0], [0, 0, 0], [.2, 0, .5]])
+        self.assertEqual(self.sent_gain_scales, [(.8, 1.8), (.8, 1.8), (1.2, 1.4), (1.5, 2), (.8, 1.8)])
+
+    def test_upright_and_onefoot_use_standing_profile(self):
+        self.assertTrue(hasattr(config, "MOTION_GAIN_SCALES"), "three PD profiles are required")
+        profiles = {"standing": (1.5, 2), "straight": (1.2, 1.4), "turning": (.8, 1.8)}
+        with patch.object(config, "MOTION_GAIN_SCALES", profiles):
+            self.run_main([0, .1], [[.2, 0, .5], [0, 0, 0]], hold_upright=[False, True])
+            self.assertEqual(self.sent_gain_scales[1], (1.5, 2))
+            self.run_main([0, .1], [[.2, 0, .5], [.3, 0, 0]], onefoot_at=1)
+            self.assertEqual(self.sent_gain_scales[1], (1.5, 2))
 
 
 if __name__ == "__main__":

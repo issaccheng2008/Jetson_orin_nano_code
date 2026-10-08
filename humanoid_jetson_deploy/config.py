@@ -17,16 +17,38 @@ JOINT_KD = np.array([
     1.5, 1.2, 1.0, 1.5, 1.6, 0.7,  # 左腿
     1.5, 1.2, 1.0, 1.5, 1.6, 0.7,  # 右腿
 ], dtype=np.float32)
-GAIN_SCALE = 1.0  # 全部 KP/KD 的统一倍率，例如 1.2 表示同时增加 20%。
+# 三档各自的 (KP倍率, KD倍率)，可独立调节；例如 (1.5, 2.0)。
+MOTION_GAIN_SCALES = {
+    "standing": (1.0, 1.0),  # 线速度、角速度均为零；站姿/单脚动作/固定关节帧
+    "straight": (1.0, 1.0),  # 线速度非零，角速度为零
+    "turning": (1.0, 1.0),   # 角速度非零（包括原地转向）
+}
+
+
+def motion_gain_scales(velocity_command=None) -> tuple[float, float]:
+    """Select P/D multipliers using the velocity actually sent to the policy."""
+    mode = "standing"
+    if velocity_command is not None:
+        velocity = np.asarray(velocity_command, dtype=np.float64)
+        if velocity.shape != (3,) or not np.isfinite(velocity).all():
+            raise ValueError("gain selection requires a finite [vx, vy, wz] command")
+        if abs(velocity[2]) > 1.0e-6:
+            mode = "turning"
+        elif np.any(np.abs(velocity[:2]) > 1.0e-6):
+            mode = "straight"
+    scales = np.asarray(MOTION_GAIN_SCALES[mode], dtype=np.float64)
+    if scales.shape != (2,) or not np.isfinite(scales).all() or np.any(scales < 0):
+        raise ValueError(f"{mode} KP/KD scales must be finite and non-negative")
+    return float(scales[0]), float(scales[1])
 
 
 def command_gains(kp_scale: float, kd_scale: float) -> tuple[np.ndarray, np.ndarray]:
-    """Apply the common multiplier and existing caller-specific P/D scales."""
-    scales = np.asarray([GAIN_SCALE, kp_scale, kd_scale], dtype=np.float64)
+    """Apply independent P/D scales once to the original per-joint baseline."""
+    scales = np.asarray([kp_scale, kd_scale], dtype=np.float64)
     if not np.isfinite(scales).all() or np.any(scales < 0):
         raise ValueError("gain scales must be finite and non-negative")
-    return (np.asarray(JOINT_KP, dtype=np.float64) * GAIN_SCALE * kp_scale,
-            np.asarray(JOINT_KD, dtype=np.float64) * GAIN_SCALE * kd_scale)
+    return (np.asarray(JOINT_KP, dtype=np.float64) * kp_scale,
+            np.asarray(JOINT_KD, dtype=np.float64) * kd_scale)
 
 
 OBS_DIM = 49

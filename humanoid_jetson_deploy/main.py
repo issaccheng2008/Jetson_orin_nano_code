@@ -349,8 +349,9 @@ def main() -> int:
             "Refusing to enable motors: confirm the motor and IMU mounting "
             "calibrations in config.py first."
         )
-    if not 0.0 <= args.kp_scale <= 1.0 or not 0.0 <= args.kd_scale <= 1.0:
-        raise SystemExit("kp-scale and kd-scale must be between 0 and 1")
+    if (not np.isfinite([args.kp_scale, args.kd_scale]).all()
+            or args.kp_scale < 0.0 or args.kd_scale < 0.0):
+        raise SystemExit("kp-scale and kd-scale must be finite and non-negative")
     if args.plot_every < 1:
         raise SystemExit("plot-every must be at least 1")
     if args.plot_history_seconds <= 0.0:
@@ -891,6 +892,12 @@ def main() -> int:
             last_q_policy_target = q_policy_target
             last_q_motor = config.policy_to_motor_position(q_policy_target)
 
+            # Use the held/overridden command actually used by the walking model.
+            # Other target sources have no walking velocity and use standing PD.
+            gain_velocity = (velocity_command if not args.fixed_policy and args.policy == "walking"
+                             and step_policy is policy and not upright_hold else None)
+            motion_kp, motion_kd = config.motion_gain_scales(gain_velocity)
+            kp_scale, kd_scale = args.kp_scale * motion_kp, args.kd_scale * motion_kd
             flags = COMMAND_ENABLE if args.enable_motors else 0
             command_timestamp = monotonic_us()
             diagnostic_values = dict(state=state, trace=target_trace, motor_target=last_q_motor,
@@ -917,7 +924,7 @@ def main() -> int:
                 diagnostic_values.update(phase="fixed_frame", phase_tick=policy.index - 1)
             try:
                 send_result = link.send_command(command_timestamp, last_q_motor,
-                                                args.kp_scale, args.kd_scale, flags)
+                                                kp_scale, kd_scale, flags)
             except OSError as exc:
                 if diagnostics is not None:
                     diagnostics.write(**diagnostic_values, send_result="link_lost",
@@ -991,6 +998,7 @@ def main() -> int:
                 print(
                     f"step={step:6d} state_seq={state.sequence:5d} "
                     f"{command_status}"
+                    f"KP×{kp_scale:.3g} KD×{kd_scale:.3g} "
                     f"infer={latency_ms:.3f}ms |obs|max={np.max(np.abs(obs)):.3f} "
                     f"|action|max={np.max(np.abs(action)):.3f} "
                     f"crc_errors={link.decoder.crc_errors}"
