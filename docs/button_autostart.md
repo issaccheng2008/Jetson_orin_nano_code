@@ -12,7 +12,7 @@ bash scripts/install_button_autostart.sh --dry-run
 bash scripts/install_button_autostart.sh
 ```
 
-首次安装创建 `config/button_start.env`，默认视觉 Python 为仓库的 `.venv/bin/python`，策略 Python 为 `~/venvs/humanoid_policy/bin/python`。两个环境可以不同。安装先检查脚本、两份模型及视觉环境的 `numpy/cv2/serial`、策略环境的 `onnxruntime/serial`，成功后才写系统服务并设为开机启用。配置生成与程序运行使用当前用户；只有系统文件安装和 `systemctl` 使用 sudo。缺依赖或路径错误时，编辑配置后重跑安装，已有配置保留。
+首次安装创建 `config/button_start.env`，默认视觉 Python 为仓库的 `.venv/bin/python`，策略 Python 为 `~/venvs/humanoid_policy/bin/python`。两个环境可以不同。安装先检查脚本、两份模型及视觉环境的 `numpy/cv2/serial`、策略环境的 `onnxruntime/serial`，再用 `systemd-analyze verify` 校验生成的服务文件，成功后才写系统服务并设为开机启用。配置生成与程序运行使用当前用户；只有系统文件安装和 `systemctl` 使用 sudo。缺依赖或路径错误时，编辑配置后重跑安装，已有配置保留。更新安装脚本后也需重跑安装；已有配置不会被覆盖。
 
 ```bash
 nano config/button_start.env
