@@ -85,6 +85,22 @@ class ButtonAutostartTests(unittest.TestCase):
                         args = shlex.split(result.stdout)
                         self.assertEqual(args[args.index('--wz-mode') + 1], mode or 'heading')
 
+    def test_vision_wrapper_exposes_loss_hold_without_changing_old_default(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            old_config = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                   if not line.startswith('LOST_HOLD_S=')) + '\n'
+            for hold in (None, '0.5'):
+                with self.subTest(hold=hold):
+                    (checkout / 'config/button_start.env').write_text(
+                        old_config + (f'LOST_HOLD_S={hold}\n' if hold else ''))
+                    args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                    self.assertIn('--lost-hold-s', args)
+                    self.assertEqual(args[args.index('--lost-hold-s') + 1], hold or '0.2')
+
 
 if __name__ == '__main__':
     unittest.main()

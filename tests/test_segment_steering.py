@@ -149,6 +149,28 @@ class SegmentSteeringTests(unittest.TestCase):
         c.command(good, 1., .1)
         self.assertTrue(c.diagnostics['segment_control_active'])
 
+    def test_fresh_four_hz_frames_can_confirm_a_measured_bend(self):
+        # Real logs run at 4-8 Hz. A fresh image does not become stale just
+        # because the previous processing cycle took slightly over 0.25 s.
+        for dt in (.251, .3):
+            with self.subTest(dt=dt):
+                c = controller()
+                good = detection(bend, measurement_age_s=0., measurement_max_age_s=.25)
+                for expected in (1, 2, 3):
+                    c.command(good, 1., dt)
+                    self.assertEqual(c.diagnostics['segment_confirm_frames'], expected)
+                self.assertTrue(c.diagnostics['segment_control_active'])
+                self.assertGreater(c.hold[1], 0.)
+
+    def test_long_gap_still_restarts_confirmation_on_fresh_geometry(self):
+        c = controller()
+        good = detection(bend)
+        c.command(good, 1., .1)
+        c.command(good, 1., .1)
+        c.command(good, 1., .501)
+        self.assertEqual(c.diagnostics['segment_confirm_frames'], 1)
+        self.assertFalse(c.diagnostics['segment_control_active'])
+
     def test_large_target_jump_restarts_confirmation(self):
         c = controller()
         settle(c, detection(bend))

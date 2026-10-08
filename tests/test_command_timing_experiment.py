@@ -34,6 +34,19 @@ def reading(heading):
 
 
 class CommandTimingExperimentTests(unittest.TestCase):
+    def test_fresh_low_rate_segments_confirm_without_restoring_command_hold(self):
+        for dt in (.251, .3):
+            with self.subTest(dt=dt):
+                c = SegmentSteeringController(SteeringController())
+                debug = segment_reading(bend, measurement_age_s=0., measurement_max_age_s=.25)
+                for expected in (1, 2, 3):
+                    out = c.command(debug, 1., dt)
+                    self.assertEqual(c.diagnostics['segment_confirm_frames'], expected)
+                self.assertTrue(c.diagnostics['segment_control_active'])
+                self.assertGreater(out[1], 0.)
+                self.assertEqual(c.turn_left, 0.)
+                self.assertEqual(c.min_hold_s, 0.)
+
     def controller(self, yaw_sign=1):
         return HeadingSteeringController(SteeringController(yaw_sign=yaw_sign))
 

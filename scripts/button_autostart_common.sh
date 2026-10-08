@@ -12,6 +12,7 @@ load_button_config() {
     # User-owned configuration is trusted shell syntax, not a systemd EnvironmentFile.
     # Older installed configs lack this setting; preserve their heading behavior.
     WZ_MODE=heading
+    LOST_HOLD_S=0.2
     source "$BUTTON_CONFIG"
     case "$WZ_MODE" in
         heading|segments|continuous|discrete) ;;

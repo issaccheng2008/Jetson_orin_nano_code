@@ -1,6 +1,6 @@
 # Jetson 参数修改与 vi 保存速查
 
-适用于 `policy49-button-test` 的按钮自启动模式。下面的命令直接在 Jetson 终端输入。服务启动顺序为 connector → 视觉 → 等待 PC2 按钮 → 步态。
+本页适用于 `policy49-exp-no-hold` 的按钮自启动模式，B/C 正常命令最短保持为零，已同步低帧率分段确认修正。下面的命令直接在 Jetson 终端输入。服务启动顺序为 connector → 视觉 → 等待 PC2 按钮 → 步态。
 
 ## 1. 首次安装或更新服务
 
@@ -9,7 +9,7 @@
 ```bash
 cd ~/jetson_orin_code
 git fetch origin
-git switch policy49-button-test
+git switch policy49-exp-no-hold
 git pull --ff-only && bash scripts/install_button_autostart.sh
 ```
 
@@ -63,8 +63,9 @@ vi config/button_start.env
 CAMERA=0                     # 摄像头，对应 --camera
 VX=0.2                       # 前进速度，对应 --vx
 WZ_MODE=heading               # 转向模式：heading 或 segments，对应 --wz-mode
+LOST_HOLD_S=0.2              # 短暂方向丢失时保持上一条命令，对应 --lost-hold-s
 MAX_WZ=0.5                   # 最大角速度，对应 --max-wz
-WZ_STEP=0.3                  # 角速度档位，对应 --wz-step
+WZ_STEP=0.3                  # heading/segments 的档位上限，对应 --wz-step
 HEADING_LOOKAHEAD_CM=50       # 前视距离，对应 --heading-lookahead-cm
 HEADING_CORRIDOR_CM=5         # 走廊宽度，对应 --heading-corridor-cm
 HEADING_RIGHT_TOLERANCE_DEG=9 # 右侧容差，对应 --heading-right-tolerance-deg
@@ -77,6 +78,8 @@ POLICY_MAX_SECONDS=1200      # 步态最长运行秒数，对应 --start-policy-
 ```
 
 以上是当前默认值示例，按实际需要调整。行走模型修改 `WALKING_MODEL`，单脚站模型修改 `ONE_FOOT_MODEL`。
+
+在 `heading/segments` 模式中，`WZ_STEP=0.3` 会阻止选用 `0.37/0.4/0.5` 档位，即使 `MAX_WZ=0.5`。想允许这些档位，设置 `WZ_STEP=0.5`。`LOST_HOLD_S` 未写时仍默认 0.2 秒；可单独试 0.5 秒，过期观测仍会取消转向。转弯偏少的分析、逐帧统计和对照测试见 [转弯占空比分析与测试方案](转弯占空比分析与测试方案.md)。
 
 ## 6. vi 保存并退出
 
