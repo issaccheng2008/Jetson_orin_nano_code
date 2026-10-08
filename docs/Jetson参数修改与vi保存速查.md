@@ -62,6 +62,7 @@ vi config/button_start.env
 ```bash
 CAMERA=0                     # 摄像头，对应 --camera
 VX=0.2                       # 前进速度，对应 --vx
+WZ_MODE=heading               # 转向模式：heading 或 segments，对应 --wz-mode
 MAX_WZ=0.5                   # 最大角速度，对应 --max-wz
 WZ_STEP=0.3                  # 角速度档位，对应 --wz-step
 HEADING_LOOKAHEAD_CM=50       # 前视距离，对应 --heading-lookahead-cm
@@ -104,7 +105,11 @@ sudo systemctl restart humanoid-button-vision.service
 bash scripts/run_button_vision.sh --dry-run
 ```
 
-当前 `--wz-mode heading` 固定在 `scripts/run_button_vision.sh` 中；配置文件没有提供的参数，需修改该脚本后重启服务。
+切换到分段控制，在 `config/button_start.env` 中设置 `WZ_MODE=segments`；切回原模式设置 `WZ_MODE=heading`。注意分段模式拼写为复数 `segments`。它会自动启用分段观测，无需另加 `--lane-fit-segments`。
+
+已有配置不会被 `git pull` 覆盖：如果文件没有 `WZ_MODE`，手动添加这一行再重启服务；不添加时保持 `heading`。可用上面的 `--dry-run` 确认最终命令含 `--wz-mode segments` 或 `--wz-mode heading`。修改此项无需重新安装服务。
+
+配置文件没有提供的其他参数，需修改 `scripts/run_button_vision.sh` 后重启服务。
 
 ## 8. 查看状态和日志
 
