@@ -6,4 +6,5 @@
 - 连续活动demo655帧65.5秒，完整解码、GIF时长和二值PNG检查已完成；全31图、失败样本与真实晚段帧均导出。
 - 79项相关回归首轮仅一个loopback socket被沙箱限制，已补跑；133项全policy/state回归首轮仅两个loopback socket被限制，已补跑全部通过。6项photometric加12项heading integration通过。全部socket测试仅本机无实车。
 - source artifact hash保留实际评估快照，末尾仅增补诊断字段，不伪称产物由最终HEAD产生。
-- WSL SSH核对远端已有38f2aba的近位置恢复提交，先保存本次工作后整合；不强推、不覆盖队友功能。源码、文档、评估与demo待提交推送。
+- WSL SSH核对远端已有38f2aba的近位置恢复提交，先保存本次工作后整合；不强推、不覆盖队友功能。合并后82项归一化、Canny、按钮、位置恢复、heading集成和回放/丢线测试全部通过。
+- 功能、文档、评估与demo已通过WSL SSH推送：38f2aba→016ea8f，目标policy49flitter。提交暂存曾仍在后台而下一步碰到index.lock，未删锁，等暂存完成后重新提交成功；原文件未丢失。

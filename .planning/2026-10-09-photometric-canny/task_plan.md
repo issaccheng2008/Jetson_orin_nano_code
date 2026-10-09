@@ -8,7 +8,7 @@
 2. 默认光度门槛修复、诊断、相关回归：complete
 3. 独立Canny候选及可选接口接入：complete
 4. 实走与图卡实拍对照、负例/退化测试、demo：complete
-5. 文档、提交、WSL SSH推送：in_progress
+5. 文档、提交、WSL SSH推送：complete
 
 ## 验证边界
 实际走动区间按视频证据推断，不能用HUD速度或单一光流量证明机器人前进。Canny原始边缘不等于赛道中心，也不直接作为卡图形实心轮廓。新增Canny保留显式选择，未实车验证。
