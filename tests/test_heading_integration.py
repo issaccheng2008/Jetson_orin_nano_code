@@ -107,6 +107,8 @@ class HeadingIntegrationTests(unittest.TestCase):
             rows = [json.loads(line) for p in Path(tmp).rglob("line_frames.jsonl")
                     for line in p.read_text().splitlines()]
         self.assertEqual(len(rows), 42)
+        self.assertTrue(all(r['start_gate_mode'] == 'off' for r in rows))
+        self.assertTrue(all(r['qr_passed'] is False and r['shape_passed'] is False for r in rows))
         self.assertTrue(all(r['body_track_deviation_valid'] for r in rows))
         self.assertTrue(all(r['body_track_deviation_deg'] == r['measurement']['heading_control_deg'] for r in rows))
         self.assertTrue(all(r["mode"] == "heading" for r in rows))
