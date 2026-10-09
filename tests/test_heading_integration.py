@@ -17,6 +17,19 @@ from policy_bridge import ConnectorClient
 
 
 class HeadingIntegrationTests(unittest.TestCase):
+    def test_camera_options_validate_before_hardware(self):
+        with patch('sys.argv',['run_policy_vision.py','--camera-exposure-mode','manual',
+                               '--camera-exposure-ms','5','--camera-sharpness','3']):
+            args=run_policy_vision.parse_args()
+        self.assertEqual(args.camera_exposure_ms,5)
+        self.assertEqual(args.camera_sharpness,3)
+        with patch('sys.argv',['run_policy_vision.py','--camera-exposure-ms','5']), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                run_policy_vision.parse_args()
+
+    def test_camera_controls_applied_before_detection_and_saved_in_manifest(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(camera_settings=True)
+
     def test_filter_and_policy_hold_interfaces_validate_without_hardware(self):
         argv = ['run_policy_vision.py', '--command-min-hold-s', '.23',
                 '--steering-filter-mode', 'active', '--steering-filter-algorithm', 'ema']
@@ -74,6 +87,9 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_active_entrypoint_filter_reaches_publication_and_log(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='active')
 
+    def test_position_priority_reaches_published_command_with_filter(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='active', position_test=True)
+
     def test_shadow_entrypoint_logs_comparison(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='shadow')
 
@@ -83,12 +99,12 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_video_initialization_failure_does_not_stop_publication(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(video_error=True)
 
-    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False):
+    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False, position_test=False):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
         camera.isOpened.return_value = True
         camera.get.side_effect = [1280, 720]
-        clock, count, sent = [0.0], [0], []
+        clock, count, sent, order = [0.0], [0], [], []
 
         def read():
             count[0] += 1
@@ -101,22 +117,27 @@ class HeadingIntegrationTests(unittest.TestCase):
         camera.read.side_effect = read
         detector = Mock()
         def process(_frame, **_kw):
+            order.append('detect')
             angle = (20., 40., -20., 0.)[min(3, (count[0]-1)//11)]
+            near = 12. if position_test else 0.
             return 0, 0, .9, _frame.copy(), dict(
-                fused_err_cm=0., base_err_cm=0., near_error_cm=0., near_z_cm=0.,
+                fused_err_cm=0., base_err_cm=near, near_error_cm=near, near_z_cm=0.,
                 angle_err_deg=0., lost_frames=0, measurement_valid=True,
                 heading_control_valid=True, heading_control_deg=angle)
         detector.process.side_effect = process
+        camera_extra = ['--camera-exposure-mode','manual','--camera-exposure-ms','5'] if camera_settings else []
+        camera_report = dict(status='applied' if camera_settings else 'unchanged',settings=[])
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--no-shape-detect",
                                '--steering-filter-mode', filter_mode,
                                '--steering-filter-algorithm', 'one-euro',
                                '--record-video' if record_video else '--no-record-video',
-                               "--attitude-port", "0", "--recording-root", tmp]),
+                               "--attitude-port", "0", "--recording-root", tmp, *camera_extra]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client,
             patch('command_video.CommandVideo') as video,
+            patch('camera_controls.apply_camera_controls',side_effect=lambda *a: order.append('settings') or camera_report) as camera_controls,
             patch("utils.open_camera", return_value=camera),
             patch("line_detector_v1_warp.LineDetector", return_value=detector),
             patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
@@ -141,6 +162,11 @@ class HeadingIntegrationTests(unittest.TestCase):
                 video.assert_not_called()
             rows = [json.loads(line) for p in Path(tmp).rglob("line_frames.jsonl")
                     for line in p.read_text().splitlines()]
+            manifests = [json.loads(p.read_text()) for p in Path(tmp).rglob('run_manifest.json')]
+            self.assertEqual(manifests[0]['camera_controls'],camera_report)
+            self.assertEqual(order[0],'settings')
+            self.assertEqual(camera_controls.call_args.args[0],'/dev/video0')
+            self.assertEqual(camera_controls.call_args.args[1].camera_exposure_mode, 'manual' if camera_settings else 'keep')
         self.assertEqual(len(rows), 42)
         self.assertTrue(all(r['start_gate_mode'] == 'off' for r in rows))
         self.assertTrue(all(r['qr_passed'] is False and r['shape_passed'] is False for r in rows))
@@ -155,7 +181,11 @@ class HeadingIntegrationTests(unittest.TestCase):
         walking = [s for s in sent if s[1] != 0]
         self.assertTrue(all(s[3].get("command_mode") == "held" for s in walking))
         levels = {round(s[2],6) for s in walking}
-        self.assertGreaterEqual(len(levels), 3, levels)
+        if position_test:
+            self.assertTrue(all(s[2] < 0 for s in walking[2:]))
+            self.assertTrue(all(r['measurement']['steering_position_recovery'] for r in rows[1:]))
+        else:
+            self.assertGreaterEqual(len(levels), 3, levels)
         self.assertTrue(levels <= {0., .37, .43, .5, -.3, -.5}, levels)
         self.assertTrue(any(wz < 0 for wz in levels), levels)
         start, previous = walking[0][0], walking[0][1:3]

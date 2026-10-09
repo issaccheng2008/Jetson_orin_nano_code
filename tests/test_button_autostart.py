@@ -14,6 +14,47 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_position_and_card_threshold_defaults_and_overrides(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('POSITION_')
+                and (not line.startswith('SHAPE_') or line.startswith('SHAPE_EVERY='))) + '\n'
+            for extra in ('', 'POSITION_GAIN=2\nPOSITION_RECOVERY_CM=6\nSHAPE_CUE_SCORE_MIN=2\n'
+                          'SHAPE_CUE_HIST_M=3\nSHAPE_CLOSURE_EDGE=0.8\n'):
+                (checkout / 'config/button_start.env').write_text(original+extra)
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                for flag, value in (('--position-gain', '2' if extra else '1'),
+                        ('--position-recovery-cm', '6' if extra else '8'),
+                        ('--shape-cue-score-min', '2' if extra else '1.2'),
+                        ('--shape-cue-hist-m', '3' if extra else '2'),
+                        ('--shape-closure-edge', '0.8' if extra else '0.65')):
+                    self.assertEqual(args[args.index(flag)+1], value)
+
+    def test_camera_controls_defaults_and_configured_values(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('CAMERA_EXPOSURE_', 'CAMERA_BRIGHTNESS=', 'CAMERA_CONTRAST=',
+                    'CAMERA_SATURATION=', 'CAMERA_SHARPNESS=', 'CAMERA_WHITE_BALANCE_', 'CAMERA_POWER_LINE_'))) + '\n'
+            for extra in ('', 'CAMERA_EXPOSURE_MODE=manual\nCAMERA_EXPOSURE_MS=5\nCAMERA_BRIGHTNESS=-2\n'
+                           'CAMERA_SHARPNESS=3\nCAMERA_WHITE_BALANCE_MODE=manual\nCAMERA_WHITE_BALANCE_K=4600\nCAMERA_POWER_LINE_HZ=50\n'):
+                (checkout / 'config/button_start.env').write_text(original+extra)
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertEqual(args[args.index('--camera-exposure-mode')+1], 'manual' if extra else 'keep')
+                if extra:
+                    for flag,value in (('--camera-exposure-ms','5'),('--camera-brightness','-2'),
+                        ('--camera-sharpness','3'),('--camera-white-balance-k','4600'),('--camera-power-line-hz','50')):
+                        self.assertEqual(args[args.index(flag)+1],value)
+                else:
+                    self.assertNotIn('--camera-exposure-ms',args)
+                    self.assertNotIn('--camera-brightness',args)
+                    self.assertNotIn('--camera-white-balance-k',args)
+
     def test_first_card_walk_time_defaults_and_configuration(self):
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary) / 'robot'
