@@ -16,6 +16,7 @@ import time
 from copy import deepcopy
 
 from utils import clamp
+from line_preprocess import extract_lane_candidates, sampled_otsu_threshold
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -157,6 +158,7 @@ class LineDetector:
         self._rebuild_err_scale()
 
         # ── Threshold params ──
+        self.preprocess_mode = "contrast"
         self.th_offset = -12  # 反光把线打成亮斑时放宽，让不够黑的也进得来
         self.th_min = 25
         self.th_max = 80
@@ -593,45 +595,7 @@ class LineDetector:
 
     def _otsu_threshold(self, gray):
         """Manual Otsu — same algorithm as V0 (not cv2.THRESH_OTSU)."""
-        hist = [0] * 256
-        h, w = gray.shape
-        step_y = max(1, h // 30)
-        step_x = max(1, w // 40)
-        total = 0
-
-        for y in range(0, h, step_y):
-            for x in range(0, w, step_x):
-                g = int(gray[y, x])
-                hist[g] += 1
-                total += 1
-
-        if total == 0:
-            return 64
-
-        sum_all = sum(i * hist[i] for i in range(256))
-
-        sum_b = 0
-        w_b = 0
-        max_var = -1.0
-        best_t = 64
-
-        for t in range(256):
-            w_b += hist[t]
-            if w_b == 0:
-                continue
-            w_f = total - w_b
-            if w_f == 0:
-                break
-            sum_b += t * hist[t]
-            m_b = sum_b / w_b
-            m_f = (sum_all - sum_b) / w_f
-            d = m_b - m_f
-            var_between = w_b * w_f * d * d
-            if var_between > max_var:
-                max_var = var_between
-                best_t = t
-
-        return best_t
+        return sampled_otsu_threshold(gray)
 
     # ═══════════════════════════════════════════════════════════
     # Obstacle detection
@@ -1582,50 +1546,11 @@ class LineDetector:
         gray_std = cv2.cvtColor(bgr_bird, cv2.COLOR_BGR2GRAY)
         gray = np.maximum(gray_max, gray_std)
 
-        # Black hat: suppress wide shadows, enhance thin dark lines → bright
-        k31 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
-        gray_detect = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, k31)
-
         img_w = self.bird_w
         img_h = self.bird_h
         img_cx = self.center_x
-
-        # ── Step 2: Adaptive threshold (Gaussian + Otsu fallback) ──
-        # Otsu 全局阈值（保留作为参考）
-        otsu_th = self._otsu_threshold(gray_detect)
-
-        # 高斯自适应阈值（主力，对 black-hat 结果操作：线已变亮）
-        adaptive_binary = cv2.adaptiveThreshold(
-            gray_detect, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 31, -12  # blockSize=31, C=-12 (stricter)
-        )
-        # Black-hat 后线变亮 → THRESH_BINARY 把线判为 255
-        adaptive_mask = (adaptive_binary == 255)
-        if np.count_nonzero(adaptive_mask) > 100:
-            black_th = np.median(gray_detect[adaptive_mask]) + self.th_offset
-        else:
-            black_th = otsu_th + self.th_offset
-
-        # 限幅
-        black_th = clamp(black_th, self.th_min, self.th_max)
-
-        # ── Clean gray_detect: morphology + CC on the detection input ──
-        _, binary_clean = cv2.threshold(gray_detect, black_th, 255, cv2.THRESH_BINARY)
-        k5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_CLOSE, k5, iterations=1)
-        binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_OPEN, k5, iterations=1)
-        binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_CLOSE, k5, iterations=1)
-        k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_OPEN, k3, iterations=1)
-        # Connected component filter
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary_clean, connectivity=8)
-        for label_id in range(1, num_labels):
-            area = stats[label_id, cv2.CC_STAT_AREA]
-            h = stats[label_id, cv2.CC_STAT_HEIGHT]
-            if area < 300 or h < 80:
-                binary_clean[labels == label_id] = 0
-        # Apply mask: noise pixels → 0, track pixels keep original value
-        gray_detect[binary_clean == 0] = 0
+        gray_detect, binary_clean, black_th, preprocess_debug = extract_lane_candidates(
+            gray, self.preprocess_mode, self.th_offset, self.th_min, self.th_max)
 
         # ── Step 3: Track color detection ──
         # After black-hat, lines are always bright → track_is_dark=False
@@ -2017,6 +1942,7 @@ class LineDetector:
         # ── Debug info ──
         binary_raw_inv = 255 - binary_clean  # invert for display: black line on white bg
         debug = {
+            **preprocess_debug,
             "bird": gray,
             "binary_raw": binary_raw_inv,
             "binary": binary_clean,

@@ -1,0 +1,1761 @@
+{
+  "schema": "lane_centers_v1",
+  "meta": {
+    "coordinate_system": "320x400 bird RGB images, integer x/y, origin top left",
+    "annotation_method": "Manual visual annotation of source and RGB bird images only; no threshold/mask/candidate outputs inspected.",
+    "scope": "Centerlines of definitely visible genuine race boundaries. Cards, ticks, wrinkles, start crossbars, cable on open ground and mat perimeter are negatives unless occluded or uncertain.",
+    "ignore_rect_format": "[x0,y0,x1,y1], half-open preferred; coordinates may end at width=320 or height=400",
+    "entries": 17,
+    "precision_usable": 14,
+    "limitations": "Manual centers estimated visually; typical 2-4 bird pixels uncertainty. These are sparse centerline labels, not pixel-level ground-truth lane widths. Motion-blurred contours may have greater local uncertainty; whole frames or regions were excluded conservatively. Source camera/mat calibration is not independently validated.",
+    "excluded_keys": [
+      "camera_commands3_402",
+      "camera_commands3_1207",
+      "WIN_20260919_18_11_50_Pro_flip_41"
+    ],
+    "calibration": {
+      "height_cm": 32.5,
+      "pitch_deg": 45,
+      "vfov_deg": 55.876,
+      "z_calib": [
+        1.13233,
+        -2.4862
+      ],
+      "lane_width_cm": 35
+    },
+    "split_note": "Early/later diagnostic subsets of the same recordings, not independent unseen test scenes."
+  },
+  "frames": [
+    {
+      "key": "camera_commands3_134",
+      "video": "camera_commands3.avi",
+      "frame": 134,
+      "time_s": 13.4,
+      "lane_center_polylines": [
+        [
+          [
+            85,
+            0
+          ],
+          [
+            89,
+            75
+          ],
+          [
+            93,
+            160
+          ],
+          [
+            94,
+            242
+          ],
+          [
+            92,
+            315
+          ]
+        ],
+        [
+          [
+            308,
+            0
+          ],
+          [
+            309,
+            80
+          ],
+          [
+            306,
+            160
+          ],
+          [
+            303,
+            240
+          ],
+          [
+            299,
+            310
+          ],
+          [
+            294,
+            360
+          ],
+          [
+            291,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            96,
+            320
+          ],
+          [
+            119,
+            332
+          ],
+          [
+            137,
+            363
+          ],
+          [
+            137,
+            399
+          ],
+          [
+            87,
+            399
+          ]
+        ],
+        [
+          [
+            243,
+            311
+          ],
+          [
+            264,
+            321
+          ],
+          [
+            279,
+            355
+          ],
+          [
+            271,
+            399
+          ],
+          [
+            207,
+            399
+          ],
+          [
+            213,
+            365
+          ],
+          [
+            229,
+            334
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "Two lane boundaries. Horizontal broad crossbar is a start/stop marking, not a lane boundary. Dashed ticks and oval are negatives. Left lane becomes obscured by robot shoe below y315; right shoe masked separately.",
+      "usable_for_precision": true,
+      "split": "early"
+    },
+    {
+      "key": "camera_commands3_268",
+      "video": "camera_commands3.avi",
+      "frame": 268,
+      "time_s": 26.8,
+      "lane_center_polylines": [
+        [
+          [
+            0,
+            119
+          ],
+          [
+            20,
+            151
+          ],
+          [
+            35,
+            184
+          ],
+          [
+            48,
+            218
+          ],
+          [
+            60,
+            256
+          ],
+          [
+            69,
+            295
+          ],
+          [
+            76,
+            344
+          ],
+          [
+            81,
+            399
+          ]
+        ],
+        [
+          [
+            108,
+            0
+          ],
+          [
+            134,
+            37
+          ],
+          [
+            159,
+            85
+          ],
+          [
+            179,
+            136
+          ],
+          [
+            197,
+            192
+          ],
+          [
+            212,
+            250
+          ],
+          [
+            225,
+            312
+          ],
+          [
+            235,
+            365
+          ],
+          [
+            240,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            273,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            203
+          ],
+          [
+            269,
+            170
+          ],
+          [
+            257,
+            135
+          ],
+          [
+            272,
+            107
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "Two clearly visible curved race boundaries. Triangle card and dashed tick marks are negative ground content. Upper right equipment is outside the ground plane.",
+      "usable_for_precision": true,
+      "split": "early"
+    },
+    {
+      "key": "camera_commands3_402",
+      "video": "camera_commands3.avi",
+      "frame": 402,
+      "time_s": 40.2,
+      "lane_center_polylines": [],
+      "ignore_polygons": [],
+      "ignore_rects": [
+        [
+          0,
+          0,
+          320,
+          400
+        ]
+      ],
+      "notes": "Severe motion blur, shoe/non-ground area, and only a partial blurred curve. Excluded rather than guessing the center to 4 px.",
+      "usable_for_precision": false,
+      "split": "later"
+    },
+    {
+      "key": "camera_commands3_536",
+      "video": "camera_commands3.avi",
+      "frame": 536,
+      "time_s": 53.6,
+      "lane_center_polylines": [
+        [
+          [
+            75,
+            97
+          ],
+          [
+            80,
+            140
+          ],
+          [
+            83,
+            180
+          ],
+          [
+            86,
+            220
+          ],
+          [
+            90,
+            260
+          ],
+          [
+            94,
+            300
+          ],
+          [
+            98,
+            340
+          ],
+          [
+            102,
+            380
+          ],
+          [
+            104,
+            399
+          ]
+        ],
+        [
+          [
+            155,
+            78
+          ],
+          [
+            162,
+            100
+          ],
+          [
+            172,
+            140
+          ],
+          [
+            184,
+            180
+          ],
+          [
+            196,
+            220
+          ],
+          [
+            209,
+            260
+          ],
+          [
+            220,
+            300
+          ],
+          [
+            231,
+            340
+          ],
+          [
+            243,
+            380
+          ],
+          [
+            249,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            137,
+            0
+          ],
+          [
+            137,
+            78
+          ],
+          [
+            0,
+            78
+          ]
+        ],
+        [
+          [
+            205,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            242
+          ],
+          [
+            261,
+            138
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "Two boundaries. Top turn fragments below y78 are too blurred to place confidently, so that region is ignored. Right thin mat outline and square card remain negatives on visible ground.",
+      "usable_for_precision": true,
+      "split": "early"
+    },
+    {
+      "key": "camera_commands3_670",
+      "video": "camera_commands3.avi",
+      "frame": 670,
+      "time_s": 67,
+      "lane_center_polylines": [
+        [
+          [
+            0,
+            164
+          ],
+          [
+            23,
+            173
+          ],
+          [
+            44,
+            187
+          ],
+          [
+            65,
+            206
+          ],
+          [
+            85,
+            231
+          ],
+          [
+            103,
+            259
+          ],
+          [
+            121,
+            293
+          ],
+          [
+            137,
+            330
+          ],
+          [
+            151,
+            367
+          ],
+          [
+            162,
+            399
+          ]
+        ],
+        [
+          [
+            147,
+            0
+          ],
+          [
+            171,
+            26
+          ],
+          [
+            192,
+            53
+          ],
+          [
+            214,
+            85
+          ],
+          [
+            236,
+            121
+          ],
+          [
+            257,
+            161
+          ],
+          [
+            277,
+            207
+          ],
+          [
+            296,
+            255
+          ],
+          [
+            312,
+            305
+          ],
+          [
+            319,
+            331
+          ]
+        ]
+      ],
+      "ignore_polygons": [],
+      "ignore_rects": [],
+      "notes": "Two genuine curved boundaries confirmed by source. Moderate blur; centers are still identifiable in bird view. Dashed internal ticks and oval card/marking are negatives.",
+      "usable_for_precision": true,
+      "split": "early"
+    },
+    {
+      "key": "camera_commands3_805",
+      "video": "camera_commands3.avi",
+      "frame": 805,
+      "time_s": 80.5,
+      "lane_center_polylines": [
+        [
+          [
+            0,
+            241
+          ],
+          [
+            31,
+            248
+          ],
+          [
+            58,
+            260
+          ],
+          [
+            94,
+            280
+          ],
+          [
+            122,
+            300
+          ],
+          [
+            139,
+            320
+          ],
+          [
+            155,
+            340
+          ],
+          [
+            170,
+            360
+          ],
+          [
+            183,
+            380
+          ],
+          [
+            195,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            389
+          ],
+          [
+            268,
+            316
+          ],
+          [
+            219,
+            253
+          ],
+          [
+            165,
+            185
+          ],
+          [
+            101,
+            105
+          ],
+          [
+            64,
+            74
+          ],
+          [
+            0,
+            100
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "One visible lane boundary; the other lies beyond the bird crop. Upper/right furniture and floor beyond mat ignored. Thin diagonal mat outline is not a race boundary.",
+      "usable_for_precision": true,
+      "split": "later"
+    },
+    {
+      "key": "camera_commands3_939",
+      "video": "camera_commands3.avi",
+      "frame": 939,
+      "time_s": 93.9,
+      "lane_center_polylines": [
+        [
+          [
+            0,
+            274
+          ],
+          [
+            26,
+            282
+          ],
+          [
+            51,
+            294
+          ],
+          [
+            62,
+            300
+          ],
+          [
+            91,
+            320
+          ],
+          [
+            115,
+            340
+          ],
+          [
+            132,
+            360
+          ],
+          [
+            146,
+            380
+          ],
+          [
+            160,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            240
+          ],
+          [
+            0,
+            180
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "One clearly visible curved lane. Upper region is furniture/wall/floor outside mat. Thin mat edge at about y190 to y251 is a negative, and lies mostly below the ignore boundary.",
+      "usable_for_precision": true,
+      "split": "later"
+    },
+    {
+      "key": "camera_commands3_1073",
+      "video": "camera_commands3.avi",
+      "frame": 1073,
+      "time_s": 107.3,
+      "lane_center_polylines": [
+        [
+          [
+            48,
+            0
+          ],
+          [
+            57,
+            76
+          ],
+          [
+            63,
+            146
+          ],
+          [
+            69,
+            220
+          ],
+          [
+            77,
+            292
+          ],
+          [
+            84,
+            350
+          ]
+        ],
+        [
+          [
+            162,
+            0
+          ],
+          [
+            170,
+            35
+          ],
+          [
+            176,
+            65
+          ]
+        ],
+        [
+          [
+            188,
+            119
+          ],
+          [
+            201,
+            177
+          ],
+          [
+            218,
+            243
+          ],
+          [
+            229,
+            300
+          ],
+          [
+            233,
+            353
+          ],
+          [
+            235,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            167,
+            59
+          ],
+          [
+            182,
+            60
+          ],
+          [
+            177,
+            184
+          ],
+          [
+            174,
+            250
+          ],
+          [
+            153,
+            264
+          ],
+          [
+            153,
+            217
+          ],
+          [
+            159,
+            137
+          ]
+        ],
+        [
+          [
+            243,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            222
+          ],
+          [
+            293,
+            186
+          ],
+          [
+            267,
+            98
+          ]
+        ]
+      ],
+      "ignore_rects": [
+        [
+          75,
+          349,
+          107,
+          400
+        ]
+      ],
+      "notes": "Left boundary and right boundary split around white standing object. Cable crossing left boundary hides its lower section and is ignored only at the crossing; the cable on open ground is a negative. Horizontal distant marking and dashed ticks are negatives.",
+      "usable_for_precision": true,
+      "split": "later"
+    },
+    {
+      "key": "camera_commands3_1207",
+      "video": "camera_commands3.avi",
+      "frame": 1207,
+      "time_s": 120.7,
+      "lane_center_polylines": [],
+      "ignore_polygons": [],
+      "ignore_rects": [
+        [
+          0,
+          0,
+          320,
+          400
+        ]
+      ],
+      "notes": "Large walking legs obscure both boundaries; residual fragments do not support a complete reliable precision region. Excluded.",
+      "usable_for_precision": false,
+      "split": "later"
+    },
+    {
+      "key": "WIN_20260919_18_10_34_Pro_flip_40",
+      "video": "WIN_20260919_18_10_34_Pro_flip.mp4",
+      "frame": 40,
+      "time_s": 1.9968051118210863,
+      "lane_center_polylines": [
+        [
+          [
+            179,
+            0
+          ],
+          [
+            163,
+            18
+          ],
+          [
+            151,
+            44
+          ],
+          [
+            144,
+            73
+          ],
+          [
+            138,
+            110
+          ],
+          [
+            134,
+            163
+          ],
+          [
+            139,
+            197
+          ],
+          [
+            143,
+            240
+          ],
+          [
+            142,
+            288
+          ],
+          [
+            138,
+            334
+          ],
+          [
+            132,
+            377
+          ],
+          [
+            128,
+            399
+          ]
+        ],
+        [
+          [
+            319,
+            68
+          ],
+          [
+            294,
+            58
+          ],
+          [
+            267,
+            53
+          ],
+          [
+            250,
+            57
+          ],
+          [
+            239,
+            68
+          ],
+          [
+            231,
+            84
+          ],
+          [
+            226,
+            104
+          ],
+          [
+            224,
+            132
+          ],
+          [
+            226,
+            166
+          ],
+          [
+            229,
+            205
+          ],
+          [
+            224,
+            232
+          ],
+          [
+            222,
+            271
+          ],
+          [
+            223,
+            312
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            69,
+            0
+          ],
+          [
+            0,
+            247
+          ]
+        ]
+      ],
+      "ignore_rects": [
+        [
+          216,
+          325,
+          251,
+          400
+        ]
+      ],
+      "notes": "Both race boundaries are genuine despite tape bends at y163 and y205. Right lower curve is heavily smeared, so y325 onward around it ignored. Card and ticks stay negative. Left blue floor outside mat ignored.",
+      "usable_for_precision": true,
+      "split": "early"
+    },
+    {
+      "key": "WIN_20260919_18_10_34_Pro_flip_80",
+      "video": "WIN_20260919_18_10_34_Pro_flip.mp4",
+      "frame": 80,
+      "time_s": 3.9936102236421727,
+      "lane_center_polylines": [
+        [
+          [
+            319,
+            100
+          ],
+          [
+            288,
+            95
+          ],
+          [
+            260,
+            98
+          ],
+          [
+            236,
+            108
+          ],
+          [
+            215,
+            122
+          ],
+          [
+            195,
+            143
+          ],
+          [
+            179,
+            171
+          ],
+          [
+            166,
+            202
+          ],
+          [
+            156,
+            239
+          ],
+          [
+            148,
+            281
+          ],
+          [
+            144,
+            325
+          ],
+          [
+            141,
+            370
+          ],
+          [
+            139,
+            399
+          ]
+        ],
+        [
+          [
+            319,
+            161
+          ],
+          [
+            302,
+            164
+          ],
+          [
+            287,
+            173
+          ],
+          [
+            272,
+            188
+          ],
+          [
+            261,
+            207
+          ],
+          [
+            254,
+            230
+          ],
+          [
+            250,
+            257
+          ],
+          [
+            249,
+            286
+          ],
+          [
+            252,
+            327
+          ],
+          [
+            257,
+            365
+          ],
+          [
+            263,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            36
+          ],
+          [
+            87,
+            36
+          ],
+          [
+            21,
+            399
+          ],
+          [
+            0,
+            399
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "Two clear boundaries. The large bend is fully visible. Blue external floor and upper furniture ignored; thin mat outline, interior ticks, and partial bottom card are negatives.",
+      "usable_for_precision": true,
+      "split": "later"
+    },
+    {
+      "key": "WIN_20260919_18_11_50_Pro_flip_41",
+      "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+      "frame": 41,
+      "time_s": 2.048566003797342,
+      "lane_center_polylines": [],
+      "ignore_polygons": [],
+      "ignore_rects": [
+        [
+          0,
+          0,
+          320,
+          400
+        ]
+      ],
+      "notes": "Motion smear creates broad/double contours and makes upper lane identity and center location uncertain. Excluded to avoid imposing guessed centers.",
+      "usable_for_precision": false,
+      "split": "early"
+    },
+    {
+      "key": "WIN_20260919_18_11_50_Pro_flip_83",
+      "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+      "frame": 83,
+      "time_s": 4.1470970320775455,
+      "lane_center_polylines": [
+        [
+          [
+            319,
+            155
+          ],
+          [
+            289,
+            160
+          ],
+          [
+            263,
+            170
+          ],
+          [
+            239,
+            183
+          ],
+          [
+            218,
+            202
+          ],
+          [
+            198,
+            227
+          ],
+          [
+            181,
+            256
+          ],
+          [
+            167,
+            289
+          ],
+          [
+            157,
+            325
+          ],
+          [
+            148,
+            362
+          ],
+          [
+            140,
+            399
+          ]
+        ],
+        [
+          [
+            319,
+            236
+          ],
+          [
+            304,
+            250
+          ],
+          [
+            291,
+            269
+          ],
+          [
+            280,
+            292
+          ],
+          [
+            272,
+            320
+          ],
+          [
+            268,
+            350
+          ],
+          [
+            265,
+            377
+          ],
+          [
+            264,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            106
+          ],
+          [
+            177,
+            101
+          ],
+          [
+            34,
+            399
+          ],
+          [
+            0,
+            399
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "Two curved race boundaries, confirmed with source. Outer upper part has moderate motion smear but center is identifiable. Square card and ticks are negatives. Wall/equipment and blue outside floor ignored.",
+      "usable_for_precision": true,
+      "split": "later"
+    },
+    {
+      "key": "WIN_20260919_18_13_14_Pro_flip_51",
+      "video": "WIN_20260919_18_13_14_Pro_flip.mp4",
+      "frame": 51,
+      "time_s": 2.5474525474525476,
+      "lane_center_polylines": [
+        [
+          [
+            0,
+            119
+          ],
+          [
+            20,
+            143
+          ],
+          [
+            37,
+            171
+          ],
+          [
+            49,
+            200
+          ],
+          [
+            59,
+            235
+          ],
+          [
+            68,
+            273
+          ],
+          [
+            75,
+            313
+          ],
+          [
+            81,
+            356
+          ],
+          [
+            85,
+            399
+          ]
+        ],
+        [
+          [
+            72,
+            0
+          ],
+          [
+            100,
+            27
+          ],
+          [
+            126,
+            60
+          ],
+          [
+            147,
+            94
+          ],
+          [
+            155,
+            100
+          ],
+          [
+            173,
+            140
+          ],
+          [
+            189,
+            180
+          ],
+          [
+            203,
+            220
+          ],
+          [
+            216,
+            260
+          ],
+          [
+            227,
+            300
+          ],
+          [
+            236,
+            340
+          ],
+          [
+            244,
+            380
+          ],
+          [
+            248,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            295,
+            137
+          ],
+          [
+            319,
+            137
+          ],
+          [
+            319,
+            290
+          ],
+          [
+            278,
+            292
+          ],
+          [
+            268,
+            259
+          ],
+          [
+            270,
+            220
+          ],
+          [
+            283,
+            205
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "Two curved lane boundaries. Left boundary is blurred but has a single identifiable center. Right paper roll/standing object outside lane is masked. Dashed ticks and top-left card are negatives.",
+      "usable_for_precision": true,
+      "split": "early"
+    },
+    {
+      "key": "WIN_20260919_18_13_14_Pro_flip_103",
+      "video": "WIN_20260919_18_13_14_Pro_flip.mp4",
+      "frame": 103,
+      "time_s": 5.144855144855145,
+      "lane_center_polylines": [
+        [
+          [
+            109,
+            180
+          ],
+          [
+            148,
+            220
+          ],
+          [
+            179,
+            260
+          ],
+          [
+            205,
+            300
+          ],
+          [
+            229,
+            340
+          ],
+          [
+            247,
+            380
+          ],
+          [
+            256,
+            399
+          ]
+        ],
+        [
+          [
+            0,
+            276
+          ],
+          [
+            24,
+            288
+          ],
+          [
+            43,
+            300
+          ],
+          [
+            59,
+            320
+          ],
+          [
+            75,
+            340
+          ],
+          [
+            88,
+            360
+          ],
+          [
+            100,
+            380
+          ],
+          [
+            110,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            249
+          ],
+          [
+            286,
+            191
+          ],
+          [
+            242,
+            123
+          ],
+          [
+            184,
+            39
+          ],
+          [
+            0,
+            45
+          ]
+        ]
+      ],
+      "ignore_rects": [
+        [
+          0,
+          120,
+          130,
+          180
+        ]
+      ],
+      "notes": "Two race boundaries. Upper outer-curve segment is smeared enough that the center is uncertain, so this region is ignored. Upper mat perimeter is a thin negative line distinct from the race boundary. Card and ticks are negatives. External floor/objects above mat ignored.",
+      "usable_for_precision": true,
+      "split": "later"
+    },
+    {
+      "key": "WIN_20260919_18_13_53_Pro_flip_37",
+      "video": "WIN_20260919_18_13_53_Pro_flip.mp4",
+      "frame": 37,
+      "time_s": 1.847413620930697,
+      "lane_center_polylines": [
+        [
+          [
+            0,
+            129
+          ],
+          [
+            30,
+            130
+          ],
+          [
+            60,
+            136
+          ],
+          [
+            78,
+            140
+          ],
+          [
+            100,
+            151
+          ],
+          [
+            120,
+            165
+          ],
+          [
+            136,
+            180
+          ],
+          [
+            171,
+            220
+          ],
+          [
+            197,
+            260
+          ],
+          [
+            219,
+            300
+          ],
+          [
+            235,
+            340
+          ],
+          [
+            247,
+            380
+          ],
+          [
+            255,
+            399
+          ]
+        ],
+        [
+          [
+            0,
+            244
+          ],
+          [
+            23,
+            253
+          ],
+          [
+            36,
+            260
+          ],
+          [
+            54,
+            281
+          ],
+          [
+            67,
+            300
+          ],
+          [
+            79,
+            321
+          ],
+          [
+            88,
+            340
+          ],
+          [
+            98,
+            363
+          ],
+          [
+            104,
+            380
+          ],
+          [
+            110,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            200
+          ],
+          [
+            264,
+            139
+          ],
+          [
+            222,
+            91
+          ],
+          [
+            160,
+            36
+          ],
+          [
+            82,
+            0
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "Two visible race boundaries. Star card and dashed ticks are negative ground content. Upper external floor and bags/box are ignored. Thin mat perimeter stays negative where unobscured.",
+      "usable_for_precision": true,
+      "split": "early"
+    },
+    {
+      "key": "WIN_20260919_18_13_53_Pro_flip_75",
+      "video": "WIN_20260919_18_13_53_Pro_flip.mp4",
+      "frame": 75,
+      "time_s": 3.7447573397243863,
+      "lane_center_polylines": [
+        [
+          [
+            0,
+            219
+          ],
+          [
+            25,
+            216
+          ],
+          [
+            49,
+            216
+          ],
+          [
+            70,
+            218
+          ],
+          [
+            88,
+            223
+          ],
+          [
+            108,
+            232
+          ],
+          [
+            126,
+            246
+          ],
+          [
+            142,
+            260
+          ],
+          [
+            161,
+            279
+          ],
+          [
+            180,
+            300
+          ],
+          [
+            196,
+            321
+          ],
+          [
+            210,
+            340
+          ],
+          [
+            221,
+            360
+          ],
+          [
+            232,
+            380
+          ],
+          [
+            243,
+            399
+          ]
+        ],
+        [
+          [
+            0,
+            363
+          ],
+          [
+            21,
+            372
+          ],
+          [
+            34,
+            380
+          ],
+          [
+            48,
+            390
+          ],
+          [
+            56,
+            399
+          ]
+        ]
+      ],
+      "ignore_polygons": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            319,
+            0
+          ],
+          [
+            319,
+            200
+          ],
+          [
+            275,
+            138
+          ],
+          [
+            229,
+            69
+          ],
+          [
+            0,
+            136
+          ]
+        ]
+      ],
+      "ignore_rects": [],
+      "notes": "Outer race curve and small inner curve at bottom left. External floor above mat ignored. Thin sloping mat edge is a negative ground outline. Mild motion blur preserves an identifiable center.",
+      "usable_for_precision": true,
+      "split": "later"
+    }
+  ]
+}

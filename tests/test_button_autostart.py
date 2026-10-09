@@ -26,7 +26,7 @@ class ButtonAutostartTests(unittest.TestCase):
                             ignore=shutil.ignore_patterns('button_start.env'))
             original = (REPO / 'config/button_start.env.example').read_text()
             for extra in ('', 'WZ_MODE=segments\nCAMERA_EXPOSURE_MODE=manual\nCAMERA_EXPOSURE_MS=5\n',
-                          'POSITION_GAIN=2\nSHAPE_CUE_SCORE_MIN=2\n'):
+                          'POSITION_GAIN=2\nSHAPE_CUE_SCORE_MIN=2\n', 'LINE_PREPROCESS=legacy\n'):
                 with self.subTest(config=extra):
                     (checkout / 'config/button_start.env').write_text(original + '\n' + extra)
                     command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
@@ -35,6 +35,7 @@ class ButtonAutostartTests(unittest.TestCase):
                         args = run_policy_vision.parse_args()
                     self.assertEqual(args.wz_mode, 'segments' if extra.startswith('WZ_MODE') else 'heading')
                     self.assertEqual(args.camera_exposure_mode, 'manual' if extra.startswith('WZ_MODE') else 'keep')
+                    self.assertEqual(args.line_preprocess, 'legacy' if extra.startswith('LINE_PREPROCESS') else 'contrast')
 
     def test_camera_controls_defaults_and_configured_values(self):
         with tempfile.TemporaryDirectory() as temporary:

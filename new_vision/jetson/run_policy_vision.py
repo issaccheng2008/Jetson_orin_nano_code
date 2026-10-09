@@ -437,6 +437,11 @@ def parse_args():
                         help="Legacy option retained for command compatibility. "
                              "P1 uses a quality-gated geometric preview and no "
                              "longer clips preview by the near-error magnitude.")
+    parser.add_argument("--line-preprocess", choices=("contrast", "legacy"),
+                        default=os.getenv("LINE_PREPROCESS", "contrast"),
+                        help="Lane candidate extraction: contrast uses limited local "
+                             "equalization and preserves thin/oblique fragments; "
+                             "legacy restores the previous binary preprocessing")
     parser.add_argument("--lane-fit", action="store_true",
                         help="EXPERIMENTAL, and it changes nothing on its own: also "
                              "scan one tall band (20~70 cm instead of the two "
@@ -764,6 +769,9 @@ def main():
         detector = LineDetector(width, height, cam_height_cm=args.camera_height_cm,
                                 cam_pitch_deg=args.camera_pitch_deg,
                                 cam_vfov_deg=args.camera_vfov_deg)
+        detector.preprocess_mode = args.line_preprocess
+        print(f"[line-preprocess] {detector.preprocess_mode}; "
+              "candidate mask only; geometry quality checks retained", flush=True)
         if args.no_red_detect:
             detector.red_detect_enable = False
         detector.anticipation_clip = args.anticipation_clip
@@ -938,7 +946,8 @@ def main():
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py",
-                                "steering_filter.py", "steering_recovery.py", "startup_sequence.py", "camera_controls.py"):
+                                "steering_filter.py", "steering_recovery.py", "startup_sequence.py", "camera_controls.py",
+                                "line_preprocess.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
         if args.line_log_dir:

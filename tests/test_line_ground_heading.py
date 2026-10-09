@@ -111,6 +111,9 @@ class GroundHeadingTests(unittest.TestCase):
 
     def test_process_keeps_old_outputs_and_does_not_replay_control_heading_on_loss(self):
         d=self.detector();old=self.detector(frozen.LineDetector)
+        # This frozen-source comparison checks geometry compatibility under the
+        # same extraction. Contrast extraction has separate image regressions.
+        d.preprocess_mode='legacy'
         for item in [d,old]:
             item.M=np.eye(3)
             item.startup_force_simple_bottom=False
