@@ -78,7 +78,7 @@ class SegmentSteeringController(HeadingSteeringController):
                 and abs(self._x_at(first, join) - self._x_at(second, join)) <= MAX_JOIN_CM)
 
     def _measured_target(self, debug, baseline):
-        if baseline is None or baseline[4] != 'ground_x_z':
+        if baseline is None or baseline[4] not in ('ground_x_z', 'paired_segment_near'):
             return None, 'near_geometry_unavailable'
         if not debug.get('fit_seg_valid', False) or not debug.get('fit_seg_anchored', False):
             return None, 'unanchored_or_missing_segments'
@@ -107,6 +107,17 @@ class SegmentSteeringController(HeadingSteeringController):
 
     def _geometry(self, debug):
         baseline = super()._geometry(debug)
+        if baseline is None and self.segment_fallback:
+            first = self._segment(debug, 0)
+            if (first is not None and debug.get('measurement_valid', False)
+                    and not debug.get('measurement_stale', False)
+                    and debug.get('near_observation_paired', False)
+                    and debug.get('near_observation_quality', 0.) >= .2
+                    and debug.get('fit_seg_anchored', False)):
+                near, near_z = float(debug['near_error_cm']), float(debug['near_z_cm'])
+                if (first['z_min_cm'] <= near_z <= first['z_max_cm']
+                        and abs(self._x_at(first, near_z)-near) <= MAX_JOIN_CM):
+                    baseline = self._bear_from(near, near_z, first['heading_deg'], 'paired_segment_near')
         target, reason = self._measured_target(debug, baseline)
         self._segment_depth = self.lookahead_cm
         self._segment_diagnostics.update(segment_control_active=False, segment_gate_reason=reason)
@@ -138,7 +149,7 @@ class SegmentSteeringController(HeadingSteeringController):
         if (key != self._geometry_key or self._geometry_depth is None
                 or abs(self._segment_depth-self._geometry_depth) > MAX_DEPTH_GAP_CM):
             self._samples.clear()
-            if self._observation_filter is not None:
+            if self._observation_filter is not None and self.filter_config.algorithm != 'robust':
                 self._observation_filter.reset()
         self._geometry_key, self._geometry_depth = key, self._segment_depth
         return selected
@@ -155,7 +166,8 @@ class SegmentSteeringController(HeadingSteeringController):
         actual = super().command(debug, confidence, dt)
         shadow = self.shadow.command(debug, confidence, dt)
         if self.diagnostics.get('steering_reason') in (
-                'brief_loss_hold', 'geometry_lost_yaw_zero', 'invalid_clock'):
+                'brief_loss_hold', 'geometry_lost_yaw_zero', 'invalid_clock',
+                'loss_history_turn', 'loss_timeout_stop', 'loss_no_history_stop'):
             self._confirmation = 0
             self._previous_target = None
             self._segment_diagnostics['segment_control_active'] = False

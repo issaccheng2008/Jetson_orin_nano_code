@@ -456,9 +456,12 @@ def parse_args():
                         help="0 runs until Ctrl+C")
     from steering_filter import add_arguments, config_from_args, validate_ladder
     add_arguments(parser)
+    from steering_recovery import add_arguments as add_recovery_arguments, config_from_args as recovery_from_args
+    add_recovery_arguments(parser)
     args = parser.parse_args()
     try:
         filter_config = config_from_args(args)
+        recovery_from_args(args)
     except ValueError as exc:
         parser.error(str(exc))
     if not math.isfinite(args.command_min_hold_s) or args.command_min_hold_s < 0:
@@ -761,6 +764,13 @@ def main():
                   f'hysteresis={args.steering_hysteresis_deg:g}deg; '
                   f'entry/exit={args.steering_enter_deg:g}/{args.steering_exit_deg:g}deg; '
                   f'model_min_hold={args.command_min_hold_s:g}s (launched policy only)', flush=True)
+            if args.steering_filter_algorithm == 'robust':
+                print(f'[steering-filter] robust tau={args.steering_filter_robust_tau_s:g}s; '
+                      f'window={args.steering_filter_robust_window_s:g}s; '
+                      f'slew={args.steering_filter_robust_slew_deg_s:g}deg/s',flush=True)
+            print(f'[steering-loss] mode={args.steering_loss_mode}; max={args.steering_loss_max_s:g}s; '
+                  f'history={args.steering_loss_history_s:g}s; '
+                  f'qualified_segment_fallback={args.steering_segment_fallback}',flush=True)
             left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
             print(f"[wz] 视觉逐帧选档；模型入口最短保持可调（自动启动值 {args.command_min_hold_s:g}s）；"
@@ -890,7 +900,7 @@ def main():
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py",
-                                "steering_filter.py"):
+                                "steering_filter.py", "steering_recovery.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
         if args.line_log_dir:

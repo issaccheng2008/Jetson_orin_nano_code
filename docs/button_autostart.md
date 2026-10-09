@@ -1,5 +1,7 @@
 # Jetson 开机自启与 PC2 按钮起步
 
+当前巡线的新丢线策略与 robust 强滤波设置见 [丢线补偿与强滤波](丢线补偿与强滤波.md)。已有本地参数文件需要显式启用 robust。
+
 启动顺序是 `connector → vision → 等待 STM32 PC2 按钮 → gait`。两个 systemd 服务只启动 connector 和带 `--start-gate button --start-policy-on-gate` 的 vision；不直接启动 `main.py`。Vision 收到本次运行的新按钮事件后，才通过策略 Python 启动 gait 并等待 STM32 就绪。PC2 接线与固件按当前版本说明完成；安装服务本身不会启动电机。
 
 ## 在 Jetson 上安装

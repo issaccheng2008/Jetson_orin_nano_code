@@ -20,16 +20,21 @@ class FilterConfig:
     hysteresis_deg: float = 1.0
     enter_deg: float = 2.0
     exit_deg: float = 1.0
+    robust_tau_s: float = .45
+    robust_window_s: float = .6
+    robust_slew_deg_s: float = 45.
 
     def __post_init__(self):
         values = (self.min_cutoff_hz, self.max_cutoff_hz, self.beta,
                   self.derivative_cutoff_hz, self.position_tau_s,
-                  self.hysteresis_deg, self.enter_deg, self.exit_deg)
-        if (self.algorithm not in ('one-euro', 'ema', 'none')
+                  self.hysteresis_deg, self.enter_deg, self.exit_deg,
+                  self.robust_tau_s, self.robust_window_s, self.robust_slew_deg_s)
+        if (self.algorithm not in ('one-euro', 'ema', 'none', 'robust')
                 or not all(math.isfinite(v) for v in values)
                 or self.min_cutoff_hz <= 0 or self.max_cutoff_hz < self.min_cutoff_hz
                 or self.beta < 0 or self.derivative_cutoff_hz <= 0
                 or self.position_tau_s <= 0 or self.hysteresis_deg < 0
+                or min(self.robust_tau_s, self.robust_window_s, self.robust_slew_deg_s) <= 0
                 or not 0 <= self.exit_deg <= self.enter_deg < 90):
             raise ValueError('invalid steering filter settings: finite positive cutoffs/tau, '
                              'max >= min, beta/hysteresis >= 0, 0 <= exit <= enter < 90')
@@ -70,8 +75,35 @@ class Identity:
         return value
 
 
+class RobustAngle:
+    """Time-window median-of-three, fixed EMA, bounded output slew."""
+    def __init__(self, config):
+        self.config = config
+        self.samples = []
+        self.clock = 0.
+        self.value = None
+
+    def update(self, value, dt):
+        from statistics import median
+        self.clock += dt
+        self.samples.append((self.clock, value))
+        self.samples = [p for p in self.samples[-3:] if self.clock-p[0] <= self.config.robust_window_s]
+        # With two samples, retaining the first rejects a one-frame spike.
+        target = self.samples[0][1] if len(self.samples)==2 else median(p[1] for p in self.samples)
+        if self.value is None:
+            self.value = value
+        else:
+            elapsed = min(dt, .25)  # Missing frames do not open the filter on return.
+            change = elapsed/(elapsed+self.config.robust_tau_s)*(target-self.value)
+            limit = self.config.robust_slew_deg_s*elapsed
+            self.value += max(-limit, min(limit, change))
+        return self.value
+
+
 def make_angle_filter(config):
     """The only factory to change when adding another angle-filter formula."""
+    if config.algorithm == 'robust':
+        return RobustAngle(config)
     if config.algorithm == 'one-euro':
         return OneEuro(config)
     if config.algorithm == 'ema':
@@ -97,7 +129,7 @@ class GeometryFilter:
             raise ValueError('filter geometry/time must be finite')
         if self.last_time is not None and now <= self.last_time:
             raise ValueError('filter time must increase monotonically')
-        if source != self.source:
+        if source != self.source and self.config.algorithm != 'robust':
             self.reset()
         dt = now-self.last_time if self.last_time is not None else 0.
         self.source, self.last_time = source, now
@@ -166,9 +198,12 @@ class FilterComparison:
 def add_arguments(parser):
     parser.add_argument('--steering-filter-mode', choices=('legacy','shadow','active'), default='legacy',
                         help='heading/segments only: original, comparison-only, or applied filter/hysteresis')
-    parser.add_argument('--steering-filter-algorithm', choices=('one-euro','ema','none'), default='one-euro',
+    parser.add_argument('--steering-filter-algorithm', choices=('one-euro','ema','none','robust'), default='robust',
                         help='none disables new smoothing and retains the legacy median; hysteresis remains adjustable')
     for flag, default, help_text in (
+        ('robust-tau-s',.45,'Robust fixed EMA time constant; larger smooths more'),
+        ('robust-window-s',.6,'Robust median history maximum age'),
+        ('robust-slew-deg-s',45.,'Robust filtered angle maximum change per second'),
         ('min-hz',1.5,'Minimum angle cutoff Hz; smaller smooths more'),
         ('max-hz',4.,'Maximum adaptive angle cutoff Hz'),
         ('beta',.03,'Adaptive strength using degrees and degrees/second'),
@@ -186,10 +221,16 @@ def config_from_args(args):
         beta=args.steering_filter_beta, derivative_cutoff_hz=args.steering_filter_derivative_hz,
         position_tau_s=args.steering_filter_position_tau_s,
         hysteresis_deg=args.steering_hysteresis_deg, enter_deg=args.steering_enter_deg,
-        exit_deg=args.steering_exit_deg)
+        exit_deg=args.steering_exit_deg,
+        robust_tau_s=args.steering_filter_robust_tau_s,
+        robust_window_s=args.steering_filter_robust_window_s,
+        robust_slew_deg_s=args.steering_filter_robust_slew_deg_s)
 
 
 def configured_controller(controller_type, inner, options, args):
+    from steering_recovery import config_from_args as recovery_from_args
+    options = dict(options, recovery_config=recovery_from_args(args),
+                   segment_fallback=args.steering_segment_fallback)
     config = config_from_args(args)
     mode = args.steering_filter_mode
     actual = controller_type(inner, **options, filter_config=config if mode == 'active' else None)

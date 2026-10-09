@@ -94,6 +94,7 @@ class HeadingIntegrationTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmp,
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--no-shape-detect",
                                '--steering-filter-mode', filter_mode,
+                               '--steering-filter-algorithm', 'one-euro',
                                "--attitude-port", "0", "--recording-root", tmp]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client,

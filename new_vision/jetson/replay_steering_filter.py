@@ -17,10 +17,11 @@ from segment_steering import SegmentSteeringController
 from policy_bridge import SteeringController
 from steering_filter import FilterConfig, add_arguments, config_from_args
 
-CONTROL_REASONS = {'new_block','continue_block','minimum_hold','brief_loss_hold','geometry_lost_yaw_zero'}
+CONTROL_REASONS = {'new_block','continue_block','minimum_hold','brief_loss_hold','geometry_lost_yaw_zero',
+                   'loss_history_turn','loss_timeout_stop','loss_no_history_stop'}
 
 
-def replay(rows, arguments, filter_config):
+def replay(rows, arguments, filter_config, *, recovery_config=None, segment_fallback=False):
     get = arguments.get
     inner = SteeringController(vx=get('vx',.2), max_wz=get('max_wz',.5),
         yaw_sign=get('yaw_sign',1), lost_hold_s=get('lost_hold_s',.2),
@@ -34,7 +35,8 @@ def replay(rows, arguments, filter_config):
         corridor_cm=get('heading_corridor_cm',8.),
         left_levels=tuple(get('heading_left_wz',(.37,.43,.5))),
         right_levels=tuple(get('heading_right_wz',(.3,.5))),
-        straight_wz=get('heading_straight_wz',0.), min_hold_s=0., filter_config=filter_config)
+        straight_wz=get('heading_straight_wz',0.), min_hold_s=0., filter_config=filter_config,
+        recovery_config=recovery_config, segment_fallback=segment_fallback)
     result, previous = [], None
     for row in rows:
         now = float(row['process_monotonic_s'])
@@ -56,7 +58,7 @@ def replay(rows, arguments, filter_config):
         result.append(dict(frame=row['frame'], host_time_ns=row['host_time_ns'],
             process_monotonic_s=now, controlled=controlled, recorded_vx=row['vx'], recorded_wz=row['wz'],
             new_vx=vx, new_wz=wz, raw_heading_deg=diag.get('steering_heading_deg'),
-            filtered_heading_deg=diag.get('steering_filter_heading_deg'),
+            filtered_heading_deg=diag.get('steering_filter_heading_deg',diag.get('steering_filtered_heading_deg')),
             raw_demand_deg=diag.get('steering_demand_deg'),
             filtered_demand_deg=diag.get('steering_filtered_demand_deg'),
             geometry_source=diag.get('steering_heading_source'),

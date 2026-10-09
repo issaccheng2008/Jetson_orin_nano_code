@@ -1407,6 +1407,7 @@ class LineDetector:
         """
         ys, xs = self.trusted_heading_points(results, bottom_lock)
         out = {"heading_control_deg": 0.0, "heading_control_valid": False,
+               "heading_control_reject_reason": "no_paired_points",
                "heading_control_rmse_cm": 0.0, "heading_control_z_span_cm": 0.0,
                "heading_control_points": len(ys), "heading_control_slope_dx_dz": 0.0,
                "heading_control_intercept_cm": 0.0,
@@ -1417,21 +1418,25 @@ class LineDetector:
         ground = np.asarray([self._px_to_ground_cm(x, y) for y, x in zip(ys, xs)],
                             dtype=np.float64)
         if not np.all(np.isfinite(ground)):
+            out['heading_control_reject_reason'] = 'nonfinite_ground_coordinates'
             return out
         gx, gz = ground[:, 0], ground[:, 1]
         out["heading_control_z_span_cm"] = float(np.ptp(gz))
         _legacy, pixel_valid, pixel_rmse = self._fit_trusted_heading(results, bottom_lock)
         out["heading_control_pixel_rmse_px"] = pixel_rmse
         if not pixel_valid:
+            out['heading_control_reject_reason'] = ('insufficient_points' if len(ys)<self.heading_min_points
+                else 'insufficient_span' if ys[-1]-ys[0]<self.heading_min_span_px else 'pixel_residual')
             return out
         fit = self._fit_ground_line(gx, gz)
         if fit is None:
+            out['heading_control_reject_reason'] = 'degenerate_ground_fit'
             return out
         slope, intercept, residual = fit
         out.update(heading_control_deg=-math.degrees(math.atan(slope)),
                    heading_control_valid=True, heading_control_rmse_cm=residual,
                    heading_control_slope_dx_dz=slope,
-                   heading_control_intercept_cm=intercept)
+                   heading_control_intercept_cm=intercept, heading_control_reject_reason='accepted')
         return out
 
     def _fit_single_edge_heading(self, near):
@@ -1865,8 +1870,6 @@ class LineDetector:
             if self.lane_segments_enable:
                 lane_fit["fit_seg_anchored"] = False
                 if (near.get("observation_paired", False)
-                        and heading_control["heading_control_valid"]
-                        and lane_fit.get("fit_seg_valid")
                         and lane_fit.get("fit_seg0_valid")):
                     seg_z = lane_fit["fit_seg0_z_cm"]
                     seg_x = lane_fit["fit_seg0_x_cm"]
@@ -1875,6 +1878,8 @@ class LineDetector:
                     disagreement = abs(predicted_near - near_err_cm)
                     lane_fit["fit_seg_near_disagreement_cm"] = disagreement
                     lane_fit["fit_seg_anchored"] = disagreement <= 6.0
+                lane_fit['near_observation_paired'] = bool(near.get('observation_paired', False))
+                lane_fit['near_observation_quality'] = float(near.get('observation_quality', 0.))
             if single_line:
                 single_edge = self._fit_single_edge_heading(near)
             preview_valid = (near is not far and
