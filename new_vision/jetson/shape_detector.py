@@ -260,13 +260,14 @@ class ShapeDetector:
             # 白地板 + 黑线 + 反光同样满足"细环 + 亮孔"：实车一帧 cue=0.077 就把车
             # 停在一张不存在的卡前面（抠出来的框里只有地板，见 shape_dump）。
             # 量出来的分界：地板/反光 ≤0.78，真卡（运动模糊、走着看）4.2~8.5。
-            # 夹在中间取 2.0。
-            "cue_score_min": 2.0,      # 亮孔占比 × (亮孔 − 环) 灰度，下限
+            # 之前实拍模糊帧中有真卡落在1.3～2.0；放宽到1.2，同时保留
+            # 结构闸和跨帧确认。旧地板样本上限0.78不是所有曝光下的保证。
+            "cue_score_min": 1.2,      # 亮孔占比 × (亮孔 − 环) 灰度，下限
             # 时间累积：抖动是步态频率的周期运动，单帧判定必然断续。
             # 近 N 帧里出现 M 次算"卡在前面"；再看最近 R 帧里至少有一次命中，
             # 把尾随段压到 R-1 帧，不然卡走了 presence 还挂着就是假阳性。
             "cue_hist_n": 9,
-            "cue_hist_m": 3,
+            "cue_hist_m": 2,
             "cue_hist_recent": 3,
         }
 
@@ -480,7 +481,8 @@ class ShapeDetector:
                # detection path reads instead of the track-line-suppressing _binary.
                "ink": ink,
                "presence_box": None, "presence_box_work": None,
-               "presence_cue": 0.0, "presence_cy_frac": None}
+               "presence_cue": 0.0, "presence_cy_frac": None,
+               "cue_candidate_cy_frac": None}
 
         if best is not None:
             self._cue_hist.append(1)   # 找框成功 = 强存在证据，时间窗记命中
@@ -536,6 +538,9 @@ class ShapeDetector:
             self._cue_hist.append(1 if hit else 0)
             if hit:
                 bx, by, bw, bh_ = box
+                # A far, unconfirmed cue may arm the next approach. It cannot
+                # supply a stopping position or a shape vote before confirmation.
+                dbg["cue_candidate_cy_frac"] = (by + .5*bh_) / WORK_H
                 qw = np.array([[bx, by], [bx + bw, by], [bx + bw, by + bh_],
                                [bx, by + bh_]], np.float32)
                 q_orig = qw * np.array([self._scale_x, self._scale_y],

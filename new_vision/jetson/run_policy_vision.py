@@ -1218,13 +1218,15 @@ def main():
                 # is close, on the same card_reach card_reach_line the action gate uses.
                 #
                 # A trigger has to be earned again by seeing the card well short of the
-                # line. presence is armed-gated, so the action firing makes it read
-                # false and card_absent clears card_triggered on its own; the card the
-                # robot just drove past is still in frame past the line, and stopped the
-                # robot a second time mid-curve. A card already past the line has not
-                # been approached, so it cannot fire.
-                if (not startup_first_card_lock and card_reach is not None
-                        and card_reach < card_reach_line):
+                # line. An unconfirmed far cue can establish the approach before
+                # enough presence hits accumulate. The stopping gate below still
+                # requires confirmed presence and a current confirmed position.
+                # A card already past the line cannot earn a new approach.
+                arm_reach = (card_reach if card_reach is not None else
+                             card_dbg.get("cue_candidate_cy_frac"))
+                if (not startup_first_card_lock and arm_reach is not None
+                        and arm_reach < (card_reach_line if card_reach is not None
+                                         else card_trigger_frac)):
                     card_armed = True
                 # The first card can disappear from a few frames while the robot is
                 # stopped for its action, then reappear close up. Count its departure

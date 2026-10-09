@@ -1101,6 +1101,60 @@ class VisionEntryPointTests(unittest.TestCase):
             self.assertEqual(run_policy_vision.main(), 0)
         self.assertEqual(out.getvalue().count("stand still"), 1)
 
+    def test_unconfirmed_far_cue_can_rearm_but_close_cue_cannot(self):
+        for candidate_cy, expected_stops in ((.2, 2), (.8, 1)):
+            with self.subTest(candidate_cy=candidate_cy):
+                self._check_unconfirmed_cue_approach(candidate_cy, expected_stops)
+
+    def _check_unconfirmed_cue_approach(self, candidate_cy, expected_stops):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, .9, None, detection())
+        shape = Mock()
+        shape.action_map = {}
+        clock, reads = [0.], [0]
+
+        def update(*_args, **_kwargs):
+            n = reads[0]
+            if n in (2, 3, 10):
+                return None, {"presence": True, "card_found": False,
+                              "presence_cy_frac": .2 if n == 2 else .8}
+            if n == 9:
+                return None, {"presence": False, "card_found": False,
+                              "presence_cy_frac": None,
+                              "cue_candidate_cy_frac": candidate_cy}
+            return None, {"presence": False, "card_found": False,
+                          "presence_cy_frac": None}
+
+        def read():
+            reads[0] += 1
+            clock[0] += .1
+            if reads[0] > 17:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, None
+            return True, frame
+
+        shape.update.side_effect = update
+        camera.read.side_effect = read
+        out = io.StringIO()
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+                               "--card-trigger-frac", ".5", "--card-stop-ms", "200",
+                               "--card-hold-ms", "0", "--card-tilt-ms", "0"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient"),
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            contextlib.redirect_stdout(out),
+        ):
+            self.assertEqual(run_policy_vision.main(), 0)
+        self.assertEqual(out.getvalue().count("stand still"), expected_stops)
+
     def test_a_shape_is_not_acted_on_until_the_card_reaches_the_trigger_line(self):
         """Phase two waits for phase one. Acting on a card 50 cm away classified it
         from a small warp: rules called it diamond then triangle while hu read circle
@@ -1918,6 +1972,39 @@ class ShapeDetectorReportingTests(unittest.TestCase):
     frame used to report a position up to three calls old. The caller gates the
     stop on that centroid, and a stale one walked 0.51 -> 0.78 while the robot was
     standing still."""
+
+    def test_two_moderate_blurred_cues_confirm_but_floor_does_not(self):
+        detector = ShapeDetector()
+        blank = np.zeros((720, 1280, 3), np.uint8)
+        detector._presence_cue = lambda _gray: ((40, 190, 120, 90), 1.4)
+        _, first = detector.update(blank)
+        self.assertFalse(first["presence"])
+        self.assertIsNone(first["presence_cy_frac"])
+        self.assertIsNotNone(first["cue_candidate_cy_frac"])
+        self.assertIsNone(first["shape"])
+        _, second = detector.update(blank)
+        self.assertTrue(second["presence"])
+        self.assertIsNotNone(second["presence_cy_frac"])
+        self.assertIsNone(second["shape"])
+        floor = ShapeDetector()
+        floor._presence_cue = lambda _gray: ((40, 190, 120, 90), .8)
+        for _ in range(6):
+            _, rejected = floor.update(blank)
+        self.assertFalse(rejected["presence"])
+        self.assertIsNone(rejected["cue_candidate_cy_frac"])
+
+    def test_moderate_cues_can_confirm_across_three_missed_detection_calls(self):
+        detector = ShapeDetector()
+        scores = iter((1.4, 0., 0., 0., 1.4))
+        detector._presence_cue = lambda _gray: ((40, 190, 120, 90), next(scores))
+        blank = np.zeros((720, 1280, 3), np.uint8)
+        for _ in range(4):
+            _, pending = detector.update(blank)
+            self.assertFalse(pending["presence"])
+            self.assertIsNone(pending["presence_cy_frac"])
+        _, confirmed = detector.update(blank)
+        self.assertTrue(confirmed["presence"])
+        self.assertIsNotNone(confirmed["presence_cy_frac"])
 
     def test_a_cue_miss_reports_no_centroid(self):
         detector = ShapeDetector()
