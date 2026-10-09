@@ -1,6 +1,6 @@
 # 连续移动片段的赛道候选对照
 
-[65.5 秒 MP4](comparison_moving_65s.mp4) · [8 秒 GIF](preview_8s.gif) · [代表画面：丢线](comparison_frame_590.png) · [代表画面：线缆](comparison_frame_1040.png) · [代表画面：末段真实卡片](comparison_frame_1150.png)
+[65.5 秒 MP4](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/canny_demo/comparison_moving_65s.mp4) · [8 秒 GIF](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/canny_demo/preview_8s.gif) · [代表画面：丢线](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/canny_demo/comparison_frame_590.png) · [代表画面：线缆](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/canny_demo/comparison_frame_1040.png) · [代表画面：末段真实卡片](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/canny_demo/comparison_frame_1150.png)
 
 从 `camera_commands3.avi` 保留源录像 **32.7–71.0、79.6–87.7、98.7–117.8 秒** 三个连续窗口，共 655 帧，10 fps，65.5 秒。画面底部持续显示源录像时间、源帧号、播放时间和片段号；片段之间有时间跳转。录像 134.2 秒中，明确持续经过赛道标记的片段约 58.8 秒，运动窗口内的丢线、线缆、人员遮挡、偏离赛道及停止转换均保留。
 

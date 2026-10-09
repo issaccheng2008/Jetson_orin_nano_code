@@ -4,10 +4,10 @@
 
 ## 打开观看
 
-- [24秒对照demo](comparison_24s.mp4)：依次使用原录像10～18、38～46、77～85秒，包含清晰画面、模糊片段和弯道；片段以原速度播放，显示原录像时间。
-- [完整134.2秒对照](comparison_full.mp4)：全部1342帧，无删帧、加速或插入合成线。
-- [完整新版最终二值视频](binary_contrast_full.mp4)：320×400，黑底白线，独立查看最终候选。
-- [4秒GIF预览](preview.gif)：原录像78.5～82.5秒，预览下采样为5fps；查看细线请打开MP4或PNG。
+- [24秒对照demo](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/comparison_24s.mp4)：依次使用原录像10～18、38～46、77～85秒，包含清晰画面、模糊片段和弯道；片段以原速度播放，显示原录像时间。
+- [完整134.2秒对照](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/comparison_full.mp4)：全部1342帧，无删帧、加速或插入合成线。
+- [完整新版最终二值视频](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/binary_contrast_full.mp4)：320×400，黑底白线，独立查看最终候选。
+- [4秒GIF预览](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/preview.gif)：原录像78.5～82.5秒，预览下采样为5fps；查看细线请打开MP4或PNG。
 
 对照视频从左到右：原始相机画面、原始鸟瞰、旧版legacy、新版contrast。角落显示实际阈值及最终候选像素数。原画面中的vx/wz叠层来自录制时的旧运行，不代表本demo重新执行的命令。
 
@@ -15,9 +15,9 @@
 
 | 录像时间 | 完整对照 | 新版二值PNG |
 |---|---|---|
-| 13.4秒 | [对照](comparison_frame_134.png) | [二值](binary_frame_134.png) |
-| 40.2秒 | [对照](comparison_frame_402.png) | [二值](binary_frame_402.png) |
-| 80.5秒 | [对照](comparison_frame_805.png) | [二值](binary_frame_805.png) |
+| 13.4秒 | [对照](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/comparison_frame_134.png) | [二值](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/binary_frame_134.png) |
+| 40.2秒 | [对照](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/comparison_frame_402.png) | [二值](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/binary_frame_402.png) |
+| 80.5秒 | [对照](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/comparison_frame_805.png) | [二值](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/line_extraction/demo/binary_frame_805.png) |
 
 PNG保留精确0/255像素；MP4/GIF用于展示。已核对三个MP4的帧数、fps、末帧可解码；80.5秒二值MP4解码值仅0/255，和对应PNG一致。
 
