@@ -36,7 +36,6 @@ CARD_NAMES_ZH = {
 # 赛道中线半径（m），文档 §3。只用来在启动横幅里打一行参考："跟住一个弯需要
 # 多少角速度"（ω = vx / R）。**脉冲幅度不按它推** —— 0.4/0.5 是实车量出来的好值。
 LANE_RADIUS_M = 0.776
-STARTUP_FIRST_WALK_S = 1.0
 
 
 def card_action_stop_s(action, hold_ms):
@@ -186,6 +185,11 @@ def parse_args():
                              "the repository .venv/bin/python when available")
     parser.add_argument("--start-policy-port", default="/dev/ttyACM0")
     parser.add_argument("--start-policy-max-seconds", type=float, default=1200.0)
+    parser.add_argument('--startup-first-walk-s', type=float, default=.5,
+                        help='Initial straight walk before executing the latched first card; finite >0 seconds.')
+    parser.add_argument('--startup-sequence', default='',
+                        help='Optional JSON array of duration_s/vx/wz steps before first card action; '
+                             'overrides startup-first-walk-s; empty uses a single straight step.')
     parser.add_argument('--command-min-hold-s', type=float, default=0.0,
                         help='Minimum actual walking command duration in launched policy; '
                              '0 disables, 0.5 restores original duration; vision adds no second hold')
@@ -465,6 +469,13 @@ def parse_args():
     from steering_recovery import add_arguments as add_recovery_arguments, config_from_args as recovery_from_args
     add_recovery_arguments(parser)
     args = parser.parse_args()
+    if not math.isfinite(args.startup_first_walk_s) or args.startup_first_walk_s <= 0:
+        parser.error('startup-first-walk-s must be finite and >0')
+    from startup_sequence import parse_sequence
+    try:
+        parse_sequence(args.startup_sequence, args.startup_first_walk_s, args.vx, args.max_wz)
+    except ValueError as exc:
+        parser.error(str(exc))
     if not math.isfinite(args.video_fps) or not 1 <= args.video_fps <= 30:
         parser.error('video-fps must be finite and in [1, 30]')
     if not 64 <= args.video_width <= 1920:
@@ -600,6 +611,9 @@ def fmt(value, spec):
 
 def main():
     args = parse_args()
+    from startup_sequence import parse_sequence, StartupSequence
+    startup_sequence = StartupSequence(parse_sequence(
+        args.startup_sequence, args.startup_first_walk_s, args.vx, args.max_wz))
     recording_directory = None
     if args.recording_root:
         from recording_session import create_session
@@ -881,7 +895,6 @@ def main():
         # Competition start: classify the first card while stationary, walk briefly,
         # then act on that latched classification. Keep its ordinary stop gate closed
         # until it has been left behind and the next card approaches from afar.
-        startup_move_until = 0.0
         startup_first_card = -1
         startup_first_card_pending = False
         startup_first_card_lock = False
@@ -911,7 +924,7 @@ def main():
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py",
-                                "steering_filter.py", "steering_recovery.py"):
+                                "steering_filter.py", "steering_recovery.py", "startup_sequence.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
         if args.line_log_dir:
@@ -1318,19 +1331,26 @@ def main():
                             startup_first_card_pending = True
                             startup_first_card_lock = True
                             startup_first_card_clear_calls = 0
-                            startup_move_until = 0.0  # set when the first nonzero command is sent
+                            startup_sequence.reset()  # begins on first released camera frame
                             card_armed = False
                             release_source = ("按钮已按下、首卡已锁存" if args.start_gate == "button"
                                               else "二维码和首卡均已锁存")
                             print(f"[start-gate] {release_source}："
                                   f"{start_gate.last_shape} -> {startup_first_card}; "
-                                  "先直行 1.0s，再停车直接执行首卡（不等近距触发/二次投票）",
+                                  f"启动序列 {startup_sequence.describe()}，再停车直接执行首卡（不等近距触发/二次投票）",
                                   flush=True)
+                            if (len(startup_sequence.steps) > 1 and args.command_min_hold_s >
+                                    min(s.duration_s for s in startup_sequence.steps)):
+                                print('[start-gate] 注意：COMMAND_MIN_HOLD_S 大于序列最短段，'
+                                      '模型可能延迟切换；请调小保持时间并检查 control CSV。', flush=True)
                         else:
                             card_armed = True
-            if (startup_first_card_pending and startup_move_until > 0.0
-                    and not gate_window_open
-                    and processed >= startup_move_until):
+            startup_pair = None
+            if startup_first_card_pending and not gate_window_open:
+                startup_pair = startup_sequence.command(processed)
+                debug.update(startup_sequence_index=startup_sequence.index,
+                             startup_sequence_remaining_s=max(0., (startup_sequence.deadline or processed)-processed))
+            if startup_first_card_pending and not gate_window_open and startup_pair is None:
                 # The first card may already be inside the normal proximity line.
                 # Its identity was confirmed before QR release, so there is no
                 # benefit in walking farther just to trigger another vote.
@@ -1343,7 +1363,7 @@ def main():
                 card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
                 card_until = processed + card_action_stop_s(card_action, args.card_hold_ms)
                 recognized_this_frame = True
-                print(f"[start-gate] 首卡短步结束；停车并发送已锁存的 "
+                print(f"[start-gate] 首卡启动序列结束；停车并发送已锁存的 "
                       f"action={card_action} event={card_event_id}", flush=True)
             # ── 停车投票 ──
             # 停车窗口里，每一帧的分类结果投一票。用 card_dbg["shape"]（每帧都写），
@@ -1412,11 +1432,9 @@ def main():
                 # command before the first frame that does call it.
                 vx, wz = 0.0, 0.0
             elif startup_first_card_pending:
-                # Symbolic first walk: hold straight for one second, with no line
-                # steering while the known first card is so close.
-                if startup_move_until == 0.0:
-                    startup_move_until = processed + STARTUP_FIRST_WALK_S
-                vx, wz = args.vx, 0.0
+                # Explicit first-card commands; normal line steering resumes after
+                # the sequence/action. No model, protocol or command-hold changes.
+                vx, wz = startup_pair
             else:
                 vx, wz = controller.command(debug, confidence, processed - previous)
                 debug.update(getattr(controller, "diagnostics", {}))

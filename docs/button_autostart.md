@@ -82,6 +82,10 @@ sudo systemctl enable humanoid-button-connector.service humanoid-button-vision.s
 
 Vision 异常退出后，systemd 在 5 秒后重启并重新等待本次运行的新按钮事件；不会自动恢复步态。正常结束（包括 gait 到达运行时限）不自动重启。服务停止使用 `KillMode=control-group`、先发 SIGINT，20 秒后仍未退出则由 systemd 强制清理，包括 gait 子进程。Connector 停止会连带停止依赖它的 vision；恢复后用 `sudo systemctl start humanoid-button-vision.service` 重新进入等待按钮状态。
 
+起点首卡已经识别并锁存时，按按钮启动后先直行，再停车执行首卡。原来写死为 1.0 秒，现在默认 0.5 秒；在 `config/button_start.env` 添加 `STARTUP_FIRST_WALK_S=0.3` 可改成 0.3 秒（须大于 0），`1.0` 恢复原时长。它与 `COMMAND_MIN_HOLD_S` 独立，停车执行动作仍会打断指令保持。未识别首卡时按按钮直接进入普通巡线，不使用这段首卡直行。手动运行参数为 `--startup-first-walk-s 0.3`。修改后重启视觉服务；没有此字段的旧按钮配置也默认使用 0.5 秒。计时从首个直行帧开始，在后续视觉帧检查结束，因此实际发送时长受处理周期及耗时波动影响，可能与配置值有一个周期左右偏差。
+
+需要组合指令时，在同一配置文件中增加 `STARTUP_SEQUENCE`。详见 [启动指令序列](启动指令序列.md)：每段分别指定时间、VX、WZ，序列结束再停车执行首卡；非空序列优先于 `STARTUP_FIRST_WALK_S`。
+
 每次测试统一写入 `records/tests/日期/test_时间_唯一编号/`，包括视觉、控制指令、关节角、IMU 和图片；详见 [测试数据每日归档](测试数据每日归档.md)。查看本次启动全部日志：
 
 ```bash

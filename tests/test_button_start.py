@@ -22,6 +22,16 @@ import run_policy_vision
 
 
 class ButtonStartTests(unittest.TestCase):
+    def test_first_card_walk_time_is_configurable_and_validated(self):
+        with patch('sys.argv', ['run_policy_vision.py']):
+            self.assertEqual(run_policy_vision.parse_args().startup_first_walk_s, .5)
+        with patch('sys.argv', ['run_policy_vision.py', '--startup-first-walk-s', '.3']):
+            self.assertEqual(run_policy_vision.parse_args().startup_first_walk_s, .3)
+        for value in ('0', '-1', 'nan', 'inf'):
+            with patch('sys.argv', ['run_policy_vision.py', '--startup-first-walk-s', value]), patch('sys.stderr', io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    run_policy_vision.parse_args()
+
     def test_card_readiness_does_not_release_button_gate(self):
         gate = StartGate(mode="button", shape_confirm=2)
         gate.observe_shape("square")
@@ -135,7 +145,7 @@ class StartupSerialTests(unittest.TestCase):
 
 
 class ButtonVisionIntegrationTests(unittest.TestCase):
-    def run_scenario(self, card, press_at=None):
+    def run_scenario(self, card, press_at=None, walk_s=None, sequence=None):
         clock, reads = [0.0], [0]
         camera = Mock()
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -165,8 +175,12 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
             ready_values.append(ready)
             return press_at is not None and reads[0] >= press_at
 
+        extra = [] if walk_s is None else ['--startup-first-walk-s', str(walk_s)]
+        if sequence is not None:
+            extra += ['--startup-sequence', sequence]
+        timed_commands = []
         with (patch("sys.argv", ["run_policy_vision.py", "--headless", "--start-gate", "button",
-                                "--start-policy-on-gate", "--shape-every", "1", "--attitude-port", "0"]),
+                                "--start-policy-on-gate", "--shape-every", "1", "--attitude-port", "0", *extra]),
               patch.object(run_policy_vision.signal, "signal"),
               patch.object(run_policy_vision, "ConnectorClient") as client_cls,
               patch("utils.open_camera", return_value=camera),
@@ -190,9 +204,39 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
 
             launcher.start.side_effect = launch
             launcher.ready.side_effect = lambda: reads[0] >= (press_at or 100) + 2
+            client_cls.return_value.publish.side_effect = lambda vx,wz,*a,**kw: timed_commands.append((clock[0],vx,wz,kw))
             self.assertEqual(run_policy_vision.main(), 0)
+            launcher.timed_commands = timed_commands
         qr_cls.assert_not_called()
         return launcher, client_cls.return_value.publish.call_args_list, order, ready_values
+
+    def test_first_card_action_follows_configured_walk_duration(self):
+        for duration in (.3, .5, 1.):
+            with self.subTest(duration=duration):
+                launcher, *_ = self.run_scenario(card=True, press_at=6, walk_s=duration)
+                first_walk = next(t for t,vx,wz,kw in launcher.timed_commands if vx > 0)
+                first_action = next(t for t,vx,wz,kw in launcher.timed_commands if kw.get('event_id'))
+                self.assertGreaterEqual(first_action-first_walk+1e-8, duration)
+                self.assertLessEqual(first_action-first_walk, duration+.100001)
+
+    def test_first_card_sequence_straight_then_turn_then_action(self):
+        sequence = '[{"duration_s":0.5,"vx":0.2,"wz":0},{"duration_s":0.5,"vx":0.2,"wz":0.5}]'
+        launcher, commands, *_ = self.run_scenario(card=True, press_at=6, sequence=sequence)
+        timed = launcher.timed_commands
+        straight_at = next(t for t,vx,wz,kw in timed if vx > 0)
+        turn_at = next(t for t,vx,wz,kw in timed if wz > 0)
+        action_at = next(t for t,vx,wz,kw in timed if kw.get('event_id'))
+        self.assertAlmostEqual(turn_at-straight_at, .5, places=6)
+        self.assertGreaterEqual(action_at-turn_at+1e-8, .5)
+        self.assertLessEqual(action_at-turn_at, .600001)
+        self.assertTrue(all((vx,wz)==(.2,.5) for t,vx,wz,kw in timed if turn_at <= t < action_at))
+        self.assertEqual({c.kwargs['event_action'] for c in commands if c.kwargs.get('event_id')}, {1})
+
+    def test_sequence_does_not_run_without_latched_first_card(self):
+        sequence = '[{"duration_s":0.5,"vx":0.2,"wz":0.5}]'
+        launcher, commands, *_ = self.run_scenario(card=False, press_at=6, sequence=sequence)
+        self.assertFalse(any(wz for t,vx,wz,kw in launcher.timed_commands))
+        self.assertFalse(any(c.kwargs.get('event_id') for c in commands))
 
     def test_recognized_card_lights_hint_but_does_not_start_without_button(self):
         launcher, commands, order, ready = self.run_scenario(card=True)

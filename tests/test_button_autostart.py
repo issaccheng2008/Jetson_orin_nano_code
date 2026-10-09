@@ -14,6 +14,22 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_first_card_walk_time_defaults_and_configuration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('STARTUP_FIRST_WALK_S=')) + '\n'
+            for value in (None, '0.3', '1.0'):
+                (checkout / 'config/button_start.env').write_text(original+(f'STARTUP_FIRST_WALK_S={value}\n' if value else ''))
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertEqual(args[args.index('--startup-first-walk-s')+1], value or '0.5')
+            sequence = '[{"duration_s":0.5,"vx":0.2,"wz":0},{"duration_s":0.5,"vx":0.2,"wz":-0.5}]'
+            (checkout / 'config/button_start.env').write_text(original+f"STARTUP_SEQUENCE='{sequence}'\n")
+            args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+            self.assertEqual(args[args.index('--startup-sequence')+1], sequence)
+
     def test_video_defaults_old_config_and_passes_disable_and_size(self):
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary) / 'robot'

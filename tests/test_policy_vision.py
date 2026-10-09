@@ -3095,9 +3095,10 @@ class StartGateIntegrationTests(unittest.TestCase):
                 self.assertTrue(published[index].kwargs["hold_upright"])
                 self.assertFalse(published[index].kwargs["card_tilt"])
                 self.assertNotIn("event_id", published[index].kwargs)
-        # 释放后先直行约 1 秒，再停车发门控阶段锁存的编号。
+        # 默认释放后先直行约 0.5 秒，再停车发门控阶段锁存的编号。
         moving = [call for call in published if call.args[0] > 0]
-        self.assertGreaterEqual(len(moving), 10)
+        self.assertGreaterEqual(len(moving), 5)
+        self.assertLessEqual(len(moving), 6)
         self.assertTrue(all(call.args[:2] == (0.2, 0.0) for call in moving))
         self.assertTrue(all("event_id" not in call.kwargs for call in moving))
         events = [call for call in published if call.kwargs.get("event_id")]
