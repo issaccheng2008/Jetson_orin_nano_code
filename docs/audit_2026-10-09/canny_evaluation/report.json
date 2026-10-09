@@ -1,0 +1,1004 @@
+{
+  "baseline_ref": "3260323934ae3df830a2ff8c146aa606ec32eca9",
+  "opencv": "4.14.0",
+  "canny_source_sha256": "9e96e49618662a0a8abc571683995c08b31f560d19da68463d21c96809209753",
+  "cards": {
+    "summary": [
+      {
+        "mode": "baseline",
+        "images": 31,
+        "found": 28,
+        "quad_found": 28,
+        "presence": 26,
+        "classified": 27,
+        "correct": 27,
+        "wrong": 0
+      },
+      {
+        "mode": "binary_canny",
+        "images": 31,
+        "found": 28,
+        "quad_found": 28,
+        "presence": 26,
+        "classified": 26,
+        "correct": 19,
+        "wrong": 7
+      },
+      {
+        "mode": "both_canny",
+        "images": 31,
+        "found": 13,
+        "quad_found": 13,
+        "presence": 11,
+        "classified": 12,
+        "correct": 6,
+        "wrong": 6
+      }
+    ],
+    "images": [
+      {
+        "name": "三1.jpg",
+        "sha256": "81c878a58796d15ff30f6225db6fb6c66a4854494b14fbb87c56de67d56b01bd"
+      },
+      {
+        "name": "三2.jpg",
+        "sha256": "63c422ccdaa7f1f9679505e0d4773eb5c14953460dedebfa901c7c7139be164d"
+      },
+      {
+        "name": "三3.jpg",
+        "sha256": "d8768c91b3c23af2cb9bee82380abeb11f776badd8de45945cc84a6b6c0a2fa4"
+      },
+      {
+        "name": "三4.jpg",
+        "sha256": "d1e7562987c9b7b0eb1e4dd1cd83c26254c17930375448f4d78c6eeec4d38d16"
+      },
+      {
+        "name": "五1.jpg",
+        "sha256": "c0008b1791f1117425970d4c93eca5c5b1a233f053121d16f5d2834ed16b0a17"
+      },
+      {
+        "name": "五2.jpg",
+        "sha256": "49f8d7b98a0f8dbb6f55a185fd0650846403ef4ad85b3d9241eb838e28ff4474"
+      },
+      {
+        "name": "五3.jpg",
+        "sha256": "ed75dc573858a96e2b1753fded092a9faec087c254d4a01124f95f6b8d8f7f83"
+      },
+      {
+        "name": "五4.jpg",
+        "sha256": "d55bed403647fe6a0140eed96009fcaf5e0f169afd52d086b4b6463b5ee74b5a"
+      },
+      {
+        "name": "五5.jpg",
+        "sha256": "0be544a7e051f30c0cbb861a4367df300149dabcf57637146072a1d4cae30095"
+      },
+      {
+        "name": "五6.jpg",
+        "sha256": "f1aef5763951953b9cd218790c324a3763925df5b6bcb23e222f018cea32e47d"
+      },
+      {
+        "name": "十1.jpg",
+        "sha256": "5ace02478e0492f15af3d14be204df5c81c7889c7e2920e8c9c595f2b6beee23"
+      },
+      {
+        "name": "十2.jpg",
+        "sha256": "6040d22ad2fef3a4ac530a1bd54bc28f372ef603f17fff4aa632fed3bed6cd33"
+      },
+      {
+        "name": "十3.jpg",
+        "sha256": "ee61098d650fddc99efaad9831ea967e1dbeaef140172fb4d7f6f9126a7e2340"
+      },
+      {
+        "name": "圆1.jpg",
+        "sha256": "5ea20341590f20acb3887f1a83f40d0033a3b7fa2253b79a7a76330fbb41d5e1"
+      },
+      {
+        "name": "圆2.jpg",
+        "sha256": "212474ca7487f427a58763335a52a4b1511b3baec9a92286901a314b1b321646"
+      },
+      {
+        "name": "圆3.jpg",
+        "sha256": "443d5179c3f358d60b1b809957ccc654f3c2669c9d2e96371b7005877df1867e"
+      },
+      {
+        "name": "圆4.jpg",
+        "sha256": "3da5f8b4850c0037e554d99e5e1a51cc0d8f7c78acb8c617d9404fe941142472"
+      },
+      {
+        "name": "圆5.jpg",
+        "sha256": "104a1aa2d6897cfe1cc9dd8ebd7c0b51549e2d8fd99d313677377ff5bdb0972b"
+      },
+      {
+        "name": "圆6.jpg",
+        "sha256": "6705c9db756a6fe51c3979eeacdae7577d94ae23a4b78ed590071fd278801b83"
+      },
+      {
+        "name": "正1.jpg",
+        "sha256": "205fbac7b59be4a9735d709fbf46d630bf74460e9e510a95858550dd766bc13f"
+      },
+      {
+        "name": "正2.jpg",
+        "sha256": "6bf651bbdccc9b6ad821f0b336e98e8aba6dfc443b816283f46bc6dbe245133f"
+      },
+      {
+        "name": "正3.jpg",
+        "sha256": "e5a6adf10c0161df2681ead0a3f109a3eaf6b548d2973004848571aa9be02b10"
+      },
+      {
+        "name": "正4.jpg",
+        "sha256": "ed6b525195ee30753d10a8ca5caded7f1d2aad3c5bc0f9663d85327b3648f194"
+      },
+      {
+        "name": "正5.jpg",
+        "sha256": "b6ecd745b792a177504748447e7d569fd31d7e09c1b5886c8b20de3abef3cdef"
+      },
+      {
+        "name": "正6.jpg",
+        "sha256": "67af2948194cebdc68be156a0a1b0516cc5f02ef1de317ddd99cb9376b986b23"
+      },
+      {
+        "name": "正7.jpg",
+        "sha256": "3736bd568fa8df89be7dddedccc1e8454747e32aaf02242bbc82a057c5bbd108"
+      },
+      {
+        "name": "正8.jpg",
+        "sha256": "967ef01e17be3e8baff10a6cccda9761c062df88d35a5f5e4390137490739ecf"
+      },
+      {
+        "name": "菱1.jpg",
+        "sha256": "f661dd7027a3393dbccc06ac81475a7a439bf229da5640d23ce1819f79a78b38"
+      },
+      {
+        "name": "菱2.jpg",
+        "sha256": "f349ae314e2cfc729f0c6bce131cb9731b85199de41a5aa35c654f4f5c3c607b"
+      },
+      {
+        "name": "菱3.jpg",
+        "sha256": "ce53e8d3b6c3297d87092ba4ed184b07570bc8e27eaca58c6fc3911265b22b6b"
+      },
+      {
+        "name": "菱4.jpg",
+        "sha256": "08aeb2b1803d8e21d1c9684f6f06889b1f6fb19e663ef847ac8b2cdeaab8da61"
+      }
+    ],
+    "baseline_shape_sha256": "6d321a10cf59a406eeadac3147c75056865fd7a2b7e161b887aa7a75df656edf",
+    "experiments": {
+      "binary_canny": "replace selective binary only; original Otsu ring ink and presence cue retained",
+      "both_canny": "replace selective binary and ring ink; original presence cue retained"
+    },
+    "changes": [
+      {
+        "index": 1,
+        "filename": "三1.jpg",
+        "truth": "triangle",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 523
+      },
+      {
+        "index": 1,
+        "filename": "三1.jpg",
+        "truth": "triangle",
+        "mode": "both_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 523
+      },
+      {
+        "index": 2,
+        "filename": "三2.jpg",
+        "truth": "triangle",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 515
+      },
+      {
+        "index": 3,
+        "filename": "三3.jpg",
+        "truth": "triangle",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 521
+      },
+      {
+        "index": 3,
+        "filename": "三3.jpg",
+        "truth": "triangle",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 521
+      },
+      {
+        "index": 4,
+        "filename": "三4.jpg",
+        "truth": "triangle",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "circle",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 516
+      },
+      {
+        "index": 4,
+        "filename": "三4.jpg",
+        "truth": "triangle",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 516
+      },
+      {
+        "index": 5,
+        "filename": "五1.jpg",
+        "truth": "pentagon",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "circle",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 518
+      },
+      {
+        "index": 5,
+        "filename": "五1.jpg",
+        "truth": "pentagon",
+        "mode": "both_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "circle",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 517
+      },
+      {
+        "index": 7,
+        "filename": "五3.jpg",
+        "truth": "pentagon",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "circle",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 516
+      },
+      {
+        "index": 7,
+        "filename": "五3.jpg",
+        "truth": "pentagon",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 515
+      },
+      {
+        "index": 8,
+        "filename": "五4.jpg",
+        "truth": "pentagon",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 515
+      },
+      {
+        "index": 10,
+        "filename": "五6.jpg",
+        "truth": "pentagon",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "circle",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 516
+      },
+      {
+        "index": 10,
+        "filename": "五6.jpg",
+        "truth": "pentagon",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 515
+      },
+      {
+        "index": 12,
+        "filename": "十2.jpg",
+        "truth": "cross",
+        "mode": "both_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "circle",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 517
+      },
+      {
+        "index": 13,
+        "filename": "十3.jpg",
+        "truth": "cross",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 469
+      },
+      {
+        "index": 14,
+        "filename": "圆1.jpg",
+        "truth": "circle",
+        "mode": "both_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "square",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 517
+      },
+      {
+        "index": 15,
+        "filename": "圆2.jpg",
+        "truth": "circle",
+        "mode": "both_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": false,
+        "classified": true,
+        "prediction": "square",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 516
+      },
+      {
+        "index": 16,
+        "filename": "圆3.jpg",
+        "truth": "circle",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "square",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 500
+      },
+      {
+        "index": 16,
+        "filename": "圆3.jpg",
+        "truth": "circle",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 500
+      },
+      {
+        "index": 17,
+        "filename": "圆4.jpg",
+        "truth": "circle",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 514
+      },
+      {
+        "index": 19,
+        "filename": "圆6.jpg",
+        "truth": "circle",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "square",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 520
+      },
+      {
+        "index": 19,
+        "filename": "圆6.jpg",
+        "truth": "circle",
+        "mode": "both_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "square",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 521
+      },
+      {
+        "index": 20,
+        "filename": "正1.jpg",
+        "truth": "square",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 516
+      },
+      {
+        "index": 21,
+        "filename": "正2.jpg",
+        "truth": "square",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": false,
+        "classified": true,
+        "prediction": "square",
+        "correct": true,
+        "wrong": false,
+        "quad_candidates": 517
+      },
+      {
+        "index": 21,
+        "filename": "正2.jpg",
+        "truth": "square",
+        "mode": "both_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": false,
+        "classified": true,
+        "prediction": "square",
+        "correct": true,
+        "wrong": false,
+        "quad_candidates": 518
+      },
+      {
+        "index": 22,
+        "filename": "正3.jpg",
+        "truth": "square",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 517
+      },
+      {
+        "index": 23,
+        "filename": "正4.jpg",
+        "truth": "square",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 517
+      },
+      {
+        "index": 24,
+        "filename": "正5.jpg",
+        "truth": "square",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 516
+      },
+      {
+        "index": 27,
+        "filename": "正8.jpg",
+        "truth": "square",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 514
+      },
+      {
+        "index": 28,
+        "filename": "菱1.jpg",
+        "truth": "diamond",
+        "mode": "both_canny",
+        "found": false,
+        "quad_found": false,
+        "presence": false,
+        "classified": false,
+        "prediction": "-",
+        "correct": false,
+        "wrong": false,
+        "quad_candidates": 514
+      },
+      {
+        "index": 29,
+        "filename": "菱2.jpg",
+        "truth": "diamond",
+        "mode": "binary_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "cross",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 484
+      },
+      {
+        "index": 29,
+        "filename": "菱2.jpg",
+        "truth": "diamond",
+        "mode": "both_canny",
+        "found": true,
+        "quad_found": true,
+        "presence": true,
+        "classified": true,
+        "prediction": "square",
+        "correct": false,
+        "wrong": true,
+        "quad_candidates": 484
+      }
+    ]
+  },
+  "lanes": {
+    "summary": [
+      {
+        "subset": "all",
+        "method": "legacy",
+        "frames": 14,
+        "center_hits": 4551,
+        "center_pixels": 7449,
+        "near_lane_pixels": 36664,
+        "candidate_pixels": 36942,
+        "center_recall": 0.6109544905356423,
+        "tolerance_precision": 0.9924746900546804
+      },
+      {
+        "subset": "all",
+        "method": "contrast",
+        "frames": 14,
+        "center_hits": 7090,
+        "center_pixels": 7449,
+        "near_lane_pixels": 52898,
+        "candidate_pixels": 57902,
+        "center_recall": 0.9518056114914754,
+        "tolerance_precision": 0.9135781147456047
+      },
+      {
+        "subset": "all",
+        "method": "canny",
+        "frames": 14,
+        "center_hits": 7363,
+        "center_pixels": 7449,
+        "near_lane_pixels": 87797,
+        "candidate_pixels": 132124,
+        "center_recall": 0.9884548261511612,
+        "tolerance_precision": 0.6645045563258757
+      },
+      {
+        "subset": "latest",
+        "method": "legacy",
+        "frames": 7,
+        "center_hits": 3173,
+        "center_pixels": 3700,
+        "near_lane_pixels": 27725,
+        "candidate_pixels": 28003,
+        "center_recall": 0.8575675675675676,
+        "tolerance_precision": 0.990072492232975
+      },
+      {
+        "subset": "latest",
+        "method": "contrast",
+        "frames": 7,
+        "center_hits": 3532,
+        "center_pixels": 3700,
+        "near_lane_pixels": 28661,
+        "candidate_pixels": 32320,
+        "center_recall": 0.9545945945945946,
+        "tolerance_precision": 0.8867883663366337
+      },
+      {
+        "subset": "latest",
+        "method": "canny",
+        "frames": 7,
+        "center_hits": 3661,
+        "center_pixels": 3700,
+        "near_lane_pixels": 43953,
+        "candidate_pixels": 67513,
+        "center_recall": 0.9894594594594595,
+        "tolerance_precision": 0.6510301719668804
+      },
+      {
+        "subset": "older",
+        "method": "legacy",
+        "frames": 7,
+        "center_hits": 1378,
+        "center_pixels": 3749,
+        "near_lane_pixels": 8939,
+        "candidate_pixels": 8939,
+        "center_recall": 0.36756468391571084,
+        "tolerance_precision": 1.0
+      },
+      {
+        "subset": "older",
+        "method": "contrast",
+        "frames": 7,
+        "center_hits": 3558,
+        "center_pixels": 3749,
+        "near_lane_pixels": 24237,
+        "candidate_pixels": 25582,
+        "center_recall": 0.9490530808215524,
+        "tolerance_precision": 0.9474239699788914
+      },
+      {
+        "subset": "older",
+        "method": "canny",
+        "frames": 7,
+        "center_hits": 3702,
+        "center_pixels": 3749,
+        "near_lane_pixels": 43844,
+        "candidate_pixels": 64611,
+        "center_recall": 0.9874633235529474,
+        "tolerance_precision": 0.6785841420191608
+      },
+      {
+        "subset": "activity_selected",
+        "method": "legacy",
+        "frames": 4,
+        "center_hits": 1638,
+        "center_pixels": 2128,
+        "near_lane_pixels": 12388,
+        "candidate_pixels": 12388,
+        "center_recall": 0.7697368421052632,
+        "tolerance_precision": 1.0
+      },
+      {
+        "subset": "activity_selected",
+        "method": "contrast",
+        "frames": 4,
+        "center_hits": 2062,
+        "center_pixels": 2128,
+        "near_lane_pixels": 14678,
+        "candidate_pixels": 16630,
+        "center_recall": 0.9689849624060151,
+        "tolerance_precision": 0.8826217678893565
+      },
+      {
+        "subset": "activity_selected",
+        "method": "canny",
+        "frames": 4,
+        "center_hits": 2089,
+        "center_pixels": 2128,
+        "near_lane_pixels": 23665,
+        "candidate_pixels": 34879,
+        "center_recall": 0.9816729323308271,
+        "tolerance_precision": 0.678488488775481
+      }
+    ],
+    "activity_frames": [
+      {
+        "key": "camera_commands3_536",
+        "method": "legacy",
+        "frames": 1,
+        "center_hits": 459,
+        "center_pixels": 625,
+        "near_lane_pixels": 3152,
+        "candidate_pixels": 3152,
+        "center_recall": 0.7344,
+        "tolerance_precision": 1.0
+      },
+      {
+        "key": "camera_commands3_536",
+        "method": "contrast",
+        "frames": 1,
+        "center_hits": 610,
+        "center_pixels": 625,
+        "near_lane_pixels": 3946,
+        "candidate_pixels": 4854,
+        "center_recall": 0.976,
+        "tolerance_precision": 0.8129377832715287
+      },
+      {
+        "key": "camera_commands3_536",
+        "method": "canny",
+        "frames": 1,
+        "center_hits": 625,
+        "center_pixels": 625,
+        "near_lane_pixels": 5145,
+        "candidate_pixels": 9087,
+        "center_recall": 1.0,
+        "tolerance_precision": 0.5661934631891713
+      },
+      {
+        "key": "camera_commands3_670",
+        "method": "legacy",
+        "frames": 1,
+        "center_hits": 425,
+        "center_pixels": 591,
+        "near_lane_pixels": 3954,
+        "candidate_pixels": 3954,
+        "center_recall": 0.7191201353637902,
+        "tolerance_precision": 1.0
+      },
+      {
+        "key": "camera_commands3_670",
+        "method": "contrast",
+        "frames": 1,
+        "center_hits": 546,
+        "center_pixels": 591,
+        "near_lane_pixels": 4665,
+        "candidate_pixels": 4672,
+        "center_recall": 0.9238578680203046,
+        "tolerance_precision": 0.9985017123287672
+      },
+      {
+        "key": "camera_commands3_670",
+        "method": "canny",
+        "frames": 1,
+        "center_hits": 552,
+        "center_pixels": 591,
+        "near_lane_pixels": 9007,
+        "candidate_pixels": 11787,
+        "center_recall": 0.934010152284264,
+        "tolerance_precision": 0.7641469415457708
+      },
+      {
+        "key": "camera_commands3_805",
+        "method": "legacy",
+        "frames": 1,
+        "center_hits": 186,
+        "center_pixels": 222,
+        "near_lane_pixels": 1441,
+        "candidate_pixels": 1441,
+        "center_recall": 0.8378378378378378,
+        "tolerance_precision": 1.0
+      },
+      {
+        "key": "camera_commands3_805",
+        "method": "contrast",
+        "frames": 1,
+        "center_hits": 222,
+        "center_pixels": 222,
+        "near_lane_pixels": 1839,
+        "candidate_pixels": 1892,
+        "center_recall": 1.0,
+        "tolerance_precision": 0.9719873150105708
+      },
+      {
+        "key": "camera_commands3_805",
+        "method": "canny",
+        "frames": 1,
+        "center_hits": 222,
+        "center_pixels": 222,
+        "near_lane_pixels": 2213,
+        "candidate_pixels": 3559,
+        "center_recall": 1.0,
+        "tolerance_precision": 0.621803877493678
+      },
+      {
+        "key": "camera_commands3_1073",
+        "method": "legacy",
+        "frames": 1,
+        "center_hits": 568,
+        "center_pixels": 690,
+        "near_lane_pixels": 3841,
+        "candidate_pixels": 3841,
+        "center_recall": 0.8231884057971014,
+        "tolerance_precision": 1.0
+      },
+      {
+        "key": "camera_commands3_1073",
+        "method": "contrast",
+        "frames": 1,
+        "center_hits": 684,
+        "center_pixels": 690,
+        "near_lane_pixels": 4228,
+        "candidate_pixels": 5212,
+        "center_recall": 0.991304347826087,
+        "tolerance_precision": 0.8112049117421335
+      },
+      {
+        "key": "camera_commands3_1073",
+        "method": "canny",
+        "frames": 1,
+        "center_hits": 690,
+        "center_pixels": 690,
+        "near_lane_pixels": 7300,
+        "candidate_pixels": 10446,
+        "center_recall": 1.0,
+        "tolerance_precision": 0.6988320888378327
+      }
+    ],
+    "frames": [
+      {
+        "key": "camera_commands3_134",
+        "decoded_frame_sha256": "bf2016ee2fe86ae2284dfd14f43b8f267cc26669f13ea2be1c05be2c69ec154f",
+        "bird_gray_sha256": "98ea682069064e2d6f71a85f6d4be3a76c3c22859e850c5958007a667d492ae4"
+      },
+      {
+        "key": "camera_commands3_268",
+        "decoded_frame_sha256": "a3e627dae13fe28188a7162a5bfb58cdcf35359542ae8d650578639af53e21d5",
+        "bird_gray_sha256": "cc285bdb7c5b1fc9c70a1e50e51e8166d2d10874610eaf23675f23a7a45c328a"
+      },
+      {
+        "key": "camera_commands3_402",
+        "decoded_frame_sha256": "d60883a7f5bbd6c5c7bb33f1a8ed6b1745453509c5519c074961133bd131ced9",
+        "bird_gray_sha256": "354a9fb0dd5e0263dc51e1a40ee295206918adaae07efe604172899a5a8451b7"
+      },
+      {
+        "key": "camera_commands3_536",
+        "decoded_frame_sha256": "28f1811a7c754dd6b76ea3640955830314ef453f938695414f652311f67e871c",
+        "bird_gray_sha256": "5e116bdbca1f37d2c07d9561a666699b11475dfcce1f2d7413e4eea7d3191f20"
+      },
+      {
+        "key": "camera_commands3_670",
+        "decoded_frame_sha256": "e23790a6729f15a0ff178f46281b1303fdbc0fec943ced7bdc43528fd55f0f98",
+        "bird_gray_sha256": "5c04a6dc0ab43a96759b84755bb5482a7849e5940d391f9117d844972eae31cb"
+      },
+      {
+        "key": "camera_commands3_805",
+        "decoded_frame_sha256": "4a3e2293dc9ca6327ccb5d69713a2971c38f9926b7a6e8c428cab06e2ddd683c",
+        "bird_gray_sha256": "1e1c2a93d97cf499c03cca741a76b4838283a600e606bde4aedef3448c581559"
+      },
+      {
+        "key": "camera_commands3_939",
+        "decoded_frame_sha256": "17a2474869b76501f6e06c47c191d7628cad09548d1ee81a25820948e951ec49",
+        "bird_gray_sha256": "d087d63201bf7ec9918e0059453199a9f1ecf12b110b707b7273aa5cfb81eebb"
+      },
+      {
+        "key": "camera_commands3_1073",
+        "decoded_frame_sha256": "1768b38826c0f43b7701e849a14023efb5a9c3944fcaf73d9d74f609b1792c13",
+        "bird_gray_sha256": "96964ef04bb81efd4cb8622b2ef38649a0893c0f876970623ef69a4bd5b7a3a7"
+      },
+      {
+        "key": "camera_commands3_1207",
+        "decoded_frame_sha256": "421795fb8a7dd3fba59572716a8c54b4ccc7370a0c514984a726497f6328623e",
+        "bird_gray_sha256": "1984ae73b174eed274d6a67458317108fe04e2dd4a014b68c17183dc6e3e8786"
+      },
+      {
+        "key": "WIN_20260919_18_10_34_Pro_flip_40",
+        "decoded_frame_sha256": "24d1e7baae0a17de2e561b7f9f3e1c70026d9b9748c2458979a695fc07d6cf9f",
+        "bird_gray_sha256": "040f48067d0215e7dfe124d4ab8b9112c070de60dd101a8db852060837c6df06"
+      },
+      {
+        "key": "WIN_20260919_18_10_34_Pro_flip_80",
+        "decoded_frame_sha256": "0278dcc3c2c67dfa2ea3e298c5fc69da71a0017e06cf0926001c59eeba207b85",
+        "bird_gray_sha256": "f2d911130345171c0fbfccce009e1216b940b3a6564a96bf7fa5ebe530653fdc"
+      },
+      {
+        "key": "WIN_20260919_18_11_50_Pro_flip_41",
+        "decoded_frame_sha256": "89128758e4dc9a33ee8972593c403bb9b8f8d03e0d49a278a84dfc9e8d51ff11",
+        "bird_gray_sha256": "2c3cd0d715226269b6bad94fc3523e0751720736fb1441b8609e08e4b3618789"
+      },
+      {
+        "key": "WIN_20260919_18_11_50_Pro_flip_83",
+        "decoded_frame_sha256": "22a9b519c0c0022b922839f77cf83c521d00ecce57440a529064552789a7d86e",
+        "bird_gray_sha256": "97e27c56b73d63755eb421d374a9e3fb72b2632f12b14cd5df4deff613af7c90"
+      },
+      {
+        "key": "WIN_20260919_18_13_14_Pro_flip_51",
+        "decoded_frame_sha256": "59b0ef908a1a9a815be48813366e3a152cdac4b3748328c159c5801868ca008e",
+        "bird_gray_sha256": "a67481c3c3f5919bacfd0b2c9cafa40e0f4b406e2ccaa897f2b9412b266943bb"
+      },
+      {
+        "key": "WIN_20260919_18_13_14_Pro_flip_103",
+        "decoded_frame_sha256": "00c21e91d673f60b915acaaa84c51f478ccdb105bb7f513d1e70aba820a5be4f",
+        "bird_gray_sha256": "1ded9091ef50ad8d0070be71c79e1d17b8a2500a570a1ae432d2da4f936836c7"
+      },
+      {
+        "key": "WIN_20260919_18_13_53_Pro_flip_37",
+        "decoded_frame_sha256": "2739482451062f1d8b2c9e7c59ed938b516b80ede56bfcfd8bb4e6198b985c39",
+        "bird_gray_sha256": "657190a1192e8214a2c100ac5c79e232344655ebd917d5a3698f3f364587c649"
+      },
+      {
+        "key": "WIN_20260919_18_13_53_Pro_flip_75",
+        "decoded_frame_sha256": "4fd0e702fec8cb433973f5f61a98cbdd5b7ae0c5d7c7c05432bd63f1cdf5ce53",
+        "bird_gray_sha256": "af6f35aaf2258ed6d120008dad1e7864b0c0f2190fc7420eb57db83f7c80961c"
+      }
+    ],
+    "baseline_preprocess_sha256": "c9dbe28849ed85e2e30760bbf2e0f56a007fce13b962300db66370428900d4b2",
+    "annotation_sha256": "2612419f858905edfd8867eff02b5f9e0a0e3c14b3097173025c5114a902d773",
+    "metrics": "pixel-weighted sparse visual center coverage within 4px; candidate precision within 10px; ignore regions excluded",
+    "limitations": "Manual centers estimated visually; typical 2-4 bird pixels uncertainty. These are sparse centerline labels, not pixel-level ground-truth lane widths. Motion-blurred contours may have greater local uncertainty; whole frames or regions were excluded conservatively. Source camera/mat calibration is not independently validated.",
+    "excluded": [
+      "camera_commands3_402",
+      "camera_commands3_1207",
+      "WIN_20260919_18_11_50_Pro_flip_41"
+    ]
+  },
+  "limitations": [
+    "Existing photos and selected frames, not independent test scenes or vehicle validation.",
+    "Canny is an optional comparison; these probes do not select or modify runtime defaults."
+  ]
+}

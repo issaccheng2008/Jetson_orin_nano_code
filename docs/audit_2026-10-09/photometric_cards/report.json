@@ -1,0 +1,626 @@
+{
+  "baseline_ref": "3260323934ae3df830a2ff8c146aa606ec32eca9",
+  "baseline_shape_sha256": "6d321a10cf59a406eeadac3147c75056865fd7a2b7e161b887aa7a75df656edf",
+  "current_source_sha256": {
+    "shape_detector.py": "18c3edcc10494d27486fbdd8127f80221cd9b975a83e89e925173484d4ad497c",
+    "photometric_thresholds.py": "0b5a441f1d5537830ecefbed81531228851fb20b947c9dc3c9826d67a6e2482e",
+    "canny_candidates.py": "9e96e49618662a0a8abc571683995c08b31f560d19da68463d21c96809209753"
+  },
+  "source_snapshot_note": "Measured snapshot before final scalar diagnostic additions: cue_evaluated, cue_score_reference, cue_score_threshold_reference, shape_adaptive_c_applied. No extraction, threshold or classification behavior changed afterwards.",
+  "final_shape_diagnostic_source_sha256": "6552cb9c3c41f580760d1407fa453642cea36516f97fb5929f9132807d3e68bc",
+  "opencv": "4.14.0",
+  "summary": [
+    {
+      "gain": 1.0,
+      "mode": "baseline",
+      "images": 31,
+      "found": 28,
+      "quad_found": 28,
+      "classified": 27,
+      "correct": 27,
+      "wrong": 0
+    },
+    {
+      "gain": 1.0,
+      "mode": "normalize",
+      "images": 31,
+      "found": 28,
+      "quad_found": 28,
+      "classified": 27,
+      "correct": 27,
+      "wrong": 0
+    },
+    {
+      "gain": 0.6,
+      "mode": "baseline",
+      "images": 31,
+      "found": 28,
+      "quad_found": 28,
+      "classified": 27,
+      "correct": 24,
+      "wrong": 3
+    },
+    {
+      "gain": 0.6,
+      "mode": "normalize",
+      "images": 31,
+      "found": 28,
+      "quad_found": 28,
+      "classified": 28,
+      "correct": 26,
+      "wrong": 2
+    },
+    {
+      "gain": 0.4,
+      "mode": "baseline",
+      "images": 31,
+      "found": 28,
+      "quad_found": 28,
+      "classified": 27,
+      "correct": 24,
+      "wrong": 3
+    },
+    {
+      "gain": 0.4,
+      "mode": "normalize",
+      "images": 31,
+      "found": 28,
+      "quad_found": 28,
+      "classified": 27,
+      "correct": 26,
+      "wrong": 1
+    }
+  ],
+  "actual_frames_and_negative": [
+    {
+      "key": "background_negative",
+      "truth": "negative/no card",
+      "mode": "baseline",
+      "found": false,
+      "quad_found": false,
+      "presence": false,
+      "classified": false,
+      "prediction": "-",
+      "cue_scored": true,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.2,
+      "adaptive_c_raw": -16.0,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 150.1715019463668,
+      "ground_std_raw": 30.255917590388357,
+      "ground_stats_source": "offline diagnostic only",
+      "ground_std_used": null,
+      "contrast_scale": 1.0,
+      "cue_ink_gate_raw": 12.0,
+      "cue_core_gray_gate_raw": 100.0,
+      "cue_contrast_gate_raw": 4.0
+    },
+    {
+      "key": "background_negative",
+      "truth": "negative/no card",
+      "mode": "normalize",
+      "found": false,
+      "quad_found": false,
+      "presence": false,
+      "classified": false,
+      "prediction": "-",
+      "cue_scored": true,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.7569164820023757,
+      "adaptive_c_raw": -16.0,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 150.1715019463668,
+      "ground_std_raw": 30.255917590388357,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 30.255917590388357,
+      "contrast_scale": 1.4640970683353132,
+      "cue_ink_gate_raw": 17.569164820023758,
+      "cue_core_gray_gate_raw": 73.18616293305995,
+      "cue_contrast_gate_raw": 5.856388273341253
+    },
+    {
+      "key": "background_negative",
+      "truth": "negative/no card",
+      "mode": "canny",
+      "found": false,
+      "quad_found": false,
+      "presence": false,
+      "classified": false,
+      "prediction": "-",
+      "cue_scored": true,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.7569164820023757,
+      "adaptive_c_raw": -16.0,
+      "adaptive_c_applied": false,
+      "ground_mean_raw": 150.1715019463668,
+      "ground_std_raw": 30.255917590388357,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 30.255917590388357,
+      "contrast_scale": 1.4640970683353132,
+      "cue_ink_gate_raw": 17.569164820023758,
+      "cue_core_gray_gate_raw": 73.18616293305995,
+      "cue_contrast_gate_raw": 5.856388273341253
+    },
+    {
+      "key": "camera_commands3_1130",
+      "truth": "no six-class GT",
+      "mode": "baseline",
+      "found": false,
+      "quad_found": false,
+      "presence": false,
+      "classified": false,
+      "prediction": "-",
+      "cue_scored": true,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.2,
+      "adaptive_c_raw": -16.0,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 46.70373263888889,
+      "ground_std_raw": 17.089163570238593,
+      "ground_stats_source": "offline diagnostic only",
+      "ground_std_used": null,
+      "contrast_scale": 1.0,
+      "cue_ink_gate_raw": 12.0,
+      "cue_core_gray_gate_raw": 100.0,
+      "cue_contrast_gate_raw": 4.0
+    },
+    {
+      "key": "camera_commands3_1130",
+      "truth": "no six-class GT",
+      "mode": "normalize",
+      "found": false,
+      "quad_found": false,
+      "presence": false,
+      "classified": false,
+      "prediction": "-",
+      "cue_scored": true,
+      "cue_gate_hit": true,
+      "score_raw": 3.470594886668317,
+      "score_ref": 4.196851219095217,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 0.9923425078909123,
+      "adaptive_c_raw": -13.231233438545498,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 46.70373263888889,
+      "ground_std_raw": 17.089163570238593,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 17.089163570238593,
+      "contrast_scale": 0.8269520899090936,
+      "cue_ink_gate_raw": 9.923425078909123,
+      "cue_core_gray_gate_raw": 3.220832244996572,
+      "cue_contrast_gate_raw": 3.3078083596363745
+    },
+    {
+      "key": "camera_commands3_1130",
+      "truth": "no six-class GT",
+      "mode": "canny",
+      "found": true,
+      "quad_found": true,
+      "presence": false,
+      "classified": true,
+      "prediction": "square",
+      "cue_scored": false,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 0.9923425078909123,
+      "adaptive_c_raw": -13.231233438545498,
+      "adaptive_c_applied": false,
+      "ground_mean_raw": 46.70373263888889,
+      "ground_std_raw": 17.089163570238593,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 17.089163570238593,
+      "contrast_scale": 0.8269520899090936,
+      "cue_ink_gate_raw": 9.923425078909123,
+      "cue_core_gray_gate_raw": 3.220832244996572,
+      "cue_contrast_gate_raw": 3.3078083596363745
+    },
+    {
+      "key": "camera_commands3_1150",
+      "truth": "no six-class GT",
+      "mode": "baseline",
+      "found": true,
+      "quad_found": true,
+      "presence": true,
+      "classified": true,
+      "prediction": "square",
+      "cue_scored": false,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.2,
+      "adaptive_c_raw": -16.0,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 57.456626157407406,
+      "ground_std_raw": 20.356689811918528,
+      "ground_stats_source": "offline diagnostic only",
+      "ground_std_used": null,
+      "contrast_scale": 1.0,
+      "cue_ink_gate_raw": 12.0,
+      "cue_core_gray_gate_raw": 100.0,
+      "cue_contrast_gate_raw": 4.0
+    },
+    {
+      "key": "camera_commands3_1150",
+      "truth": "no six-class GT",
+      "mode": "normalize",
+      "found": true,
+      "quad_found": true,
+      "presence": true,
+      "classified": true,
+      "prediction": "square",
+      "cue_scored": false,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.1820829344449055,
+      "adaptive_c_raw": -15.761105792598741,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 57.456626157407406,
+      "ground_std_raw": 20.356689811918528,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 20.356689811918528,
+      "contrast_scale": 0.9850691120374213,
+      "cue_ink_gate_raw": 11.820829344449056,
+      "cue_core_gray_gate_raw": 5.659596314322037,
+      "cue_contrast_gate_raw": 3.9402764481496853
+    },
+    {
+      "key": "camera_commands3_1150",
+      "truth": "no six-class GT",
+      "mode": "canny",
+      "found": true,
+      "quad_found": true,
+      "presence": true,
+      "classified": true,
+      "prediction": "square",
+      "cue_scored": false,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.1820829344449055,
+      "adaptive_c_raw": -15.761105792598741,
+      "adaptive_c_applied": false,
+      "ground_mean_raw": 57.456626157407406,
+      "ground_std_raw": 20.356689811918528,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 20.356689811918528,
+      "contrast_scale": 0.9850691120374213,
+      "cue_ink_gate_raw": 11.820829344449056,
+      "cue_core_gray_gate_raw": 5.659596314322037,
+      "cue_contrast_gate_raw": 3.9402764481496853
+    },
+    {
+      "key": "camera_commands3_1220",
+      "truth": "no six-class GT",
+      "mode": "baseline",
+      "found": false,
+      "quad_found": false,
+      "presence": false,
+      "classified": false,
+      "prediction": "-",
+      "cue_scored": true,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.2,
+      "adaptive_c_raw": -16.0,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 26.705594135802468,
+      "ground_std_raw": 17.570140948919672,
+      "ground_stats_source": "offline diagnostic only",
+      "ground_std_used": null,
+      "contrast_scale": 1.0,
+      "cue_ink_gate_raw": 12.0,
+      "cue_core_gray_gate_raw": 100.0,
+      "cue_contrast_gate_raw": 4.0
+    },
+    {
+      "key": "camera_commands3_1220",
+      "truth": "no six-class GT",
+      "mode": "normalize",
+      "found": false,
+      "quad_found": false,
+      "presence": false,
+      "classified": false,
+      "prediction": "-",
+      "cue_scored": true,
+      "cue_gate_hit": true,
+      "score_raw": 3.5567903873759437,
+      "score_ref": 4.183343087734638,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.0202721544319755,
+      "adaptive_c_raw": -13.603628725759675,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 26.705594135802468,
+      "ground_std_raw": 17.570140948919672,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 17.570140948919672,
+      "contrast_scale": 0.8502267953599797,
+      "cue_ink_gate_raw": 10.202721544319756,
+      "cue_core_gray_gate_raw": -18.00113979230259,
+      "cue_contrast_gate_raw": 3.4009071814399188
+    },
+    {
+      "key": "camera_commands3_1220",
+      "truth": "no six-class GT",
+      "mode": "canny",
+      "found": true,
+      "quad_found": true,
+      "presence": true,
+      "classified": true,
+      "prediction": "cross",
+      "cue_scored": false,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.0202721544319755,
+      "adaptive_c_raw": -13.603628725759675,
+      "adaptive_c_applied": false,
+      "ground_mean_raw": 26.705594135802468,
+      "ground_std_raw": 17.570140948919672,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 17.570140948919672,
+      "contrast_scale": 0.8502267953599797,
+      "cue_ink_gate_raw": 10.202721544319756,
+      "cue_core_gray_gate_raw": -18.00113979230259,
+      "cue_contrast_gate_raw": 3.4009071814399188
+    },
+    {
+      "key": "camera_commands3_1230",
+      "truth": "no six-class GT",
+      "mode": "baseline",
+      "found": false,
+      "quad_found": false,
+      "presence": false,
+      "classified": false,
+      "prediction": "-",
+      "cue_scored": true,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.2,
+      "adaptive_c_raw": -16.0,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 34.455815972222226,
+      "ground_std_raw": 20.800929798634932,
+      "ground_stats_source": "offline diagnostic only",
+      "ground_std_used": null,
+      "contrast_scale": 1.0,
+      "cue_ink_gate_raw": 12.0,
+      "cue_core_gray_gate_raw": 100.0,
+      "cue_contrast_gate_raw": 4.0
+    },
+    {
+      "key": "camera_commands3_1230",
+      "truth": "no six-class GT",
+      "mode": "normalize",
+      "found": false,
+      "quad_found": false,
+      "presence": false,
+      "classified": false,
+      "prediction": "-",
+      "cue_scored": true,
+      "cue_gate_hit": true,
+      "score_raw": 4.063853778820111,
+      "score_ref": 4.037344257299581,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.2078792948525805,
+      "adaptive_c_raw": -16.0,
+      "adaptive_c_applied": true,
+      "ground_mean_raw": 34.455815972222226,
+      "ground_std_raw": 20.800929798634932,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 20.800929798634932,
+      "contrast_scale": 1.0065660790438171,
+      "cue_ink_gate_raw": 12.078792948525805,
+      "cue_core_gray_gate_raw": -18.471570135169408,
+      "cue_contrast_gate_raw": 4.0262643161752685
+    },
+    {
+      "key": "camera_commands3_1230",
+      "truth": "no six-class GT",
+      "mode": "canny",
+      "found": true,
+      "quad_found": true,
+      "presence": true,
+      "classified": true,
+      "prediction": "square",
+      "cue_scored": false,
+      "cue_gate_hit": false,
+      "score_raw": 0.0,
+      "score_ref": 0.0,
+      "score_gate_ref": 1.2,
+      "score_gate_raw": 1.2078792948525805,
+      "adaptive_c_raw": -16.0,
+      "adaptive_c_applied": false,
+      "ground_mean_raw": 34.455815972222226,
+      "ground_std_raw": 20.800929798634932,
+      "ground_stats_source": "detector source ROI",
+      "ground_std_used": 20.800929798634932,
+      "contrast_scale": 1.0065660790438171,
+      "cue_ink_gate_raw": 12.078792948525805,
+      "cue_core_gray_gate_raw": -18.471570135169408,
+      "cue_contrast_gate_raw": 4.0262643161752685
+    }
+  ],
+  "inputs": [
+    {
+      "name": "三1.jpg",
+      "sha256": "81c878a58796d15ff30f6225db6fb6c66a4854494b14fbb87c56de67d56b01bd"
+    },
+    {
+      "name": "三2.jpg",
+      "sha256": "63c422ccdaa7f1f9679505e0d4773eb5c14953460dedebfa901c7c7139be164d"
+    },
+    {
+      "name": "三3.jpg",
+      "sha256": "d8768c91b3c23af2cb9bee82380abeb11f776badd8de45945cc84a6b6c0a2fa4"
+    },
+    {
+      "name": "三4.jpg",
+      "sha256": "d1e7562987c9b7b0eb1e4dd1cd83c26254c17930375448f4d78c6eeec4d38d16"
+    },
+    {
+      "name": "五1.jpg",
+      "sha256": "c0008b1791f1117425970d4c93eca5c5b1a233f053121d16f5d2834ed16b0a17"
+    },
+    {
+      "name": "五2.jpg",
+      "sha256": "49f8d7b98a0f8dbb6f55a185fd0650846403ef4ad85b3d9241eb838e28ff4474"
+    },
+    {
+      "name": "五3.jpg",
+      "sha256": "ed75dc573858a96e2b1753fded092a9faec087c254d4a01124f95f6b8d8f7f83"
+    },
+    {
+      "name": "五4.jpg",
+      "sha256": "d55bed403647fe6a0140eed96009fcaf5e0f169afd52d086b4b6463b5ee74b5a"
+    },
+    {
+      "name": "五5.jpg",
+      "sha256": "0be544a7e051f30c0cbb861a4367df300149dabcf57637146072a1d4cae30095"
+    },
+    {
+      "name": "五6.jpg",
+      "sha256": "f1aef5763951953b9cd218790c324a3763925df5b6bcb23e222f018cea32e47d"
+    },
+    {
+      "name": "十1.jpg",
+      "sha256": "5ace02478e0492f15af3d14be204df5c81c7889c7e2920e8c9c595f2b6beee23"
+    },
+    {
+      "name": "十2.jpg",
+      "sha256": "6040d22ad2fef3a4ac530a1bd54bc28f372ef603f17fff4aa632fed3bed6cd33"
+    },
+    {
+      "name": "十3.jpg",
+      "sha256": "ee61098d650fddc99efaad9831ea967e1dbeaef140172fb4d7f6f9126a7e2340"
+    },
+    {
+      "name": "圆1.jpg",
+      "sha256": "5ea20341590f20acb3887f1a83f40d0033a3b7fa2253b79a7a76330fbb41d5e1"
+    },
+    {
+      "name": "圆2.jpg",
+      "sha256": "212474ca7487f427a58763335a52a4b1511b3baec9a92286901a314b1b321646"
+    },
+    {
+      "name": "圆3.jpg",
+      "sha256": "443d5179c3f358d60b1b809957ccc654f3c2669c9d2e96371b7005877df1867e"
+    },
+    {
+      "name": "圆4.jpg",
+      "sha256": "3da5f8b4850c0037e554d99e5e1a51cc0d8f7c78acb8c617d9404fe941142472"
+    },
+    {
+      "name": "圆5.jpg",
+      "sha256": "104a1aa2d6897cfe1cc9dd8ebd7c0b51549e2d8fd99d313677377ff5bdb0972b"
+    },
+    {
+      "name": "圆6.jpg",
+      "sha256": "6705c9db756a6fe51c3979eeacdae7577d94ae23a4b78ed590071fd278801b83"
+    },
+    {
+      "name": "正1.jpg",
+      "sha256": "205fbac7b59be4a9735d709fbf46d630bf74460e9e510a95858550dd766bc13f"
+    },
+    {
+      "name": "正2.jpg",
+      "sha256": "6bf651bbdccc9b6ad821f0b336e98e8aba6dfc443b816283f46bc6dbe245133f"
+    },
+    {
+      "name": "正3.jpg",
+      "sha256": "e5a6adf10c0161df2681ead0a3f109a3eaf6b548d2973004848571aa9be02b10"
+    },
+    {
+      "name": "正4.jpg",
+      "sha256": "ed6b525195ee30753d10a8ca5caded7f1d2aad3c5bc0f9663d85327b3648f194"
+    },
+    {
+      "name": "正5.jpg",
+      "sha256": "b6ecd745b792a177504748447e7d569fd31d7e09c1b5886c8b20de3abef3cdef"
+    },
+    {
+      "name": "正6.jpg",
+      "sha256": "67af2948194cebdc68be156a0a1b0516cc5f02ef1de317ddd99cb9376b986b23"
+    },
+    {
+      "name": "正7.jpg",
+      "sha256": "3736bd568fa8df89be7dddedccc1e8454747e32aaf02242bbc82a057c5bbd108"
+    },
+    {
+      "name": "正8.jpg",
+      "sha256": "967ef01e17be3e8baff10a6cccda9761c062df88d35a5f5e4390137490739ecf"
+    },
+    {
+      "name": "菱1.jpg",
+      "sha256": "f661dd7027a3393dbccc06ac81475a7a439bf229da5640d23ce1819f79a78b38"
+    },
+    {
+      "name": "菱2.jpg",
+      "sha256": "f349ae314e2cfc729f0c6bce131cb9731b85199de41a5aa35c654f4f5c3c607b"
+    },
+    {
+      "name": "菱3.jpg",
+      "sha256": "ce53e8d3b6c3297d87092ba4ed184b07570bc8e27eaca58c6fc3911265b22b6b"
+    },
+    {
+      "name": "菱4.jpg",
+      "sha256": "08aeb2b1803d8e21d1c9684f6f06889b1f6fb19e663ef847ac8b2cdeaab8da61"
+    },
+    {
+      "name": "camera_commands3_1130",
+      "decoded_frame_sha256": "d00a58eeb4450488ef1e700754f3e6493fb6ef1e3d4fc720d67a6b71d674189b"
+    },
+    {
+      "name": "camera_commands3_1150",
+      "decoded_frame_sha256": "47de74b82912c1f4c30f757f2d4dc979ae3a5cf455a6b3273ef1fba311b10d49"
+    },
+    {
+      "name": "camera_commands3_1220",
+      "decoded_frame_sha256": "09831dc2ce9df6f47c5efc7ac21393d0735ba8a7a70b809529640134cf41cdfb"
+    },
+    {
+      "name": "camera_commands3_1230",
+      "decoded_frame_sha256": "8208c48a5818e25181b1610e309acb510092da1dd10bfa413f8e2f803758ee7f"
+    }
+  ],
+  "optional_canny_scope": "gain1 only; actual current preprocess_mode=canny replaces both binary and ring ink; production normalize remains selective",
+  "units": {
+    "score_raw": "inner bright-hole fraction times raw uint8 grayscale contrast; zero if quad exists and fallback was not scored",
+    "score_ref": "score_raw / contrast_scale; reference grayscale contrast units; exported presence_cue",
+    "baseline_scores": "legacy contrast_scale=1; score_raw and score_ref coincide without reference normalization",
+    "adaptive_c_raw": "signed raw blackhat gray levels in OpenCV threshold=Gaussian local mean minus C; negative C requires response above local mean by abs(C); applied only when adaptive_c_applied=true, Canny skips adaptive C",
+    "normalize_c_formula": "-16 * min(1, max(ground_std,4) / 20.665240198035168)",
+    "ground_mean_raw/ground_std_raw": "raw BGR2GRAY gray levels in central ROI x25%-75%, y35%-75%, measured before work resize/padding; baseline statistics are offline diagnostic only, baseline does not adapt its thresholds",
+    "cue_ink_gate_raw/cue_contrast_gate_raw": "raw grayscale differences; reference gates times contrast_scale",
+    "cue_core_gray_gate_raw": "absolute raw grayscale level; ground_mean + contrast_scale*(100-reference_mean)"
+  },
+  "limitations": [
+    "Gain0.6/0.4 are same-scene decoded-pixel counterfactuals, not new real lighting/exposure captures; sensor noise/blur/exposure response is not simulated.",
+    "Per-image fresh detectors measure frame-level finding/classification, not temporal stopping/action behavior. cue_gate_hit can be true while presence/found stays false because cue history confirmation starts empty.",
+    "31 cards are existing regression photos; the complete set, including misses/errors, is exported.",
+    "Actual late video frames have no six-class truth; predictions and photometry are diagnostics, not accuracy.",
+    "One background negative does not establish false-positive rate; no hardware validation."
+  ]
+}

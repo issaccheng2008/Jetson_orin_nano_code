@@ -1,0 +1,264 @@
+  [shape] NEW triangle
+card 1 三1.jpg [('baseline', 'triangle'), ('binary_canny', '-'), ('both_canny', '-')]
+  [shape] NEW triangle
+  [shape] NEW triangle
+card 2 三2.jpg [('baseline', 'triangle'), ('binary_canny', 'triangle'), ('both_canny', '-')]
+  [shape] NEW triangle
+card 3 三3.jpg [('baseline', 'triangle'), ('binary_canny', '-'), ('both_canny', '-')]
+  [shape] NEW triangle
+  [shape] NEW circle
+card 4 三4.jpg [('baseline', 'triangle'), ('binary_canny', 'circle'), ('both_canny', '-')]
+  [shape] NEW pentagon
+  [shape] NEW circle
+  [shape] NEW circle
+card 5 五1.jpg [('baseline', 'pentagon'), ('binary_canny', 'circle'), ('both_canny', 'circle')]
+card 6 五2.jpg [('baseline', '-'), ('binary_canny', '-'), ('both_canny', '-')]
+  [shape] NEW pentagon
+  [shape] NEW circle
+card 7 五3.jpg [('baseline', 'pentagon'), ('binary_canny', 'circle'), ('both_canny', '-')]
+  [shape] NEW pentagon
+  [shape] NEW pentagon
+card 8 五4.jpg [('baseline', 'pentagon'), ('binary_canny', 'pentagon'), ('both_canny', '-')]
+  [shape] NEW pentagon
+  [shape] NEW pentagon
+  [shape] NEW pentagon
+card 9 五5.jpg [('baseline', 'pentagon'), ('binary_canny', 'pentagon'), ('both_canny', 'pentagon')]
+  [shape] NEW pentagon
+  [shape] NEW circle
+card 10 五6.jpg [('baseline', 'pentagon'), ('binary_canny', 'circle'), ('both_canny', '-')]
+card 11 十1.jpg [('baseline', '-'), ('binary_canny', '-'), ('both_canny', '-')]
+  [shape] NEW cross
+  [shape] NEW cross
+  [shape] NEW circle
+card 12 十2.jpg [('baseline', 'cross'), ('binary_canny', 'cross'), ('both_canny', 'circle')]
+  [shape] NEW cross
+  [shape] NEW cross
+card 13 十3.jpg [('baseline', 'cross'), ('binary_canny', 'cross'), ('both_canny', '-')]
+  [shape] NEW circle
+  [shape] NEW circle
+  [shape] NEW square
+card 14 圆1.jpg [('baseline', 'circle'), ('binary_canny', 'circle'), ('both_canny', 'square')]
+  [shape] NEW circle
+  [shape] NEW circle
+  [shape] NEW square
+card 15 圆2.jpg [('baseline', 'circle'), ('binary_canny', 'circle'), ('both_canny', 'square')]
+  [shape] NEW circle
+  [shape] NEW square
+card 16 圆3.jpg [('baseline', 'circle'), ('binary_canny', 'square'), ('both_canny', '-')]
+  [shape] NEW circle
+  [shape] NEW circle
+card 17 圆4.jpg [('baseline', 'circle'), ('binary_canny', 'circle'), ('both_canny', '-')]
+  [shape] NEW circle
+  [shape] NEW circle
+  [shape] NEW circle
+card 18 圆5.jpg [('baseline', 'circle'), ('binary_canny', 'circle'), ('both_canny', 'circle')]
+  [shape] NEW circle
+  [shape] NEW square
+  [shape] NEW square
+card 19 圆6.jpg [('baseline', 'circle'), ('binary_canny', 'square'), ('both_canny', 'square')]
+  [shape] NEW square
+  [shape] NEW square
+card 20 正1.jpg [('baseline', 'square'), ('binary_canny', 'square'), ('both_canny', '-')]
+  [shape] NEW square
+  [shape] NEW square
+card 21 正2.jpg [('baseline', '-'), ('binary_canny', 'square'), ('both_canny', 'square')]
+  [shape] NEW square
+  [shape] NEW square
+card 22 正3.jpg [('baseline', 'square'), ('binary_canny', 'square'), ('both_canny', '-')]
+  [shape] NEW square
+  [shape] NEW square
+card 23 正4.jpg [('baseline', 'square'), ('binary_canny', 'square'), ('both_canny', '-')]
+  [shape] NEW square
+  [shape] NEW square
+card 24 正5.jpg [('baseline', 'square'), ('binary_canny', 'square'), ('both_canny', '-')]
+  [shape] NEW square
+  [shape] NEW square
+  [shape] NEW square
+card 25 正6.jpg [('baseline', 'square'), ('binary_canny', 'square'), ('both_canny', 'square')]
+  [shape] NEW square
+  [shape] NEW square
+  [shape] NEW square
+card 26 正7.jpg [('baseline', 'square'), ('binary_canny', 'square'), ('both_canny', 'square')]
+  [shape] NEW square
+  [shape] NEW square
+card 27 正8.jpg [('baseline', 'square'), ('binary_canny', 'square'), ('both_canny', '-')]
+  [shape] NEW diamond
+  [shape] NEW diamond
+card 28 菱1.jpg [('baseline', 'diamond'), ('binary_canny', 'diamond'), ('both_canny', '-')]
+  [shape] NEW diamond
+  [shape] NEW cross
+  [shape] NEW square
+card 29 菱2.jpg [('baseline', 'diamond'), ('binary_canny', 'cross'), ('both_canny', 'square')]
+card 30 菱3.jpg [('baseline', '-'), ('binary_canny', '-'), ('both_canny', '-')]
+  [shape] NEW diamond
+  [shape] NEW diamond
+  [shape] NEW diamond
+card 31 菱4.jpg [('baseline', 'diamond'), ('binary_canny', 'diamond'), ('both_canny', 'diamond')]
+{
+  "cards": [
+    {
+      "mode": "baseline",
+      "images": 31,
+      "found": 28,
+      "quad_found": 28,
+      "presence": 26,
+      "classified": 27,
+      "correct": 27,
+      "wrong": 0
+    },
+    {
+      "mode": "binary_canny",
+      "images": 31,
+      "found": 28,
+      "quad_found": 28,
+      "presence": 26,
+      "classified": 26,
+      "correct": 19,
+      "wrong": 7
+    },
+    {
+      "mode": "both_canny",
+      "images": 31,
+      "found": 13,
+      "quad_found": 13,
+      "presence": 11,
+      "classified": 12,
+      "correct": 6,
+      "wrong": 6
+    }
+  ],
+  "lanes": [
+    {
+      "subset": "all",
+      "method": "legacy",
+      "frames": 14,
+      "center_hits": 4551,
+      "center_pixels": 7449,
+      "near_lane_pixels": 36664,
+      "candidate_pixels": 36942,
+      "center_recall": 0.6109544905356423,
+      "tolerance_precision": 0.9924746900546804
+    },
+    {
+      "subset": "all",
+      "method": "contrast",
+      "frames": 14,
+      "center_hits": 7090,
+      "center_pixels": 7449,
+      "near_lane_pixels": 52898,
+      "candidate_pixels": 57902,
+      "center_recall": 0.9518056114914754,
+      "tolerance_precision": 0.9135781147456047
+    },
+    {
+      "subset": "all",
+      "method": "canny",
+      "frames": 14,
+      "center_hits": 7363,
+      "center_pixels": 7449,
+      "near_lane_pixels": 87797,
+      "candidate_pixels": 132124,
+      "center_recall": 0.9884548261511612,
+      "tolerance_precision": 0.6645045563258757
+    },
+    {
+      "subset": "latest",
+      "method": "legacy",
+      "frames": 7,
+      "center_hits": 3173,
+      "center_pixels": 3700,
+      "near_lane_pixels": 27725,
+      "candidate_pixels": 28003,
+      "center_recall": 0.8575675675675676,
+      "tolerance_precision": 0.990072492232975
+    },
+    {
+      "subset": "latest",
+      "method": "contrast",
+      "frames": 7,
+      "center_hits": 3532,
+      "center_pixels": 3700,
+      "near_lane_pixels": 28661,
+      "candidate_pixels": 32320,
+      "center_recall": 0.9545945945945946,
+      "tolerance_precision": 0.8867883663366337
+    },
+    {
+      "subset": "latest",
+      "method": "canny",
+      "frames": 7,
+      "center_hits": 3661,
+      "center_pixels": 3700,
+      "near_lane_pixels": 43953,
+      "candidate_pixels": 67513,
+      "center_recall": 0.9894594594594595,
+      "tolerance_precision": 0.6510301719668804
+    },
+    {
+      "subset": "older",
+      "method": "legacy",
+      "frames": 7,
+      "center_hits": 1378,
+      "center_pixels": 3749,
+      "near_lane_pixels": 8939,
+      "candidate_pixels": 8939,
+      "center_recall": 0.36756468391571084,
+      "tolerance_precision": 1.0
+    },
+    {
+      "subset": "older",
+      "method": "contrast",
+      "frames": 7,
+      "center_hits": 3558,
+      "center_pixels": 3749,
+      "near_lane_pixels": 24237,
+      "candidate_pixels": 25582,
+      "center_recall": 0.9490530808215524,
+      "tolerance_precision": 0.9474239699788914
+    },
+    {
+      "subset": "older",
+      "method": "canny",
+      "frames": 7,
+      "center_hits": 3702,
+      "center_pixels": 3749,
+      "near_lane_pixels": 43844,
+      "candidate_pixels": 64611,
+      "center_recall": 0.9874633235529474,
+      "tolerance_precision": 0.6785841420191608
+    },
+    {
+      "subset": "activity_selected",
+      "method": "legacy",
+      "frames": 4,
+      "center_hits": 1638,
+      "center_pixels": 2128,
+      "near_lane_pixels": 12388,
+      "candidate_pixels": 12388,
+      "center_recall": 0.7697368421052632,
+      "tolerance_precision": 1.0
+    },
+    {
+      "subset": "activity_selected",
+      "method": "contrast",
+      "frames": 4,
+      "center_hits": 2062,
+      "center_pixels": 2128,
+      "near_lane_pixels": 14678,
+      "candidate_pixels": 16630,
+      "center_recall": 0.9689849624060151,
+      "tolerance_precision": 0.8826217678893565
+    },
+    {
+      "subset": "activity_selected",
+      "method": "canny",
+      "frames": 4,
+      "center_hits": 2089,
+      "center_pixels": 2128,
+      "near_lane_pixels": 23665,
+      "candidate_pixels": 34879,
+      "center_recall": 0.9816729323308271,
+      "tolerance_precision": 0.678488488775481
+    }
+  ]
+}

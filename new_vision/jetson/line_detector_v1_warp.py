@@ -17,6 +17,7 @@ from copy import deepcopy
 
 from utils import clamp
 from line_preprocess import extract_lane_candidates, sampled_otsu_threshold
+from photometric_thresholds import measure, MAX_CHANNEL_REFERENCE
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -159,6 +160,8 @@ class LineDetector:
 
         # ── Threshold params ──
         self.preprocess_mode = "contrast"
+        self.photometric_mode = "normalize"
+        self._photometry = None
         self.th_offset = -12  # 反光把线打成亮斑时放宽，让不够黑的也进得来
         self.th_min = 25
         self.th_max = 80
@@ -745,10 +748,12 @@ class LineDetector:
         bg = float(np.percentile(row, 60))
         d = np.clip(bg - row, 0.0, None)
         peak = float(d.max())
-        if peak < self.centroid_min_contrast:
+        min_contrast = (self._photometry.difference(self.centroid_min_contrast)
+                        if self._photometry is not None else self.centroid_min_contrast)
+        if peak < min_contrast:
             return None
 
-        thr = max(self.centroid_min_contrast, 0.25 * peak)
+        thr = max(min_contrast, 0.25 * peak)
         mask = d >= thr
         segs = []
         i, n = 0, mask.size
@@ -1545,12 +1550,19 @@ class LineDetector:
         gray_max = np.max(bgr_bird, axis=2)
         gray_std = cv2.cvtColor(bgr_bird, cv2.COLOR_BGR2GRAY)
         gray = np.maximum(gray_max, gray_std)
+        # Match this detector's max-channel grayscale reference; do not include
+        # warped black padding or the source HUD in the exposure statistics.
+        self._photometry = measure(np.max(bgr, axis=2), self.photometric_mode,
+                                   MAX_CHANNEL_REFERENCE)
 
         img_w = self.bird_w
         img_h = self.bird_h
         img_cx = self.center_x
         gray_detect, binary_clean, black_th, preprocess_debug = extract_lane_candidates(
             gray, self.preprocess_mode, self.th_offset, self.th_min, self.th_max)
+        preprocess_debug.update(self._photometry.diagnostics())
+        preprocess_debug["centroid_min_contrast_effective"] = self._photometry.difference(
+            self.centroid_min_contrast)
 
         # ── Step 3: Track color detection ──
         # After black-hat, lines are always bright → track_is_dark=False

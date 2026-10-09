@@ -444,11 +444,19 @@ def parse_args():
                         help="Legacy option retained for command compatibility. "
                              "P1 uses a quality-gated geometric preview and no "
                              "longer clips preview by the near-error magnitude.")
-    parser.add_argument("--line-preprocess", choices=("contrast", "legacy"),
+    parser.add_argument("--line-preprocess", choices=("contrast", "legacy", "canny"),
                         default=os.getenv("LINE_PREPROCESS", "contrast"),
                         help="Lane candidate extraction: contrast uses limited local "
                              "equalization and preserves thin/oblique fragments; "
-                             "legacy restores the previous binary preprocessing")
+                             "legacy restores the previous binary preprocessing; "
+                             "canny selects experimental filled dark-stroke evidence")
+    parser.add_argument("--shape-preprocess", choices=("selective", "canny"),
+                        default=os.getenv("SHAPE_PREPROCESS", "selective"),
+                        help="Card ink candidates; canny is an explicit experimental alternative")
+    parser.add_argument("--photometric-mode", choices=("normalize", "legacy"),
+                        default=os.getenv("PHOTOMETRIC_MODE", "normalize"),
+                        help="Reference mean/std normalization for card brightness gates "
+                             "and raw-gray lane centroid contrast; legacy uses fixed gates")
     parser.add_argument("--lane-fit", action="store_true",
                         help="EXPERIMENTAL, and it changes nothing on its own: also "
                              "scan one tall band (20~70 cm instead of the two "
@@ -718,6 +726,9 @@ def main():
         # run_robot.py's cooldown, so a card cannot re-fire while it is still in view.
         shape = ShapeDetector(stable_frames=args.card_stable_frames,
                               cooldown_ms=3200, debug=False)
+        shape.preprocess_mode = args.shape_preprocess
+        shape.photometric_mode = args.photometric_mode
+        print(f"[shape-preprocess] {args.shape_preprocess}; photometric={args.photometric_mode}", flush=True)
         shape_names = {number: name for name, number in shape.action_map.items()}
         shape_numbers = dict(shape.action_map)
 
@@ -791,6 +802,7 @@ def main():
                                 cam_pitch_deg=args.camera_pitch_deg,
                                 cam_vfov_deg=args.camera_vfov_deg)
         detector.preprocess_mode = args.line_preprocess
+        detector.photometric_mode = args.photometric_mode
         print(f"[line-preprocess] {detector.preprocess_mode}; "
               "candidate mask only; geometry quality checks retained", flush=True)
         if args.no_red_detect:
@@ -973,7 +985,7 @@ def main():
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py",
                                 "steering_filter.py", "steering_recovery.py", "startup_sequence.py", "camera_controls.py",
-                                "line_preprocess.py"):
+                                "line_preprocess.py", "photometric_thresholds.py", "canny_candidates.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
         if args.line_log_dir:
@@ -1341,6 +1353,10 @@ def main():
                     print(
                         f"[shape] cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')} "
                         f"cue={fmt(card_dbg.get('presence_cue'), '.2f')} "
+                        f"raw={fmt(card_dbg.get('cue_score_raw'), '.2f')} "
+                        f"photo={fmt(card_dbg.get('photometric_mean'), '.1f')}/"
+                        f"{fmt(card_dbg.get('photometric_std'), '.1f')} "
+                        f"scale={fmt(card_dbg.get('photometric_contrast_scale'), '.2f')} "
                         f"found={int(bool(card_dbg.get('card_found')))} "
                         f"shape={card_dbg.get('shape') or '-'} "
                         f"quad={card_dbg.get('quad_total', '?')}"
@@ -1558,8 +1574,14 @@ def main():
                     print(f'[video] frame submission disabled: {exc}', flush=True)
                     command_video.error = str(exc)
             if line_log is not None:
+                # Card detection is sampled; only attach this frame's actual
+                # diagnostics, never relabel a previous detection as fresh.
+                telemetry_debug = dict(debug)
+                if card_dbg:
+                    telemetry_debug.update({"card_" + key: value for key, value in card_dbg.items()
+                        if key.startswith(("photometric_", "cue_", "shape_"))})
                 line_log.write(
-                    debug, frame=frames, host_time_ns=command_host_time_ns,
+                    telemetry_debug, frame=frames, host_time_ns=command_host_time_ns,
                     process_monotonic_s=processed, confidence=confidence,
                     vx=vx, wz=wz, mode=args.wz_mode,
                     body_track_deviation_deg=debug.get('heading_control_deg'),

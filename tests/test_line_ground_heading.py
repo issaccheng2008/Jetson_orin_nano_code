@@ -114,6 +114,7 @@ class GroundHeadingTests(unittest.TestCase):
         # This frozen-source comparison checks geometry compatibility under the
         # same extraction. Contrast extraction has separate image regressions.
         d.preprocess_mode='legacy'
+        d.photometric_mode='legacy'
         for item in [d,old]:
             item.M=np.eye(3)
             item.startup_force_simple_bottom=False

@@ -23,6 +23,7 @@ from collections import deque
 import numpy as np
 
 from camera_config import load as _load_camera, to_model_z
+from photometric_thresholds import measure
 
 _CAM = _load_camera()
 
@@ -129,6 +130,10 @@ class ShapeDetector:
         self.cooldown_ms = cooldown_ms
         self.roi_ratio = roi_ratio
         self.debug = debug
+        self.preprocess_mode = "selective"
+        self.photometric_mode = "normalize"
+        self._photometry = None
+        self._photometric_debug = {}
 
         # ── 找框参数（集中管理）──
         self.cfg = {
@@ -388,6 +393,19 @@ class ShapeDetector:
         else:
             gray = bgr_or_gray
         h0, w0 = gray.shape[:2]
+        # Measure before ROI cropping/resizing/letterboxing: padding is not floor.
+        self._photometry = measure(gray, self.photometric_mode)
+        self._photometric_debug = self._photometry.diagnostics()
+        self._photometric_debug.update(
+            cue_ink_threshold=self._photometry.difference(self.cfg["cue_ink_thresh"]),
+            cue_core_gray_threshold=self._photometry.intensity(self.cfg["cue_core_gray_min"]),
+            cue_contrast_threshold=self._photometry.difference(self.cfg["cue_contrast_min"]),
+            cue_score_threshold_raw=self._photometry.difference(self.cfg["cue_score_min"]),
+            cue_score_threshold_reference=self.cfg["cue_score_min"],
+            shape_adaptive_c=self.cfg["adaptive_c"] * min(1.0, self._photometry.scale),
+            shape_adaptive_c_applied=self.preprocess_mode == "selective",
+            shape_preprocess=self.preprocess_mode, cue_score_raw=0.0,
+            cue_score_reference=0.0, cue_evaluated=False)
         if self.roi_ratio < 1.0:
             self._roi_y0 = int(h0 * (1.0 - self.roi_ratio))
             roi = gray[self._roi_y0:, :]
@@ -410,12 +428,20 @@ class ShapeDetector:
         self._scale_y = rh / nh
 
         # S1 线宽选择性二值化（线=白255）
-        binary = self._binary_selective(gray)
+        if self.preprocess_mode == "canny":
+            from canny_candidates import card_canny
+            binary, canny_debug = card_canny(gray)
+            self._photometric_debug.update({"shape_" + key: value
+                for key, value in canny_debug.items() if np.isscalar(value)})
+        elif self.preprocess_mode == "selective":
+            binary = self._binary_selective(gray)
+        else:
+            raise ValueError("shape preprocessing must be selective or canny")
         dt = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
         # 卡框是一条闭合细环，而上面那条链是为压 2cm 巡线调的，卡框在它里面是碎的。
         # ring 通道用它自己那张原始灰度 Otsu 墨迹图，后续的闭合度/线宽/环内含量
         # 也在同一张图上量 —— 拿一套阈值去量一张被锯碎的图，是在惩罚正确的框。
-        ink = _card_ink(gray)
+        ink = binary.copy() if self.preprocess_mode == "canny" else _card_ink(gray)
 
         # S2 候选生成。候选带一个"来自 ring 通道"的标记：那一路的框是原始灰度上
         # 的环轮廓，本身就是框线外缘，既不该被 _refine_quad 滑到框线上，也不该在
@@ -483,6 +509,7 @@ class ShapeDetector:
                "presence_box": None, "presence_box_work": None,
                "presence_cue": 0.0, "presence_cy_frac": None,
                "cue_candidate_cy_frac": None}
+        dbg.update(self._photometric_debug)
 
         if best is not None:
             self._cue_hist.append(1)   # 找框成功 = 强存在证据，时间窗记命中
@@ -532,6 +559,8 @@ class ShapeDetector:
             # 找框全线为 0，才退到"细环 + 亮纸面"的存在信号兜底（省几毫秒，
             # 也避免两条通道给出不一致的框）。命中进时间窗，累积够了才认。
             box, cue_score = self._presence_cue(gray)
+            self._photometric_debug.update(cue_evaluated=True, cue_score_reference=cue_score)
+            dbg.update(self._photometric_debug)
             # 结构命中还要过出口分数闸才算"看到卡"。不过闸的也进不了时间窗
             # （_cue_hist），所以地板那种低分位永远不会攒出 presence。
             hit = box is not None and cue_score >= self.cfg["cue_score_min"]
@@ -607,10 +636,11 @@ class ShapeDetector:
         返回 ((x, y, w, h), score) 或 (None, 0.0)。判据全部来自 cfg["cue_*"]。
         """
         c = self.cfg
+        photo = self._photometry or measure(gray, self.photometric_mode)
         bh = cv2.morphologyEx(
             gray, cv2.MORPH_BLACKHAT,
             cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_bh_kernel"],) * 2))
-        ink = (bh > c["cue_ink_thresh"]).astype(np.uint8) * 255
+        ink = (bh > photo.difference(c["cue_ink_thresh"])).astype(np.uint8) * 255
         m = cv2.morphologyEx(
             ink, cv2.MORPH_CLOSE,
             cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_close"],) * 2))
@@ -649,11 +679,15 @@ class ShapeDetector:
             gs = gray[y:y + h, x:x + w]
             cg = float(gs[inner].mean())
             sg = float(gs[(mo > 0) & (~inner)].mean())
-            if cg < c["cue_core_gray_min"] or cg - sg < c["cue_contrast_min"]:
+            if (cg < photo.intensity(c["cue_core_gray_min"])
+                    or cg - sg < photo.difference(c["cue_contrast_min"])):
                 continue
-            score = inner_frac * (cg - sg)
+            # Keep the exported cue in reference contrast units. The equivalent
+            # raw score gate is cfg[cue_score_min] * photo.scale (logged above).
+            score = inner_frac * (cg - sg) / photo.scale
             if score > best_score:
                 best_score, best = score, (int(x), int(y), int(w), int(h))
+        self._photometric_debug["cue_score_raw"] = best_score * photo.scale
         return best, best_score
 
     def _cue_confirmed(self):
@@ -686,9 +720,14 @@ class ShapeDetector:
                                          self.cfg["bh_kernel"]))
         gd = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kbh)
 
+        photo = self._photometry or measure(gray, self.photometric_mode)
+        # Compensate reduced contrast, but do not increase the old rejection
+        # threshold on close-up cards. Their black ink raises the scene std;
+        # full rescaling fragmented correct shapes in the 31-photo regression.
+        adaptive_c = self.cfg["adaptive_c"] * min(1.0, photo.scale)
         binary = cv2.adaptiveThreshold(
             gd, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
-            self.cfg["adaptive_block"], self.cfg["adaptive_c"])
+            self.cfg["adaptive_block"], adaptive_c)
 
         # close(3×3)（YOLO方案形态学）
         k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))

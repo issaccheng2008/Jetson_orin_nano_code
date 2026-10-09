@@ -40,8 +40,14 @@ def extract_lane_candidates(gray, mode="contrast", th_offset=-12, th_min=25, th_
     only affects candidate extraction, never the source image, red detector,
     shape detector, or the raw-gray centroid fallback.
     """
+    if mode == "canny":
+        from canny_candidates import lane_canny
+        mask, diagnostics = lane_canny(gray)
+        # Downstream scanners require a thresholded response as well as a mask.
+        # Use filled stroke evidence, never raw Canny double edges.
+        return mask.copy(), mask, 127.0, diagnostics
     if mode not in ("legacy", "contrast"):
-        raise ValueError("line preprocessing must be legacy or contrast")
+        raise ValueError("line preprocessing must be legacy, contrast or canny")
     source = (cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
               if mode == "contrast" else gray)
     response = cv2.morphologyEx(source, cv2.MORPH_BLACKHAT,
