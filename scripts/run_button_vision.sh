@@ -41,16 +41,6 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
     --recording-root "$RECORDS_DIR/tests" "$video_flag"
     --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
-selection_names=(POSITION_GAIN POSITION_DEAD_CM POSITION_LOOKAHEAD_CM POSITION_MAX_DEG
-                 POSITION_RECOVERY_CM POSITION_RECOVERY_FULL_SCALE_CM POSITION_CONFIRM_FRAMES
-                 SHAPE_CUE_SCORE_MIN SHAPE_CUE_HIST_N SHAPE_CUE_HIST_M SHAPE_CUE_HIST_RECENT
-                 SHAPE_CLOSURE_TOTAL SHAPE_CLOSURE_EDGE SHAPE_SAMPLE_BAND SHAPE_MAX_GAP_FRAC
-                 SHAPE_SQUARE_SIDE_MIN_CM SHAPE_SQUARE_SIDE_MIN_RING_CM SHAPE_SQUARE_SIDE_MAX_CM
-                 SHAPE_SQUARE_SIDE_RATIO_MAX SHAPE_SQUARE_DIAG_RATIO_MAX SHAPE_SQUARE_ANGLE_TOL_DEG)
-for setting in "${selection_names[@]}"; do
-    flag="${setting,,}"
-    command+=("--${flag//_/-}" "${!setting}")
-done
 command+=(--camera-exposure-mode "$CAMERA_EXPOSURE_MODE"
           --camera-white-balance-mode "$CAMERA_WHITE_BALANCE_MODE")
 camera_names=(CAMERA_EXPOSURE_MS CAMERA_BRIGHTNESS CAMERA_CONTRAST CAMERA_SATURATION
