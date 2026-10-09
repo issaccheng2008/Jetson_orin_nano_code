@@ -17,6 +17,19 @@ from policy_bridge import ConnectorClient
 
 
 class HeadingIntegrationTests(unittest.TestCase):
+    def test_filter_and_policy_hold_interfaces_validate_without_hardware(self):
+        argv = ['run_policy_vision.py', '--command-min-hold-s', '.23',
+                '--steering-filter-mode', 'active', '--steering-filter-algorithm', 'ema']
+        with patch('sys.argv', argv):
+            args = run_policy_vision.parse_args()
+        self.assertEqual(args.command_min_hold_s, .23)
+        self.assertEqual(args.steering_filter_algorithm, 'ema')
+        for extra in (['--command-min-hold-s', 'nan'], ['--steering-filter-beta', '-1'],
+                      ['--steering-filter-min-hz', '0'], ['--steering-exit-deg', '3']):
+            with patch('sys.argv', ['run_policy_vision.py', *extra]), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    run_policy_vision.parse_args()
+
     def test_heading_rejects_amplitude_that_connector_would_clip(self):
         with patch("sys.argv", ["run_policy_vision.py", "--max-wz", "1", "--wz-step", ".6"]), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
@@ -47,7 +60,13 @@ class HeadingIntegrationTests(unittest.TestCase):
             finally:
                 client.close()
 
-    def test_default_entrypoint_held_levels_and_auditable_log(self):
+    def test_active_entrypoint_filter_reaches_publication_and_log(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='active')
+
+    def test_shadow_entrypoint_logs_comparison(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='shadow')
+
+    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy'):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
         camera.isOpened.return_value = True
@@ -74,6 +93,7 @@ class HeadingIntegrationTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--no-shape-detect",
+                               '--steering-filter-mode', filter_mode,
                                "--attitude-port", "0", "--line-log-dir", tmp]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client,
@@ -89,6 +109,10 @@ class HeadingIntegrationTests(unittest.TestCase):
         self.assertEqual(len(rows), 42)
         self.assertTrue(all(r["mode"] == "heading" for r in rows))
         self.assertTrue(all("steering_heading_deg" in r["measurement"] for r in rows))
+        if filter_mode == 'active':
+            self.assertTrue(all('steering_filter_demand_deg' in r['measurement'] for r in rows))
+        elif filter_mode == 'shadow':
+            self.assertTrue(all('steering_filter_shadow_wz' in r['measurement'] for r in rows))
         walking = [s for s in sent if s[1] != 0]
         self.assertTrue(all(s[3].get("command_mode") == "held" for s in walking))
         levels = {round(s[2],6) for s in walking}

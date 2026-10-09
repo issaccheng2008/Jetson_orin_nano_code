@@ -121,7 +121,7 @@ class ControlDiagnostics:
                                      phase_clock49="same slices as walking49; phase-clock supplies vx,wz,step,crossing"),
             csv_columns=HEADER, received_data_semantics="STM32-processed packet; not raw physical encoder truth",
             raw_action_semantics="Canonical ONNX output; left-support onefoot maps action to -concat(action[6:],action[:6]) before raw_target_policy",
-            walking_command_contract=dict(minimum_hold_s=MIN_WALKING_COMMAND_HOLD_S, timing="first actual walking model use; host monotonic clock",
+            walking_command_contract=dict(minimum_hold_s=getattr(args, 'command_min_hold_s', MIN_WALKING_COMMAND_HOLD_S), timing="first actual walking model use; host monotonic clock",
                 exceptions="all-zero stop, safety/shape stop, upright/onefoot takeover, fault/disable/exit clear the hold",
                 requested_command="source value before local safety overrides; cmd_vx/vy/wz is actually used walking input"),
             command_semantics="motor_send_argument is the exact 12-angle argument to SerialLink, not an STM32 execution acknowledgement",

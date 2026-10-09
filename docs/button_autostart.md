@@ -31,6 +31,10 @@ vi 的编辑、保存退出和参数生效步骤见 [参数修改与 vi 保存�
 
 ## 启动、停止与检查
 
+### 可调指令保持与视觉滤波
+
+`COMMAND_MIN_HOLD_S` 控制步态模型入口正常指令的最短持续时间，0 关闭，0.5 恢复半秒保持。`STEERING_FILTER_MODE` 可选 legacy/shadow/active，分别为原视觉控制、只记录对照、实际使用新滤波与滞回。已有本机配置缺少这两项时默认 0 和 legacy。详细启用、调强度、换公式、查看日志及回退方法见 [policy49flitter：滤波与指令保持操作](policy49flitter_滤波与指令保持操作.md)。
+
 ### 角速度偏置
 
 在 `config/button_start.env` 中添加或修改 `WZ_BIAS=0.1`，connector 会给每条运动指令的 `wz` 加 `0.1 rad/s` 后发给 Nano；`WZ_BIAS=-0.1` 表示减 `0.1`，`WZ_BIAS=0` 关闭补偿。已有配置未写此项时默认 0。该设置只调整角速度，不改变前进速度的处理。

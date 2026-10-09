@@ -1,4 +1,4 @@
-"""Experiment 1: no minimum duration for normal walking model commands."""
+"""Configurable minimum duration of commands at actual walking model input."""
 
 import math
 

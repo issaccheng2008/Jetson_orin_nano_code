@@ -14,6 +14,22 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_vision_wrapper_passes_hold_filter_and_defaults_existing_configs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                 if not line.startswith(('COMMAND_MIN_HOLD_S=', 'STEERING_'))) + '\n'
+            for extra, expected in (('', ('0', 'legacy')), ('COMMAND_MIN_HOLD_S=0.23\nSTEERING_FILTER_MODE=active\nSTEERING_FILTER_ALGORITHM=ema\nSTEERING_FILTER_MIN_HZ=1\n', ('0.23','active'))):
+                (checkout / 'config/button_start.env').write_text(original+extra)
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertEqual(args[args.index('--command-min-hold-s')+1], expected[0])
+                self.assertEqual(args[args.index('--steering-filter-mode')+1], expected[1])
+                if extra:
+                    self.assertEqual(args[args.index('--steering-filter-algorithm')+1], 'ema')
+                    self.assertEqual(args[args.index('--steering-filter-min-hz')+1], '1')
+
     def run_bash(self, *args, cwd):
         return subprocess.run([BASH, *args], cwd=cwd, text=True,
                               capture_output=True, check=True).stdout

@@ -138,6 +138,8 @@ class SegmentSteeringController(HeadingSteeringController):
         if (key != self._geometry_key or self._geometry_depth is None
                 or abs(self._segment_depth-self._geometry_depth) > MAX_DEPTH_GAP_CM):
             self._samples.clear()
+            if self._observation_filter is not None:
+                self._observation_filter.reset()
         self._geometry_key, self._geometry_depth = key, self._segment_depth
         return selected
 

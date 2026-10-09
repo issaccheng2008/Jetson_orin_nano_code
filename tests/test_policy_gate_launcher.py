@@ -20,6 +20,21 @@ from protocol import STATE_COMMAND_FRESH, STATE_MOTORS_ENABLED
 
 
 class PolicyGateLauncherTests(unittest.TestCase):
+    def test_configurable_hold_reaches_child_command(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'walk.onnx').touch()
+            (root / 'foot.onnx').touch()
+            policy = Mock(pid=1234, stdout=io.BytesIO())
+            with (patch.object(policy_gate_launcher, 'REPO_ROOT', root),
+                  patch.object(policy_gate_launcher.subprocess, 'Popen', side_effect=[policy, Mock()]) as popen):
+                launcher = policy_gate_launcher.PolicyGateLauncher('walk.onnx', '/dev/ttyACM0', 1200,
+                    one_foot_model='foot.onnx', command_min_hold_s=.23)
+                launcher.start()
+                command = popen.call_args_list[0].args[0]
+                self.assertEqual(command[command.index('--command-min-hold-s')+1], '0.23')
+                launcher.close()
+
     def test_model_cli_defaults_and_independent_overrides(self):
         walking = "humanoid_jetson_deploy/policy_49_max.onnx"
         one_foot = "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx"

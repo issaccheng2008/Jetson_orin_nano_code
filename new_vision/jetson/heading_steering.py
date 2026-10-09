@@ -24,7 +24,7 @@ class HeadingSteeringController:
                  left_tolerance_deg=4.0, full_scale_deg=20.0, max_step=0.5,
                  allow_right=True, corridor_cm=8.0,
                  left_levels=(0.37, 0.43, 0.5), right_levels=(0.3, 0.5),
-                 straight_wz=0.0, min_hold_s=COMMAND_HOLD_S):
+                 straight_wz=0.0, min_hold_s=COMMAND_HOLD_S, filter_config=None):
         values = (lookahead_cm, right_tolerance_deg, left_tolerance_deg,
                   full_scale_deg, max_step, corridor_cm, straight_wz, min_hold_s)
         if not all(math.isfinite(v) for v in values):
@@ -61,6 +61,14 @@ class HeadingSteeringController:
         self.right_levels = tuple(v for v in right_levels if v <= self._cap(-1))
         if not self.left_levels or (self.allow_right and not self.right_levels):
             raise ValueError("wz caps must leave at least one level in each enabled direction")
+        self.filter_config = filter_config
+        self._observation_filter = None
+        if filter_config is not None:
+            from steering_filter import GeometryFilter, validate_ladder
+            if filter_config.algorithm != 'none':
+                self._observation_filter = GeometryFilter(filter_config)
+            validate_ladder(self.left_levels, self._cap(+1), self.full_scale_deg, filter_config.hysteresis_deg)
+            validate_ladder(self.right_levels, self._cap(-1), self.full_scale_deg, filter_config.hysteresis_deg)
         self._clock = 0.0
         self._started = None
         self._samples = []
@@ -98,11 +106,15 @@ class HeadingSteeringController:
         self._loss_s = 0.0
         self._left_offset_frames = 0
         self.diagnostics = {}
+        if self._observation_filter is not None:
+            self._observation_filter.reset()
 
     def drop_held_command(self):
         self.reset(clear_hold=True)
 
     def _stop(self, reason):
+        if self._observation_filter is not None:
+            self._observation_filter.reset()
         self._left_offset_frames = 0
         self._started = None
         self._samples.clear()
@@ -194,8 +206,25 @@ class HeadingSteeringController:
             return -level
         return self.straight_wz
 
+    def _filtered_level(self, demand):
+        from steering_filter import select_level
+        cfg = self.filter_config
+        current = self._command[1]*self.yaw_sign
+        direction = 1 if demand > 0 else -1
+        corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
+        gate = min(self.right_tolerance_deg if direction > 0 else self.left_tolerance_deg, corridor_angle)
+        turning = current != self.straight_wz and current*direction > 0
+        threshold = max(gate, cfg.exit_deg if turning else cfg.enter_deg)
+        if demand == 0 or abs(demand) <= threshold or (direction < 0 and not self.allow_right):
+            return self.straight_wz
+        levels = self.left_levels if direction > 0 else self.right_levels
+        return direction*select_level(abs(demand), abs(current) if turning else 0.,
+            levels=levels, cap=self._cap(direction), full_scale=self.full_scale_deg,
+            gate=gate, width=cfg.hysteresis_deg)
+
     def _decision(self, demand, near, heading):
-        candidate = self._map_angle(demand)
+        candidate = (self._filtered_level(demand) if self.filter_config is not None
+                     else self._map_angle(demand))
         # Already pointing toward the line: do not keep turning just to erase
         # residual position error. Straight walking lets that error converge.
         corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
@@ -248,6 +277,8 @@ class HeadingSteeringController:
         self._loss_s = 0.0
         self.inner.lost_s = 0.0
         near, z, angle, demand, source = geometry
+        filtered_geometry = (self._observation_filter.apply(geometry, self._clock)
+                             if self._observation_filter is not None else None)
         # Confirm position independently of the trend samples, which are cleared
         # on command changes. A single shaken frame cannot veto a left command.
         self._left_offset_frames = (min(LEFT_OFFSET_CONFIRM_FRAMES,
@@ -259,6 +290,14 @@ class HeadingSteeringController:
         filtered = median(s[1] for s in self._samples[-3:])
         filtered_near = median(s[3] for s in self._samples[-3:])
         filtered_heading = median(s[2] for s in self._samples[-3:])
+        if filtered_geometry is not None:
+            filtered_near, _, filtered_heading, filtered, _ = filtered_geometry
+        if self.filter_config is not None:
+            self.diagnostics.update(steering_filter_mode='active',
+                steering_filter_algorithm=self.filter_config.algorithm,
+                steering_filter_heading_deg=filtered_heading,
+                steering_filter_demand_deg=filtered, steering_filter_near_cm=filtered_near,
+                steering_hysteresis_deg=self.filter_config.hysteresis_deg)
         rate, angle_rate = self._trend(1), self._trend(2)
         predicted = filtered + PREDICTION_HORIZON_S*rate if rate is not None else filtered
         self.diagnostics.update(steering_heading_source=source, steering_near_cm=near,

@@ -144,6 +144,9 @@ def parse_args() -> argparse.Namespace:
                              "is otherwise a static config value while the body moves")
     parser.add_argument("--command-timeout", type=float, default=0.25,
                         help="Zero velocity after this many seconds without connector data")
+    parser.add_argument("--command-min-hold-s", type=float, default=0.0,
+                        help="Minimum duration of actual walking (vx,vy,wz) at model input; "
+                             "0 disables, 0.5 restores the original duration; stops/takeovers preempt")
     parser.add_argument(
         "--walk-seconds", type=float, default=5.0,
         help="Fixed mode only: how long to hold (--vx, --wz). With "
@@ -218,6 +221,8 @@ def parse_args() -> argparse.Namespace:
         parser.error(str(exc))
     if not np.isfinite(args.forward_ankle_bias_rad) or args.forward_ankle_bias_rad < 0.0:
         parser.error("--forward-ankle-bias-rad must be finite and nonnegative")
+    if not np.isfinite(args.command_min_hold_s) or args.command_min_hold_s < 0:
+        parser.error("--command-min-hold-s must be finite and nonnegative")
     return args
 
 
@@ -534,7 +539,8 @@ def main() -> int:
     print(f"Opening {args.port} (line coding {args.baud}; native USB CDC ignores physical baud)")
     print("MOTORS ENABLED" if args.enable_motors else "DRY RUN: command enable flag is OFF")
     if not args.fixed_policy and args.policy == "walking":
-        print("Experiment 1: no normal vx/wz minimum hold at model input; stops and takeovers preempt")
+        print(f"Walking command minimum hold: {args.command_min_hold_s:g} s at model input; "
+              "stops and takeovers preempt")
     print(f"Motor-position and IMU log: {position_logger.path}")
     if position_plot is not None:
         print("Motor/IMU window opened (knee motors and IMU data selected by default)")
@@ -544,7 +550,7 @@ def main() -> int:
     timed_run_completed = False
     diagnostics = None
     diagnostic_error = None
-    walking_command_hold = WalkingCommandHold()
+    walking_command_hold = WalkingCommandHold(min_hold_s=args.command_min_hold_s)
     try:
         first_state = link.wait_for_state(timeout_s=5.0)
         required = STATE_IMU_VALID | STATE_ENCODERS_VALID

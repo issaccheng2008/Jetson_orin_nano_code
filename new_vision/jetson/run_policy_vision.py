@@ -178,6 +178,9 @@ def parse_args():
                              "the repository .venv/bin/python when available")
     parser.add_argument("--start-policy-port", default="/dev/ttyACM0")
     parser.add_argument("--start-policy-max-seconds", type=float, default=1200.0)
+    parser.add_argument('--command-min-hold-s', type=float, default=0.0,
+                        help='Minimum actual walking command duration in launched policy; '
+                             '0 disables, 0.5 restores original duration; vision adds no second hold')
     parser.add_argument("--qr-every", type=int, default=5,
                         help="Decode a QR every N frames while the first valve is "
                              "still waiting. The decoder is CPU-only and costs tens "
@@ -449,7 +452,17 @@ def parse_args():
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0,
                         help="0 runs until Ctrl+C")
+    from steering_filter import add_arguments, config_from_args, validate_ladder
+    add_arguments(parser)
     args = parser.parse_args()
+    try:
+        filter_config = config_from_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if not math.isfinite(args.command_min_hold_s) or args.command_min_hold_s < 0:
+        parser.error('command-min-hold-s must be finite and nonnegative')
+    if args.steering_filter_mode != 'legacy' and args.wz_mode not in ('heading', 'segments'):
+        parser.error('steering-filter-mode shadow/active requires heading or segments')
     if not 1 <= args.connector_port <= 65535:
         parser.error("connector-port must be between 1 and 65535")
     if args.width <= 0 or args.height <= 0:
@@ -553,6 +566,13 @@ def parse_args():
         if min(args.heading_left_wz) > left_cap or min(args.heading_right_wz) > right_cap:
             parser.error("heading caps (wz-step / max-wz-right) must admit the "
                          "smallest left and right wz levels for corridor correction")
+        if args.steering_filter_mode != 'legacy':
+            try:
+                for levels, cap in ((args.heading_left_wz, left_cap), (args.heading_right_wz, right_cap)):
+                    validate_ladder(tuple(v for v in levels if v <= cap), cap,
+                                    args.heading_full_scale_deg, filter_config.hysteresis_deg)
+            except ValueError as exc:
+                parser.error(str(exc))
     if args.wz_mode == "segments":
         args.lane_fit_segments = True
     return args
@@ -600,15 +620,16 @@ def main():
         if args.wz_mode == "segments":
             from segment_steering import SegmentSteeringController
             controller_type = SegmentSteeringController
-        controller = controller_type(
-            controller, lookahead_cm=args.heading_lookahead_cm,
+        from steering_filter import configured_controller
+        controller = configured_controller(controller_type, controller, dict(
+            lookahead_cm=args.heading_lookahead_cm,
             right_tolerance_deg=args.heading_right_tolerance_deg,
             left_tolerance_deg=args.heading_left_tolerance_deg,
             full_scale_deg=args.heading_full_scale_deg, max_step=args.wz_step,
             allow_right=True, corridor_cm=args.heading_corridor_cm,
             left_levels=tuple(args.heading_left_wz),
             right_levels=tuple(args.heading_right_wz),
-            straight_wz=args.heading_straight_wz)
+            straight_wz=args.heading_straight_wz), args)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
     from line_detector_v1_warp import LineDetector
@@ -650,7 +671,8 @@ def main():
                                              args.start_policy_port,
                                              args.start_policy_max_seconds,
                                              policy_python=args.start_policy_python,
-                                             one_foot_model=args.start_policy_one_foot_model)
+                                             one_foot_model=args.start_policy_one_foot_model,
+                                             command_min_hold_s=args.command_min_hold_s)
     if args.start_gate == "button":
         from startup_button_link import StartupButtonLink
         startup_button_link = StartupButtonLink(args.start_policy_port)
@@ -720,9 +742,16 @@ def main():
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
                   f" 会被机身俯仰实时修正", flush=True)
         if args.wz_mode in ("heading", "segments"):
+            print(f'[steering-filter] mode={args.steering_filter_mode}; '
+                  f'algorithm={args.steering_filter_algorithm}; '
+                  f'angle_cutoff={args.steering_filter_min_hz:g}..{args.steering_filter_max_hz:g}Hz; '
+                  f'beta={args.steering_filter_beta:g}; '
+                  f'hysteresis={args.steering_hysteresis_deg:g}deg; '
+                  f'entry/exit={args.steering_enter_deg:g}/{args.steering_exit_deg:g}deg; '
+                  f'model_min_hold={args.command_min_hold_s:g}s (launched policy only)', flush=True)
             left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
-            print(f"[wz] 方案一：取消正常 vx/wz 的最短保持时间；"
+            print(f"[wz] 视觉逐帧选档；模型入口最短保持可调（自动启动值 {args.command_min_hold_s:g}s）；"
                   f"前视 {args.heading_lookahead_cm:g}cm，目标方位容忍区 "
                   f"[-{args.heading_left_tolerance_deg:g}, +{args.heading_right_tolerance_deg:g}]°，"
                   f"横向走廊 ±{args.heading_corridor_cm:g}cm；"
@@ -848,7 +877,8 @@ def main():
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
-                                "line_telemetry.py", "lane_segments.py", "segment_steering.py"):
+                                "line_telemetry.py", "lane_segments.py", "segment_steering.py",
+                                "steering_filter.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
         if args.line_log_dir:

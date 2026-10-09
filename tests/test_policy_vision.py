@@ -3195,6 +3195,7 @@ class StartGateIntegrationTests(unittest.TestCase):
                                "--start-gate", "both", "--start-policy-on-gate",
                                "--start-policy-model", "custom walking.onnx",
                                "--start-policy-one-foot-model", "custom standing.onnx",
+                               "--command-min-hold-s", ".23",
                                "--qr-every", "1", "--shape-every", "1",
                                "--attitude-port", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
@@ -3221,7 +3222,7 @@ class StartGateIntegrationTests(unittest.TestCase):
 
         launcher_cls.assert_called_once_with(
             "custom walking.onnx", "/dev/ttyACM0", 1200.0,
-            policy_python=None, one_foot_model="custom standing.onnx")
+            policy_python=None, one_foot_model="custom standing.onnx", command_min_hold_s=.23)
         launcher.start.assert_called_once()
         launcher.close.assert_called_once()
         published = client_cls.return_value.publish.call_args_list

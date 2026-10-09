@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import math
 import subprocess
 import sys
 import tempfile
@@ -18,7 +19,11 @@ class PolicyGateLauncher:
     def __init__(self, model: str, port: str, max_seconds: float,
                  ready_timeout_s: float = 30.0,
                  policy_python: str | None = None,
-                 one_foot_model: str = "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx") -> None:
+                 one_foot_model: str = "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx",
+                 command_min_hold_s: float = 0.0) -> None:
+        if not math.isfinite(command_min_hold_s) or command_min_hold_s < 0:
+            raise ValueError('command_min_hold_s must be finite and nonnegative')
+        self.command_min_hold_s = command_min_hold_s
         self.model = model
         self.one_foot_model = one_foot_model
         self.port = port
@@ -73,6 +78,7 @@ class PolicyGateLauncher:
             "--one-foot-model", self.one_foot_model,
             "--port", self.port, "--command-source", "vision",
             "--udp-command-port", "5005",
+            "--command-min-hold-s", f"{self.command_min_hold_s:g}",
             "--diagnostic-log-dir", "records/control_diagnostics",
             "--no-plot", "--max-seconds", f"{self.max_seconds:g}",
             "--enable-motors", "--startup-ready-file", str(self.ready_file),
