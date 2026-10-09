@@ -445,18 +445,21 @@ def parse_args():
                              "P1 uses a quality-gated geometric preview and no "
                              "longer clips preview by the near-error magnitude.")
     parser.add_argument("--line-preprocess", choices=("contrast", "legacy", "canny"),
-                        default=os.getenv("LINE_PREPROCESS", "contrast"),
+                        default=os.getenv("LINE_PREPROCESS", "legacy"),
                         help="Lane candidate extraction: contrast uses limited local "
                              "equalization and preserves thin/oblique fragments; "
                              "legacy restores the previous binary preprocessing; "
                              "canny selects experimental filled dark-stroke evidence")
+    parser.add_argument("--line-adaptive-c", type=float, default=-12.0,
+                        help="Reference C for the legacy lane adaptive threshold; "
+                             "normalize maps it by ground std/reference std")
     parser.add_argument("--shape-preprocess", choices=("selective", "canny"),
                         default=os.getenv("SHAPE_PREPROCESS", "selective"),
                         help="Card ink candidates; canny is an explicit experimental alternative")
     parser.add_argument("--photometric-mode", choices=("normalize", "legacy"),
                         default=os.getenv("PHOTOMETRIC_MODE", "normalize"),
                         help="Reference mean/std normalization for card brightness gates "
-                             "and raw-gray lane centroid contrast; legacy uses fixed gates")
+                             "and legacy lane adaptive C/centroid contrast; legacy uses fixed gates")
     parser.add_argument("--lane-fit", action="store_true",
                         help="EXPERIMENTAL, and it changes nothing on its own: also "
                              "scan one tall band (20~70 cm instead of the two "
@@ -491,6 +494,8 @@ def parse_args():
     from steering_recovery import add_arguments as add_recovery_arguments, config_from_args as recovery_from_args
     add_recovery_arguments(parser)
     args = parser.parse_args()
+    if not math.isfinite(args.line_adaptive_c):
+        parser.error("--line-adaptive-c must be finite")
     position_values = (args.position_gain, args.position_dead_cm, args.position_lookahead_cm,
                        args.position_max_deg, args.position_recovery_cm,
                        args.position_recovery_full_scale_cm)
@@ -802,6 +807,7 @@ def main():
                                 cam_pitch_deg=args.camera_pitch_deg,
                                 cam_vfov_deg=args.camera_vfov_deg)
         detector.preprocess_mode = args.line_preprocess
+        detector.adaptive_c = args.line_adaptive_c
         detector.photometric_mode = args.photometric_mode
         print(f"[line-preprocess] {detector.preprocess_mode}; "
               "candidate mask only; geometry quality checks retained", flush=True)

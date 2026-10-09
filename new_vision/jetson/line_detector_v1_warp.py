@@ -159,7 +159,8 @@ class LineDetector:
         self._rebuild_err_scale()
 
         # ── Threshold params ──
-        self.preprocess_mode = "contrast"
+        self.preprocess_mode = "legacy"
+        self.adaptive_c = -12.0
         self.photometric_mode = "normalize"
         self._photometry = None
         self.th_offset = -12  # 反光把线打成亮斑时放宽，让不够黑的也进得来
@@ -1559,7 +1560,8 @@ class LineDetector:
         img_h = self.bird_h
         img_cx = self.center_x
         gray_detect, binary_clean, black_th, preprocess_debug = extract_lane_candidates(
-            gray, self.preprocess_mode, self.th_offset, self.th_min, self.th_max)
+            gray, self.preprocess_mode, self.th_offset, self.th_min, self.th_max,
+            photometry=self._photometry, adaptive_c=self.adaptive_c)
         preprocess_debug.update(self._photometry.diagnostics())
         preprocess_debug["centroid_min_contrast_effective"] = self._photometry.difference(
             self.centroid_min_contrast)

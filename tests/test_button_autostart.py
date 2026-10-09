@@ -56,7 +56,7 @@ class ButtonAutostartTests(unittest.TestCase):
                         args = run_policy_vision.parse_args()
                     self.assertEqual(args.wz_mode, 'segments' if extra.startswith('WZ_MODE') else 'heading')
                     self.assertEqual(args.camera_exposure_mode, 'manual' if extra.startswith('WZ_MODE') else 'keep')
-                    self.assertEqual(args.line_preprocess, 'legacy' if extra.startswith('LINE_PREPROCESS') else 'contrast')
+                    self.assertEqual(args.line_preprocess, 'legacy')
 
     def test_camera_controls_defaults_and_configured_values(self):
         with tempfile.TemporaryDirectory() as temporary:
