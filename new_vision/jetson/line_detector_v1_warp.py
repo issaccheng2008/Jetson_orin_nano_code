@@ -151,6 +151,9 @@ class LineDetector:
         self.lateral_scale_min = 0.85    # ±20% 之外的事不是模型误差，是量错了
         self.lateral_scale_max = 1.20
         self.lateral_scale_alpha = 0.02  # ~10Hz 下 τ≈5s
+        self.track_geometry_enable = False
+        self.track_lookahead_cm = 50.0
+        self._track_geometry = None
 
         # 逐行地面 LUT 依赖上面那组内参，必须排在它们之后。
         self._build_ground_lut()
@@ -372,6 +375,8 @@ class LineDetector:
                 if not key.startswith("red_") and key != "start_line_z"
             }),
             "lateral_scale": float(self.lateral_scale),
+            "track_geometry": (self._track_geometry.snapshot()
+                               if self._track_geometry is not None else None),
         }
 
     def restore_tracking_state(self, snapshot):
@@ -389,6 +394,8 @@ class LineDetector:
         self._state.update(tracking)
         self.lateral_scale = lateral_scale
         self._rebuild_err_scale()
+        if self._track_geometry is not None and snapshot.get("track_geometry") is not None:
+            self._track_geometry.restore(snapshot["track_geometry"])
 
     def reset_state(self):
         """Drop every cross-frame memory, so the next frame starts from scratch.
@@ -400,6 +407,7 @@ class LineDetector:
         the same curve tracks fine, so a fresh state should behave the same.
         """
         self._state = self._initial_state()
+        self._track_geometry = None
 
     # ═══════════════════════════════════════════════════════════
     # Birdseye matrix (IPM: pinhole back-projection of ground plane)
@@ -1606,6 +1614,9 @@ class LineDetector:
 
         # ── Clean gray_detect: morphology + CC on the detection input ──
         _, binary_clean = cv2.threshold(gray_detect, black_th, 255, cv2.THRESH_BINARY)
+        # Optional observer receives the pre-CC line evidence. Short genuine
+        # fragments must not be deleted by the legacy area/height filter.
+        track_mask = binary_clean.copy() if self.track_geometry_enable else None
         k5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_CLOSE, k5, iterations=1)
         binary_clean = cv2.morphologyEx(binary_clean, cv2.MORPH_OPEN, k5, iterations=1)
@@ -2088,6 +2099,22 @@ class LineDetector:
 
         debug["vision_speed_cm_s"] = 0.0
         debug["vision_omega_rad_s"] = 0.0
+
+        if track_mask is not None:
+            from track_geometry import TrackGeometryTracker
+            if self._track_geometry is None:
+                self._track_geometry = TrackGeometryTracker(self.track_lookahead_cm)
+            anchor = None
+            if (debug["measurement_valid"] and debug["bottom_pair_ratio"] >= .5
+                    and debug["heading_control_valid"] and debug["near_z_cm"] > 0.):
+                anchor = (float(debug["near_error_cm"]), float(debug["near_z_cm"]),
+                          float(debug["heading_control_deg"]),
+                          float(self.lane_width_true_cm))
+            track = self._track_geometry.observe(
+                track_mask, self._lut_z_cm,
+                self._lut_cm_per_px * self.lateral_scale, self.center_x,
+                near_anchor=anchor, dt=dt)
+            debug.update(track)
 
         return dev_px, heading_deg, conf, vis, debug
 

@@ -13,6 +13,7 @@ Bar crossing is still not signalled.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import hashlib
 import json
 import math
@@ -333,12 +334,13 @@ def parse_args():
                              "centre past the symmetry tolerance / edges never "
                              "paired). 1.0 (default) leaves the gains exactly as "
                              "they are")
-    parser.add_argument("--wz-mode", choices=("heading", "segments", "continuous", "discrete"),
+    parser.add_argument("--wz-mode", choices=("heading", "segments", "track", "continuous", "discrete"),
                         default="heading",
                         help="heading (default): ground heading + near offset, variable "
                              "wz held with vx for >=0.5s. segments: measured lane target "
                              "with heading fallback and comparison telemetry; automatically "
-                             "enables lane-fit-segments. discrete: legacy error-only "
+                             "enables lane-fit-segments. track: observed boundary path "
+                             "with heading fallback (opt-in). discrete: legacy error-only "
                              "bursts. continuous: legacy PID. C enforces >=0.5s for "
                              "all normal walking commands; explicit stops override it")
     parser.add_argument("--heading-lookahead-cm", type=float, default=50.0,
@@ -429,6 +431,11 @@ def parse_args():
                              "ground-space segments from paired observations. Enables "
                              "--lane-fit and adds fit_seg_* telemetry; diagnostic only "
                              "unless --wz-mode segments is selected")
+    parser.add_argument("--track-observe", action="store_true",
+                        help="Log independent ground-plane boundary/path observation and "
+                             "in heading mode a shadow track command; published command is unchanged")
+    parser.add_argument("--track-confirm-frames", type=int, default=3,
+                        help="Fresh, stable observations required before track target controls wz")
     parser.add_argument("--lane-fit-near-cm", type=float, default=25.0,
                         help="Where to read the near point off the fitted centre line")
     parser.add_argument("--lane-fit-far-cm", type=float, default=50.0,
@@ -518,7 +525,7 @@ def parse_args():
         parser.error("need 0 < wz-fire-cm, a finite wz-stop-cm "
                      "(unset = wz-fire-cm, the mirror), 0 < wz-step <= max-wz, "
                      "wz-turn-s > 0, and wz-gap-s >= 0 (0 = no forced coast)")
-    if args.wz_mode in ("heading", "segments") and args.wz_step > 0.5:
+    if args.wz_mode in ("heading", "segments", "track") and args.wz_step > 0.5:
         parser.error("heading wz-step must be <=0.5: connector wire limit is +/-0.5")
     heading_values = (args.heading_lookahead_cm, args.heading_right_tolerance_deg,
                       args.heading_left_tolerance_deg, args.heading_full_scale_deg, args.heading_corridor_cm)
@@ -538,7 +545,7 @@ def parse_args():
             or not 0 <= args.heading_straight_wz < min(args.heading_left_wz[0],
                                                        args.heading_right_wz[0])):
         parser.error("heading-straight-wz must be in [0, the smallest turn level)")
-    if args.wz_mode in ("heading", "segments"):
+    if args.wz_mode in ("heading", "segments", "track"):
         max_wz_right = args.max_wz if args.max_wz_right is None else args.max_wz_right
         if args.yaw_sign > 0:
             left_cap, right_cap = args.wz_step, min(args.wz_step, max_wz_right)
@@ -549,6 +556,10 @@ def parse_args():
                          "smallest left and right wz levels for corridor correction")
     if args.wz_mode == "segments":
         args.lane_fit_segments = True
+    if args.wz_mode == "track":
+        args.track_observe = True
+    if args.track_confirm_frames < 1:
+        parser.error("track-confirm-frames must be at least one")
     return args
 
 
@@ -588,14 +599,32 @@ def main():
             controller, fire_cm=args.wz_fire_cm, stop_cm=args.wz_stop_cm,
             turn_s=args.wz_turn_s, gap_s=args.wz_gap_s, step=args.wz_step,
             allow_right=args.wz_allow_right)
-    elif args.wz_mode in ("heading", "segments"):
+    elif args.wz_mode in ("heading", "segments", "track"):
         from heading_steering import HeadingSteeringController
         controller_type = HeadingSteeringController
         if args.wz_mode == "segments":
             from segment_steering import SegmentSteeringController
             controller_type = SegmentSteeringController
+        elif args.wz_mode == "track":
+            from track_steering import TrackSteeringController
+            controller_type = TrackSteeringController
         controller = controller_type(
-            controller, lookahead_cm=args.heading_lookahead_cm,
+            controller, **({"confirm_frames": args.track_confirm_frames}
+                          if args.wz_mode == "track" else {}),
+            lookahead_cm=args.heading_lookahead_cm,
+            right_tolerance_deg=args.heading_right_tolerance_deg,
+            left_tolerance_deg=args.heading_left_tolerance_deg,
+            full_scale_deg=args.heading_full_scale_deg, max_step=args.wz_step,
+            allow_right=True, corridor_cm=args.heading_corridor_cm,
+            left_levels=tuple(args.heading_left_wz),
+            right_levels=tuple(args.heading_right_wz),
+            straight_wz=args.heading_straight_wz)
+    track_shadow = None
+    if args.track_observe and args.wz_mode == "heading":
+        from track_steering import TrackSteeringController
+        track_shadow = TrackSteeringController(
+            deepcopy(controller.inner), confirm_frames=args.track_confirm_frames,
+            lookahead_cm=args.heading_lookahead_cm,
             right_tolerance_deg=args.heading_right_tolerance_deg,
             left_tolerance_deg=args.heading_left_tolerance_deg,
             full_scale_deg=args.heading_full_scale_deg, max_step=args.wz_step,
@@ -690,6 +719,8 @@ def main():
         detector.anticipation_clip = args.anticipation_clip
         detector.lane_fit_enable = args.lane_fit or args.lane_fit_segments
         detector.lane_segments_enable = args.lane_fit_segments
+        detector.track_geometry_enable = args.track_observe
+        detector.track_lookahead_cm = args.heading_lookahead_cm
         detector.lane_fit_near_cm = args.lane_fit_near_cm
         detector.lane_fit_far_cm = args.lane_fit_far_cm
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
@@ -710,7 +741,7 @@ def main():
             print(f"Body attitude: udp://{args.attitude_bind}:{args.attitude_port}"
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
                   f" 会被机身俯仰实时修正", flush=True)
-        if args.wz_mode in ("heading", "segments"):
+        if args.wz_mode in ("heading", "segments", "track"):
             left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
             print(f"[wz] 方向模式：vx/wz 每段至少保持 0.5s（固定）；"
@@ -718,7 +749,7 @@ def main():
                   f"[-{args.heading_left_tolerance_deg:g}, +{args.heading_right_tolerance_deg:g}]°，"
                   f"横向走廊 ±{args.heading_corridor_cm:g}cm；"
                   f"左档 {left_text}，右档 {right_text}，直行 {controller.straight_wz:+g}"
-                  f"（共 6 档；--heading-left-wz / --heading-right-wz / "
+                  f"（共 {1+len(controller.left_levels)+len(controller.right_levels)} 档；--heading-left-wz / --heading-right-wz / "
                   f"--heading-straight-wz 可调）。"
                   "观测趋势仅用于提前减小正在执行的转向。"
                   "旧 PID/bias/fire/stop/turn/gap 参数不参与本模式。"
@@ -727,6 +758,9 @@ def main():
             print("[segment-control] 已接入实际转向：连续 3 帧通过近端锚定、宽度、"
                   "残差和分段连续性检查后，使用观测范围内的前方目标；"
                   "不足时回退 heading。原 heading 的对照输出只写日志。", flush=True)
+        if args.track_observe:
+            print("[track] 独立追踪鸟瞰双边／单边线段；直道、曲线和宽度允许实测偏差。"
+                  "track 模式仅显式选择时下发；--track-observe 只记对照日志。", flush=True)
         if args.wz_mode == "discrete":
             levels = (f"{{0, ±{args.wz_step}}}" if args.wz_allow_right
                       else f"{{0, +{args.wz_step}}}")
@@ -835,7 +869,8 @@ def main():
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
-                                "line_telemetry.py", "lane_segments.py", "segment_steering.py"):
+                                "line_telemetry.py", "lane_segments.py", "segment_steering.py",
+                                "track_geometry.py", "track_steering.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
         if args.line_log_dir:
@@ -1111,8 +1146,11 @@ def main():
                 # robot just drove past is still in frame past the line, and stopped the
                 # robot a second time mid-curve. A card already past the line has not
                 # been approached, so it cannot fire.
-                if (not startup_first_card_lock and card_reach is not None
-                        and card_reach < card_reach_line):
+                arm_reach = (card_reach if card_reach is not None else
+                             card_dbg.get("cue_candidate_cy_frac"))
+                if (not startup_first_card_lock and arm_reach is not None
+                        and arm_reach < (card_reach_line if card_reach is not None
+                                         else card_trigger_frac)):
                     card_armed = True
                 # The first card can disappear from a few frames while the robot is
                 # stopped for its action, then reappear close up. Count its departure
@@ -1317,15 +1355,30 @@ def main():
                 # holds can reach the wheels, and the handover below drops the stored
                 # command before the first frame that does call it.
                 vx, wz = 0.0, 0.0
+                if track_shadow is not None:
+                    track_shadow.drop_held_command()
             elif startup_first_card_pending:
                 # Symbolic first walk: hold straight for one second, with no line
                 # steering while the known first card is so close.
                 if startup_move_until == 0.0:
                     startup_move_until = processed + STARTUP_FIRST_WALK_S
                 vx, wz = args.vx, 0.0
+                if track_shadow is not None:
+                    track_shadow.drop_held_command()
             else:
                 vx, wz = controller.command(debug, confidence, processed - previous)
                 debug.update(getattr(controller, "diagnostics", {}))
+                if track_shadow is not None:
+                    shadow_vx, shadow_wz = track_shadow.command(
+                        debug, confidence, processed - previous)
+                    debug.update(track_shadow_vx=shadow_vx,
+                                 track_shadow_wz=shadow_wz,
+                                 track_shadow_active=track_shadow.diagnostics.get(
+                                     "track_control_active", False),
+                                 track_shadow_phase=track_shadow.diagnostics.get(
+                                     "track_control_phase"),
+                                 track_shadow_reason=track_shadow.diagnostics.get(
+                                     "steering_reason"))
                 # Printed on the transition, not every frame: one line per time the
                 # near band hands over an offset the lane cannot produce. How often
                 # this fires on a real lap is the measurement.
@@ -1364,7 +1417,9 @@ def main():
             if args.hold_still:
                 vx, wz = 0.0, 0.0
                 controller.drop_held_command()
-            if args.wz_mode in ("heading", "segments") and (in_card_window or gate_window_open or args.hold_still):
+                if track_shadow is not None:
+                    track_shadow.drop_held_command()
+            if args.wz_mode in ("heading", "segments", "track") and (in_card_window or gate_window_open or args.hold_still):
                 debug.update(steering_reason="external_stop", steering_applied_wz=0.0,
                              command_hold_remaining_s=0.0)
                 if args.wz_mode == "segments":
@@ -1372,6 +1427,10 @@ def main():
                                  segment_shadow_vx=0.0, segment_shadow_wz=0.0,
                                  segment_shadow_reason="external_stop",
                                  segment_gate_reason="external_stop", segment_confirm_frames=0)
+                if args.track_observe:
+                    debug.update(track_control_active=False, track_applied_wz=0.0,
+                                 track_shadow_wz=0.0, track_shadow_active=False,
+                                 track_shadow_reason="external_stop")
             last_cmd_vx = vx
             # 门控期间按住直立：策略自己的站姿后仰约 20°，而相机 45° 是在直立时
             # 标定的，几何闸只认 38.6~59° —— 不扳直，阀2 会把每一张卡都拒掉，机器人
@@ -1383,7 +1442,7 @@ def main():
                                              and start_gate is not None
                                              and start_gate.require_shape)),
                            card_tilt=(in_card_window and card_event_id == 0),
-                           **({"command_mode": "held"} if args.wz_mode in ("heading", "segments") else {}),
+                           **({"command_mode": "held"} if args.wz_mode in ("heading", "segments", "track") else {}),
                            **event)
             if line_log is not None:
                 line_log.write(
@@ -1425,7 +1484,7 @@ def main():
                     + (f"/ev{card_action}#{card_event_id}" if card_event_id else "")
                     + " | "
                     f"steer={controller.last_steer:+.2f} "
-                    f"eff={controller.last_err_eff:+.1f}{'deg' if args.wz_mode in ('heading', 'segments') else 'cm'} "
+                    f"eff={controller.last_err_eff:+.1f}{'deg' if args.wz_mode in ('heading', 'segments', 'track') else 'cm'} "
                     f"ground_ang={fmt(debug.get('heading_control_deg'), '+.1f')} "
                     f"single={fmt(debug.get('single_edge_heading_deg') if debug.get('single_edge_valid', False) else None, '+.1f')} "
                     f"predict_ang={fmt(debug.get('steering_predicted_heading_deg'), '+.1f')} "
@@ -1493,6 +1552,16 @@ def main():
                           f"bearing={fmt(debug.get('segment_target_bearing_deg'), '+.1f')}° "
                           f"actual={wz:+.3f} heading_shadow={fmt(debug.get('segment_shadow_wz'), '+.3f')} "
                           f"gate={debug.get('segment_gate_reason')}", flush=True)
+                if args.track_observe:
+                    print(f"[track] valid={int(bool(debug.get('track_valid')))} "
+                          f"mode={debug.get('track_mode', '-')} "
+                          f"phase={debug.get('track_phase', '-')} "
+                          f"near={fmt(debug.get('track_near_cm'), '+.1f')}cm "
+                          f"target={fmt(debug.get('track_target_z_cm'), '.1f')}cm "
+                          f"bearing={fmt(debug.get('track_target_bearing_deg'), '+.1f')}° "
+                          f"actual={wz:+.3f} "
+                          f"shadow={fmt(debug.get('track_shadow_wz'), '+.3f')} "
+                          f"reason={debug.get('track_reason', '-')}", flush=True)
             if not args.headless:
                 cv2.putText(frame, f"vx={vx:+.3f} wz={wz:+.3f} Q=quit", (10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
