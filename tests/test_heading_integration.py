@@ -87,9 +87,6 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_active_entrypoint_filter_reaches_publication_and_log(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='active')
 
-    def test_position_priority_reaches_published_command_with_filter(self):
-        self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='active', position_test=True)
-
     def test_shadow_entrypoint_logs_comparison(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='shadow')
 
@@ -99,7 +96,7 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_video_initialization_failure_does_not_stop_publication(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(video_error=True)
 
-    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False, position_test=False):
+    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
         camera.isOpened.return_value = True
@@ -119,9 +116,8 @@ class HeadingIntegrationTests(unittest.TestCase):
         def process(_frame, **_kw):
             order.append('detect')
             angle = (20., 40., -20., 0.)[min(3, (count[0]-1)//11)]
-            near = 12. if position_test else 0.
             return 0, 0, .9, _frame.copy(), dict(
-                fused_err_cm=0., base_err_cm=near, near_error_cm=near, near_z_cm=0.,
+                fused_err_cm=0., base_err_cm=0., near_error_cm=0., near_z_cm=0.,
                 angle_err_deg=0., lost_frames=0, measurement_valid=True,
                 heading_control_valid=True, heading_control_deg=angle)
         detector.process.side_effect = process
@@ -181,11 +177,7 @@ class HeadingIntegrationTests(unittest.TestCase):
         walking = [s for s in sent if s[1] != 0]
         self.assertTrue(all(s[3].get("command_mode") == "held" for s in walking))
         levels = {round(s[2],6) for s in walking}
-        if position_test:
-            self.assertTrue(all(s[2] < 0 for s in walking[2:]))
-            self.assertTrue(all(r['measurement']['steering_position_recovery'] for r in rows[1:]))
-        else:
-            self.assertGreaterEqual(len(levels), 3, levels)
+        self.assertGreaterEqual(len(levels), 3, levels)
         self.assertTrue(levels <= {0., .37, .43, .5, -.3, -.5}, levels)
         self.assertTrue(any(wz < 0 for wz in levels), levels)
         start, previous = walking[0][0], walking[0][1:3]

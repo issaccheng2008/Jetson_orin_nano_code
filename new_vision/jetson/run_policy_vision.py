@@ -386,15 +386,6 @@ def parse_args():
     parser.add_argument("--heading-straight-wz", type=float, default=0.0,
                         help="heading mode: the wz published when no correction is "
                              "needed; must stay below the smallest turn level")
-    for name, default in (('gain', 1.), ('dead-cm', 2.), ('lookahead-cm', 50.),
-                          ('max-deg', 12.), ('recovery-cm', 8.),
-                          ('recovery-full-scale-cm', 12.)):
-        parser.add_argument('--position-'+name, type=float, default=default,
-                            help='heading/segments independent near-position '+name)
-    parser.add_argument('--position-confirm-frames', type=int, default=2,
-                        help='Fresh same-side frames before priority near-position recovery')
-    from shape_selection import add_arguments as add_shape_arguments
-    add_shape_arguments(parser)
     parser.add_argument("--wz-fire-cm", type=float, default=5.0,
                         help="Dead band, cm: inside it the published wz is exactly "
                              "0 - no scaling, no half authority, straight. Below "
@@ -480,20 +471,6 @@ def parse_args():
     from steering_recovery import add_arguments as add_recovery_arguments, config_from_args as recovery_from_args
     add_recovery_arguments(parser)
     args = parser.parse_args()
-    from shape_selection import options_from_args as shape_options_from_args
-    try:
-        shape_options_from_args(args)
-    except ValueError as exc:
-        parser.error(str(exc))
-    position_values = (args.position_gain, args.position_dead_cm, args.position_lookahead_cm,
-                       args.position_max_deg, args.position_recovery_cm,
-                       args.position_recovery_full_scale_cm)
-    if (not all(math.isfinite(v) for v in position_values)
-            or min(args.position_gain, args.position_dead_cm, args.position_max_deg,
-                   args.position_recovery_cm) < 0
-            or args.position_lookahead_cm <= 0 or args.position_recovery_full_scale_cm <= 0
-            or args.position_confirm_frames < 1):
-        parser.error('invalid near position settings')
     try:
         validate_camera_args(args)
     except ValueError as exc:
@@ -696,12 +673,7 @@ def main():
             allow_right=True, corridor_cm=args.heading_corridor_cm,
             left_levels=tuple(args.heading_left_wz),
             right_levels=tuple(args.heading_right_wz),
-            straight_wz=args.heading_straight_wz,
-            position_gain=args.position_gain, position_dead_cm=args.position_dead_cm,
-            position_lookahead_cm=args.position_lookahead_cm, position_max_deg=args.position_max_deg,
-            position_recovery_cm=args.position_recovery_cm,
-            position_recovery_full_scale_cm=args.position_recovery_full_scale_cm,
-            position_confirm_frames=args.position_confirm_frames), args)
+            straight_wz=args.heading_straight_wz), args)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
     from line_detector_v1_warp import LineDetector
@@ -717,11 +689,9 @@ def main():
     shape = shape_names = None
     if not args.no_shape_detect:
         from shape_detector import ShapeDetector
-        from shape_selection import options_from_args as shape_options_from_args
         # run_robot.py's cooldown, so a card cannot re-fire while it is still in view.
         shape = ShapeDetector(stable_frames=args.card_stable_frames,
-                              cooldown_ms=3200, debug=False,
-                              frame_options=shape_options_from_args(args))
+                              cooldown_ms=3200, debug=False)
         shape_names = {number: name for name, number in shape.action_map.items()}
         shape_numbers = dict(shape.action_map)
 
