@@ -43,6 +43,9 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
     --recording-root "$RECORDS_DIR/tests" "$video_flag"
     --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
+if [[ -n "${HEADING_FAR_CM:-}" ]]; then
+    command+=(--heading-far-cm "$HEADING_FAR_CM")
+fi
 position_names=(POSITION_GAIN POSITION_DEAD_CM POSITION_LOOKAHEAD_CM POSITION_MAX_DEG
                 POSITION_RECOVERY_CM POSITION_RECOVERY_FULL_SCALE_CM POSITION_CONFIRM_FRAMES)
 for setting in "${position_names[@]}"; do

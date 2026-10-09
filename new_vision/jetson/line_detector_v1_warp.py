@@ -218,6 +218,7 @@ class LineDetector:
         self.band_rows_mid = 8
         self.band_step_low = 2
         self.band_step_mid = 2
+        self.heading_far_cm = None  # Legacy rows unless the heading entrypoint opts in.
         # Band weights
         self.band_weight_low = 0.65
         self.band_weight_mid = 0.35
@@ -520,6 +521,24 @@ class LineDetector:
         self.M_inv = np.linalg.inv(self.M)
         self._build_ground_lut()
         self._rebuild_err_scale()
+        if self.heading_far_cm is not None:
+            self.set_heading_far_cm(self.heading_far_cm)
+
+    def set_heading_far_cm(self, distance_cm):
+        """Centre the eight far scan rows on calibrated ground distance.
+
+        Called at setup or geometry rebuild; the per-frame scan cost is unchanged.
+        """
+        distance_cm = float(distance_cm)
+        if not math.isfinite(distance_cm) or distance_cm <= 0:
+            raise ValueError("heading far distance must be finite and positive")
+        span = (self.band_rows_mid - 1) * self.band_step_mid
+        centre = int(np.argmin(np.abs(self._lut_z_cm - distance_cm)))
+        first, last = centre - span // 2, centre - span // 2 + span
+        if first < 0 or last >= self.band_low_y0:
+            raise ValueError("heading far scan must fit above the near band within the birdseye image")
+        self.band_mid_y0, self.band_mid_y1 = first, last
+        self.heading_far_cm = distance_cm
 
     def _build_ground_lut(self):
         """逐行的地面距离和横向比例尺。
@@ -1186,13 +1205,14 @@ class LineDetector:
 
     def _detect_two_band_lanes(self, gray, bgr, black_th, track_is_dark,
                                 hint_x, lane_width_hint, gray_raw=None):
-        """Scan two bands on birdseye: low(350-399), mid(300-349)."""
+        """Scan the near band and the configurable far observation band."""
         band_specs = [
             ("low", self.band_low_y0 / float(self.bird_h),
                     self.band_low_y1 / float(self.bird_h),
              self.band_rows_low, self.band_step_low, self.band_weight_low),
-            ("mid", self.band_mid_y0 / float(self.bird_h),
-                    self.band_mid_y1 / float(self.bird_h),
+            # Half-pixel margin preserves integer rows through int(ratio * height).
+            ("mid", (self.band_mid_y0 + 0.5) / float(self.bird_h),
+                    (self.band_mid_y1 + 0.5) / float(self.bird_h),
              self.band_rows_mid, self.band_step_mid, self.band_weight_mid),
         ]
 

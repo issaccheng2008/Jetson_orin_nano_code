@@ -364,6 +364,10 @@ def parse_args():
                              "which also removes the normal minimum hold")
     parser.add_argument("--heading-lookahead-cm", type=float, default=50.0,
                         help="heading mode: forward target plane, cm; beyond near band")
+    parser.add_argument("--heading-far-cm", type=float,
+                        default=float(os.getenv("HEADING_FAR_CM", "29")),
+                        help="heading/segments: far observation centre in ground cm "
+                             "(default 29; HEADING_FAR_CM); distinct from projected lookahead")
     parser.add_argument("--heading-right-tolerance-deg", type=float, default=12.0,
                         help="heading mode: positive target-bearing dead zone, degrees; "
                              "tolerates body pointing right before left correction")
@@ -600,14 +604,14 @@ def parse_args():
                      "wz-turn-s > 0, and wz-gap-s >= 0 (0 = no forced coast)")
     if args.wz_mode in ("heading", "segments") and args.wz_step > 0.5:
         parser.error("heading wz-step must be <=0.5: connector wire limit is +/-0.5")
-    heading_values = (args.heading_lookahead_cm, args.heading_right_tolerance_deg,
+    heading_values = (args.heading_far_cm, args.heading_lookahead_cm, args.heading_right_tolerance_deg,
                       args.heading_left_tolerance_deg, args.heading_full_scale_deg, args.heading_corridor_cm)
     if (not all(math.isfinite(v) for v in heading_values)
-            or args.heading_lookahead_cm <= 0 or args.heading_full_scale_deg <= 0
+            or args.heading_far_cm <= 0 or args.heading_lookahead_cm <= 0 or args.heading_full_scale_deg <= 0
             or args.heading_corridor_cm <= 0
             or not 0 <= args.heading_right_tolerance_deg < 90
             or not 0 <= args.heading_left_tolerance_deg < 90):
-        parser.error("heading lookahead/full-scale must be positive; tolerances in [0,90)")
+        parser.error("heading far/lookahead/full-scale must be finite and positive; tolerances in [0,90)")
     ladders = args.heading_left_wz + args.heading_right_wz
     if (not all(math.isfinite(v) and 0 < v <= 0.5 for v in ladders)
             or any(a >= b for a, b in zip(args.heading_left_wz, args.heading_left_wz[1:]))
@@ -801,6 +805,8 @@ def main():
         detector = LineDetector(width, height, cam_height_cm=args.camera_height_cm,
                                 cam_pitch_deg=args.camera_pitch_deg,
                                 cam_vfov_deg=args.camera_vfov_deg)
+        if args.wz_mode in ("heading", "segments"):
+            detector.set_heading_far_cm(args.heading_far_cm)
         detector.preprocess_mode = args.line_preprocess
         detector.photometric_mode = args.photometric_mode
         print(f"[line-preprocess] {detector.preprocess_mode}; "
@@ -857,6 +863,7 @@ def main():
             left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
             print(f"[wz] 视觉逐帧选档；模型入口最短保持可调（自动启动值 {args.command_min_hold_s:g}s）；"
+                  f"远端观测中心 {args.heading_far_cm:g}cm，"
                   f"前视 {args.heading_lookahead_cm:g}cm，目标方位容忍区 "
                   f"[-{args.heading_left_tolerance_deg:g}, +{args.heading_right_tolerance_deg:g}]°，"
                   f"横向走廊 ±{args.heading_corridor_cm:g}cm；"
