@@ -30,6 +30,17 @@ class HeadingIntegrationTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     run_policy_vision.parse_args()
 
+    def test_video_arguments_validate_without_hardware(self):
+        with patch('sys.argv', ['run_policy_vision.py', '--no-record-video', '--video-fps', '8', '--video-width', '640']):
+            args = run_policy_vision.parse_args()
+        self.assertFalse(args.record_video)
+        self.assertEqual(args.video_fps, 8)
+        self.assertEqual(args.video_width, 640)
+        for extra in (['--video-fps', 'nan'], ['--video-fps', '0'], ['--video-width', '0']):
+            with patch('sys.argv', ['run_policy_vision.py', *extra]), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    run_policy_vision.parse_args()
+
     def test_heading_rejects_amplitude_that_connector_would_clip(self):
         with patch("sys.argv", ["run_policy_vision.py", "--max-wz", "1", "--wz-step", ".6"]), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
@@ -66,7 +77,13 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_shadow_entrypoint_logs_comparison(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='shadow')
 
-    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy'):
+    def test_recording_can_be_disabled(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(record_video=False)
+
+    def test_video_initialization_failure_does_not_stop_publication(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(video_error=True)
+
+    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
         camera.isOpened.return_value = True
@@ -95,16 +112,33 @@ class HeadingIntegrationTests(unittest.TestCase):
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--no-shape-detect",
                                '--steering-filter-mode', filter_mode,
                                '--steering-filter-algorithm', 'one-euro',
+                               '--record-video' if record_video else '--no-record-video',
                                "--attitude-port", "0", "--recording-root", tmp]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client,
+            patch('command_video.CommandVideo') as video,
             patch("utils.open_camera", return_value=camera),
             patch("line_detector_v1_warp.LineDetector", return_value=detector),
             patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
             contextlib.redirect_stdout(io.StringIO()),
         ):
+            if video_error:
+                video.side_effect = MemoryError('recorder unavailable')
             client.return_value.publish.side_effect = lambda vx,wz,*a,**kw: sent.append((clock[0],vx,wz,kw))
             self.assertEqual(run_policy_vision.main(), 0)
+            submitted = video.return_value.submit.call_args_list
+            self.assertEqual(len(submitted), 42 if record_video and not video_error else 0)
+            for submission, publication in zip(submitted, sent):
+                self.assertEqual((submission.kwargs['vx'], submission.kwargs['wz']), publication[1:3])
+                self.assertFalse(submission.kwargs['lost'])
+            if video_error:
+                video.assert_called_once()
+                video.return_value.close.assert_not_called()
+            elif record_video:
+                video.return_value.close.assert_called_once()
+                self.assertEqual(Path(video.call_args.args[0]).name, 'video')
+            else:
+                video.assert_not_called()
             rows = [json.loads(line) for p in Path(tmp).rglob("line_frames.jsonl")
                     for line in p.read_text().splitlines()]
         self.assertEqual(len(rows), 42)

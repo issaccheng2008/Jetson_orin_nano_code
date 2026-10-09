@@ -64,6 +64,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--recording-root', default='',
                         help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths.')
+    parser.add_argument('--record-video', action=argparse.BooleanOptionalAction, default=True,
+                        help='Record camera with published-command arrows inside recording-root; red on line loss.')
+    parser.add_argument('--video-fps', type=float, default=10.,
+                        help='Recorded playback FPS, 1..30; repeats samples by timestamp, not camera processing rate.')
+    parser.add_argument('--video-width', type=int, default=960,
+                        help='Maximum recorded width, 64..1920; does not change detector resolution.')
     parser.add_argument("--camera", type=int, default=int(os.getenv("CAM_IDX", camera["index"])))
     parser.add_argument("--width", type=int, default=camera["width"])
     parser.add_argument("--height", type=int, default=camera["height"])
@@ -459,6 +465,10 @@ def parse_args():
     from steering_recovery import add_arguments as add_recovery_arguments, config_from_args as recovery_from_args
     add_recovery_arguments(parser)
     args = parser.parse_args()
+    if not math.isfinite(args.video_fps) or not 1 <= args.video_fps <= 30:
+        parser.error('video-fps must be finite and in [1, 30]')
+    if not 64 <= args.video_width <= 1920:
+        parser.error('video-width must be in [64, 1920]')
     try:
         filter_config = config_from_args(args)
         recovery_from_args(args)
@@ -599,6 +609,7 @@ def main():
         args.shape_dump = str(recording_directory / 'shape')
         print(f'[recording] test directory: {recording_directory}', flush=True)
     line_log = None
+    command_video = None
     # Reuse the dual-mode PID defaults/environment overrides of run_robot.py.
     def gains(mode, defaults):
         return tuple(float(os.getenv(f"JETSON_PID_{mode}_{name}", str(value)))
@@ -906,6 +917,15 @@ def main():
         if args.line_log_dir:
             line_log = LineTelemetry(_new_dump_run(args.line_log_dir, run_id, dump_metadata))
             print(f"[vision] per-frame log: {line_log.path}", flush=True)
+        if recording_directory is not None and args.record_video:
+            try:
+                from command_video import CommandVideo, line_lost
+                command_video = CommandVideo(recording_directory/'video', fps=args.video_fps,
+                                             width=args.video_width, max_wz=args.max_wz)
+                print(f'[video] camera + vision sent commands: {recording_directory / "video"}; '
+                      f'{args.video_fps:g} playback FPS; asynchronous encoder', flush=True)
+            except Exception as exc:
+                print(f'[video] recording disabled: {exc}', flush=True)
         if args.shape_dump:
             args.shape_dump = _new_dump_run(args.shape_dump, run_id, dump_metadata)
             print(f"[shape] run dump: {args.shape_dump}", flush=True)
@@ -1459,9 +1479,18 @@ def main():
                            card_tilt=(in_card_window and card_event_id == 0),
                            **({"command_mode": "held"} if args.wz_mode in ("heading", "segments") else {}),
                            **event)
+            command_host_time_ns = time.time_ns()
+            if command_video is not None:
+                try:
+                    command_video.submit(frame, frame_id=frames, host_time_ns=command_host_time_ns,
+                        monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence))
+                except Exception as exc:
+                    # Auxiliary diagnostics must not escape into the motor loop.
+                    print(f'[video] frame submission disabled: {exc}', flush=True)
+                    command_video.error = str(exc)
             if line_log is not None:
                 line_log.write(
-                    debug, frame=frames, host_time_ns=time.time_ns(),
+                    debug, frame=frames, host_time_ns=command_host_time_ns,
                     process_monotonic_s=processed, confidence=confidence,
                     vx=vx, wz=wz, mode=args.wz_mode,
                     body_track_deviation_deg=debug.get('heading_control_deg'),
@@ -1606,6 +1635,8 @@ def main():
                 cap.release()
             if not args.headless:
                 cv2.destroyAllWindows()
+            if command_video is not None:
+                command_video.close()
     return 0
 
 

@@ -14,6 +14,21 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_video_defaults_old_config_and_passes_disable_and_size(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('RECORD_VIDEO=', 'VIDEO_'))) + '\n'
+            for extra, flag, fps, width in (('', '--record-video', '10', '960'),
+                    ('RECORD_VIDEO=0\nVIDEO_FPS=5\nVIDEO_WIDTH=640\n', '--no-record-video', '5', '640')):
+                (checkout / 'config/button_start.env').write_text(original+extra)
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertIn(flag, args)
+                self.assertEqual(args[args.index('--video-fps')+1], fps)
+                self.assertEqual(args[args.index('--video-width')+1], width)
+
     def test_vision_wrapper_passes_hold_filter_and_defaults_existing_configs(self):
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary) / 'robot'

@@ -1,0 +1,152 @@
+import json
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import cv2
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'new_vision/jetson'))
+from command_video import CommandVideo, draw_command, line_lost
+
+
+class CommandVideoTests(unittest.TestCase):
+    def test_copy_failure_cannot_escape_into_control(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = CommandVideo(Path(tmp))
+            image = Mock()
+            image.copy.side_effect = MemoryError('copy unavailable')
+            try:
+                self.assertFalse(recorder.submit(image, frame_id=1, host_time_ns=1,
+                    monotonic_s=1., vx=.2, wz=0., lost=False))
+                self.assertIn('copy unavailable', recorder.error)
+            finally:
+                recorder.close()
+
+    def test_shutdown_truncates_backlog_but_releases_and_saves_manifest(self):
+        writer = Mock()
+        writer.isOpened.return_value = True
+        writer.write.side_effect = lambda _frame: time.sleep(.01)
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.cv2.VideoWriter', return_value=writer):
+            recorder = CommandVideo(Path(tmp), queue_size=16)
+            frame = np.zeros((180, 320, 3), np.uint8)
+            for i, timestamp in enumerate((0., 60.)):
+                recorder.submit(frame, frame_id=i, host_time_ns=i, monotonic_s=timestamp,
+                    vx=.2, wz=.5, lost=False)
+            recorder.close(drain_timeout_s=.03)
+            self.assertFalse(recorder._thread.is_alive())
+            writer.release.assert_called_once()
+            manifest = json.loads((Path(tmp)/'manifest.json').read_text())
+            self.assertTrue(manifest['truncated'])
+            self.assertLess(manifest['written_frames'], 601)
+            rows = (Path(tmp)/'frames.jsonl').read_text().splitlines()
+            self.assertEqual(len(rows), manifest['written_frames'])
+
+    def test_arrow_matches_published_sign_and_loss_colour_without_changing_source(self):
+        source = np.zeros((180, 320, 3), dtype=np.uint8)
+        with patch('command_video.cv2.arrowedLine', wraps=cv2.arrowedLine) as arrow:
+            draw_command(source.copy(), .2, .5, False, .5, 0.)
+            _, start, end, colour = arrow.call_args.args[:4]
+            self.assertLess(end[0], start[0])
+            self.assertEqual(colour, (255, 0, 0))
+            draw_command(source.copy(), .2, -.5, True, .5, 0.)
+            _, start, end, colour = arrow.call_args.args[:4]
+            self.assertGreater(end[0], start[0])
+            self.assertEqual(colour, (0, 0, 255))
+            draw_command(source.copy(), .2, 0., False, .5, 0.)
+            self.assertEqual(arrow.call_args.args[1][0], arrow.call_args.args[2][0])
+        self.assertFalse(source.any())
+
+    def test_stopped_frame_has_no_forward_arrow(self):
+        with patch('command_video.cv2.arrowedLine') as arrow:
+            draw_command(np.zeros((180, 320, 3), np.uint8), 0., 0., True, .5, 0.)
+        arrow.assert_not_called()
+
+    def test_loss_covers_invalid_stale_and_history_turn_but_not_valid_single_edge(self):
+        self.assertFalse(line_lost({'measurement_valid': True, 'single_line': True}, .4))
+        for debug in ({'measurement_valid': False}, {'measurement_stale': True},
+                      {'lost_frames': 1}, {'steering_reason': 'loss_history_turn'},
+                      {'steering_reason': 'brief_loss_hold'}):
+            self.assertTrue(line_lost(debug, .9), debug)
+
+    def test_timestamp_sampling_preserves_elapsed_time_and_sent_commands(self):
+        writer = Mock()
+        writer.isOpened.return_value = True
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.cv2.VideoWriter', return_value=writer):
+            recorder = CommandVideo(Path(tmp), fps=10, width=320, queue_size=16)
+            frame = np.zeros((180, 320, 3), np.uint8)
+            recorder.submit(frame, frame_id=1, host_time_ns=100, monotonic_s=5., vx=.2, wz=.3, lost=False)
+            recorder.submit(frame, frame_id=2, host_time_ns=200, monotonic_s=5.31, vx=.2, wz=-.5, lost=True)
+            recorder.close()
+            rows = [json.loads(x) for x in (Path(tmp)/'frames.jsonl').read_text().splitlines()]
+            manifest = json.loads((Path(tmp)/'manifest.json').read_text())
+        self.assertEqual([r['video_time_s'] for r in rows], [0., .1, .2, .3, .4])
+        self.assertEqual([r['source_frame'] for r in rows], [1, 1, 1, 1, 2])
+        self.assertEqual(rows[-1]['wz'], -.5)
+        self.assertTrue(rows[-1]['line_lost'])
+        self.assertEqual(manifest['written_frames'], 5)
+        writer.release.assert_called_once()
+
+    def test_full_queue_never_waits_for_encoder(self):
+        entered, release = threading.Event(), threading.Event()
+        writer = Mock()
+        writer.isOpened.return_value = True
+        def slow_write(_frame):
+            entered.set()
+            release.wait(3)
+        writer.write.side_effect = slow_write
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.cv2.VideoWriter', return_value=writer):
+            recorder = CommandVideo(Path(tmp), fps=10, width=320, queue_size=1)
+            frame = np.zeros((180, 320, 3), np.uint8)
+            def submit(i):
+                return recorder.submit(frame, frame_id=i, host_time_ns=i, monotonic_s=float(i), vx=.2, wz=0., lost=False)
+            try:
+                self.assertTrue(submit(1))
+                self.assertTrue(entered.wait(2))
+                self.assertTrue(submit(2))
+                self.assertFalse(submit(3))
+                self.assertGreater(recorder.dropped_samples, 0)
+            finally:
+                release.set()
+                recorder.close()
+
+    def test_encoder_failure_is_reported_without_raising_into_control(self):
+        writer = Mock()
+        writer.isOpened.return_value = False
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.cv2.VideoWriter', return_value=writer):
+            recorder = CommandVideo(Path(tmp), fps=10, width=320)
+            recorder.submit(np.zeros((180, 320, 3), np.uint8), frame_id=1, host_time_ns=1,
+                            monotonic_s=1., vx=.2, wz=0., lost=False)
+            recorder.close()
+            manifest = json.loads((Path(tmp)/'manifest.json').read_text())
+        self.assertIn('encoder', manifest['error'])
+        self.assertFalse(recorder.submit(np.zeros((2, 2, 3), np.uint8), frame_id=2,
+            host_time_ns=2, monotonic_s=2., vx=.2, wz=0., lost=False))
+
+    def test_real_video_decodes_and_matches_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = CommandVideo(Path(tmp), fps=10, width=320, queue_size=16)
+            frame = np.full((180, 320, 3), 100, np.uint8)
+            for i in range(3):
+                recorder.submit(frame, frame_id=i, host_time_ns=i, monotonic_s=1.+i*.1,
+                                vx=.2, wz=.5, lost=bool(i))
+            recorder.close()
+            self.assertIsNone(recorder.error)
+            rows = (Path(tmp)/'frames.jsonl').read_text().splitlines()
+            cap = cv2.VideoCapture(str(Path(tmp)/'camera_commands.avi'))
+            try:
+                decoded = 0
+                while True:
+                    ok, image = cap.read()
+                    if not ok:
+                        break
+                    decoded += 1
+                    self.assertEqual(image.shape[:2], (180, 320))
+                self.assertEqual(decoded, len(rows))
+                self.assertGreaterEqual(decoded, 3)
+            finally:
+                cap.release()

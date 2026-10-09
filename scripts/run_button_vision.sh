@@ -8,6 +8,11 @@ case "$STEERING_SEGMENT_FALLBACK" in
     0) segment_fallback_flag=--no-steering-segment-fallback ;;
     *) printf 'STEERING_SEGMENT_FALLBACK must be 0 or 1\n' >&2; exit 2 ;;
 esac
+case "$RECORD_VIDEO" in
+    1) video_flag=--record-video ;;
+    0) video_flag=--no-record-video ;;
+    *) printf 'RECORD_VIDEO must be 0 or 1\n' >&2; exit 2 ;;
+esac
 command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --camera "$CAMERA" --headless --start-gate button --start-policy-on-gate
     --start-policy-python "$POLICY_PYTHON" --start-policy-port "$STM32_PORT"
@@ -32,7 +37,8 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --heading-left-tolerance-deg "$HEADING_LEFT_TOLERANCE_DEG"
     --heading-full-scale-deg "$HEADING_FULL_SCALE_DEG" --heading-left-wz "${left_wz[@]}"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
-    --recording-root "$RECORDS_DIR/tests")
+    --recording-root "$RECORDS_DIR/tests" "$video_flag"
+    --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
 if [[ "${1:-}" = --dry-run ]]; then
     print_command "${command[@]}"
     exit 0
