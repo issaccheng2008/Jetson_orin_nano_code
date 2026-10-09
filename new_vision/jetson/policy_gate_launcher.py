@@ -20,7 +20,9 @@ class PolicyGateLauncher:
                  ready_timeout_s: float = 30.0,
                  policy_python: str | None = None,
                  one_foot_model: str = "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx",
-                 command_min_hold_s: float = 0.0) -> None:
+                 command_min_hold_s: float = 0.0,
+                 recording_directory: Path | None = None) -> None:
+        self.recording_directory = Path(recording_directory).resolve() if recording_directory else None
         if not math.isfinite(command_min_hold_s) or command_min_hold_s < 0:
             raise ValueError('command_min_hold_s must be finite and nonnegative')
         self.command_min_hold_s = command_min_hold_s
@@ -66,11 +68,12 @@ class PolicyGateLauncher:
         one_foot = REPO_ROOT / self.one_foot_model
         if not model.is_file() or not one_foot.is_file():
             raise RuntimeError(f"policy model missing: {model if not model.is_file() else one_foot}")
-        records = REPO_ROOT / "records"
+        records = self.recording_directory or REPO_ROOT / "records"
         records.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%d_%H%M%S")
         self.log_path = records / f"main_{stamp}.log"
-        self.live_log_path = records / "main_live.log"
+        self.live_log_path = REPO_ROOT / "records" / "main_live.log"
+        self.live_log_path.parent.mkdir(parents=True, exist_ok=True)
         self.ready_file = Path(tempfile.gettempdir()) / f"policy_ready_{uuid.uuid4().hex}"
         command = [
             self.policy_python, "-u", "humanoid_jetson_deploy/main.py",
@@ -83,6 +86,9 @@ class PolicyGateLauncher:
             "--no-plot", "--max-seconds", f"{self.max_seconds:g}",
             "--enable-motors", "--startup-ready-file", str(self.ready_file),
         ]
+        if self.recording_directory is not None:
+            command[command.index('--diagnostic-log-dir') + 1] = str(records / 'control')
+            command.extend(['--position-log-dir', str(records / 'motor_positions')])
         self.process = subprocess.Popen(command, cwd=REPO_ROOT, stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT)
         assert self.process.stdout is not None

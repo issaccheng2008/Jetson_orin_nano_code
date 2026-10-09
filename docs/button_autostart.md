@@ -80,7 +80,7 @@ sudo systemctl enable humanoid-button-connector.service humanoid-button-vision.s
 
 Vision 异常退出后，systemd 在 5 秒后重启并重新等待本次运行的新按钮事件；不会自动恢复步态。正常结束（包括 gait 到达运行时限）不自动重启。服务停止使用 `KillMode=control-group`、先发 SIGINT，20 秒后仍未退出则由 systemd 强制清理，包括 gait 子进程。Connector 停止会连带停止依赖它的 vision；恢复后用 `sudo systemctl start humanoid-button-vision.service` 重新进入等待按钮状态。
 
-视觉记录写入 `records/line_telemetry`，丢线和卡片图片分别写入带时间戳的 `records/loss_*`、`records/shape_*`；策略自身日志仍使用原有 records 规则。查看本次启动全部日志：
+每次测试统一写入 `records/tests/日期/test_时间_唯一编号/`，包括视觉、控制指令、关节角、IMU 和图片；详见 [测试数据每日归档](测试数据每日归档.md)。查看本次启动全部日志：
 
 ```bash
 journalctl -u humanoid-button-connector.service -u humanoid-button-vision.service -b --no-pager

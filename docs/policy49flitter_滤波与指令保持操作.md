@@ -168,7 +168,7 @@ shadow 模式中新滤波诊断位于 `steering_filter_shadow_` 前缀下；停�
 
 ```bash
 python new_vision/jetson/replay_steering_filter.py \
-  records/line_telemetry/你的运行目录/line_frames.jsonl \
+  records/tests/日期/test_测试目录/vision/run_视觉目录/line_frames.jsonl \
   --output-dir records/filter_replay
 ```
 

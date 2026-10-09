@@ -85,7 +85,7 @@ class HeadingIntegrationTests(unittest.TestCase):
         detector = Mock()
         def process(_frame, **_kw):
             angle = (20., 40., -20., 0.)[min(3, (count[0]-1)//11)]
-            return 0, 0, .9, None, dict(
+            return 0, 0, .9, _frame.copy(), dict(
                 fused_err_cm=0., base_err_cm=0., near_error_cm=0., near_z_cm=0.,
                 angle_err_deg=0., lost_frames=0, measurement_valid=True,
                 heading_control_valid=True, heading_control_deg=angle)
@@ -94,7 +94,7 @@ class HeadingIntegrationTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmp,
             patch("sys.argv", ["run_policy_vision.py", "--headless", "--no-shape-detect",
                                '--steering-filter-mode', filter_mode,
-                               "--attitude-port", "0", "--line-log-dir", tmp]),
+                               "--attitude-port", "0", "--recording-root", tmp]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client,
             patch("utils.open_camera", return_value=camera),
@@ -107,6 +107,8 @@ class HeadingIntegrationTests(unittest.TestCase):
             rows = [json.loads(line) for p in Path(tmp).rglob("line_frames.jsonl")
                     for line in p.read_text().splitlines()]
         self.assertEqual(len(rows), 42)
+        self.assertTrue(all(r['body_track_deviation_valid'] for r in rows))
+        self.assertTrue(all(r['body_track_deviation_deg'] == r['measurement']['heading_control_deg'] for r in rows))
         self.assertTrue(all(r["mode"] == "heading" for r in rows))
         self.assertTrue(all("steering_heading_deg" in r["measurement"] for r in rows))
         if filter_mode == 'active':

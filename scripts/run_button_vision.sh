@@ -2,7 +2,6 @@
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/button_autostart_common.sh"
 load_button_config
-stamp="$(date +%Y%m%d_%H%M%S)_$$"
 read -r -a left_wz <<< "$HEADING_LEFT_WZ"
 command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --camera "$CAMERA" --headless --start-gate button --start-policy-on-gate
@@ -23,8 +22,7 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --heading-left-tolerance-deg "$HEADING_LEFT_TOLERANCE_DEG"
     --heading-full-scale-deg "$HEADING_FULL_SCALE_DEG" --heading-left-wz "${left_wz[@]}"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
-    --line-log-dir "$RECORDS_DIR/line_telemetry"
-    --dump-on-loss "$RECORDS_DIR/loss_$stamp" --shape-dump "$RECORDS_DIR/shape_$stamp")
+    --recording-root "$RECORDS_DIR/tests")
 if [[ "${1:-}" = --dry-run ]]; then
     print_command "${command[@]}"
     exit 0

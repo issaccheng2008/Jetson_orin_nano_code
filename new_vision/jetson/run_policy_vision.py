@@ -62,6 +62,8 @@ def _new_dump_run(path, run_id, metadata):
 def parse_args():
     camera = load_camera()
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--recording-root', default='',
+                        help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths.')
     parser.add_argument("--camera", type=int, default=int(os.getenv("CAM_IDX", camera["index"])))
     parser.add_argument("--width", type=int, default=camera["width"])
     parser.add_argument("--height", type=int, default=camera["height"])
@@ -585,6 +587,14 @@ def fmt(value, spec):
 
 def main():
     args = parse_args()
+    recording_directory = None
+    if args.recording_root:
+        from recording_session import create_session
+        recording_directory = create_session(args.recording_root)
+        args.line_log_dir = str(recording_directory / 'vision')
+        args.dump_on_loss = str(recording_directory / 'loss')
+        args.shape_dump = str(recording_directory / 'shape')
+        print(f'[recording] test directory: {recording_directory}', flush=True)
     line_log = None
     # Reuse the dual-mode PID defaults/environment overrides of run_robot.py.
     def gains(mode, defaults):
@@ -672,7 +682,9 @@ def main():
                                              args.start_policy_max_seconds,
                                              policy_python=args.start_policy_python,
                                              one_foot_model=args.start_policy_one_foot_model,
-                                             command_min_hold_s=args.command_min_hold_s)
+                                             command_min_hold_s=args.command_min_hold_s,
+                                             **({'recording_directory': recording_directory}
+                                                if recording_directory is not None else {}))
     if args.start_gate == "button":
         from startup_button_link import StartupButtonLink
         startup_button_link = StartupButtonLink(args.start_policy_port)
@@ -1442,6 +1454,8 @@ def main():
                     debug, frame=frames, host_time_ns=time.time_ns(),
                     process_monotonic_s=processed, confidence=confidence,
                     vx=vx, wz=wz, mode=args.wz_mode,
+                    body_track_deviation_deg=debug.get('heading_control_deg'),
+                    body_track_deviation_valid=bool(debug.get('heading_control_valid', False)),
                     card_window=in_card_window, start_gate=gate_window_open,
                     hold_still=args.hold_still, event_id=card_event_id,
                     camera_pitch_deg=effective_pitch,
