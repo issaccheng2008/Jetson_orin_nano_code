@@ -54,6 +54,7 @@ def process(folder, tau=.45, slew=45.):
     output=folder/'analysis/recovery_evaluation';output.mkdir(parents=True,exist_ok=True)
     report={name:dict(summarize(data),angle_variation=variation(data),
         history_frames=sum(r['reason']=='loss_history_turn' for r in data),
+        default_left_frames=sum(r['reason']=='loss_default_left' for r in data),
         stop_frames=sum(r['reason'] in ('loss_timeout_stop','loss_no_history_stop') for r in data),
         accepted_geometry_frames=sum(r['raw_heading_deg'] is not None for r in data)) for name,data in variants.items()}
     report['semantics']='Same original camera observations, visual candidate commands only. No hardware motion, IMU response, future images, model command hold or connector bias simulation. Missing old paired-near diagnostics cannot be reconstructed.'
@@ -75,7 +76,7 @@ def process(folder, tau=.45, slew=45.):
     axes[1].set_xlabel('Time after release (s)')
     axes[0].set_title('Offline comparison: identical original observations, not a new robot run')
     fig.savefig(output/'comparison.png',dpi=160);plt.close(fig)
-    print(folder.name,json.dumps({name:{k:v for k,v in value.items() if k in ('controlled_command_changes','history_frames','stop_frames','angle_variation','differs_from_recording_frames')} for name,value in report.items() if isinstance(value,dict) and name!='settings'}))
+    print(folder.name,json.dumps({name:{k:v for k,v in value.items() if k in ('controlled_command_changes','history_frames','default_left_frames','stop_frames','angle_variation','differs_from_recording_frames')} for name,value in report.items() if isinstance(value,dict) and name!='settings'}))
     return report
 
 

@@ -167,7 +167,7 @@ class SegmentSteeringController(HeadingSteeringController):
         shadow = self.shadow.command(debug, confidence, dt)
         if self.diagnostics.get('steering_reason') in (
                 'brief_loss_hold', 'geometry_lost_yaw_zero', 'invalid_clock',
-                'loss_history_turn', 'loss_timeout_stop', 'loss_no_history_stop'):
+                'loss_history_turn', 'loss_default_left', 'loss_walking_disabled'):
             self._confirmation = 0
             self._previous_target = None
             self._segment_diagnostics['segment_control_active'] = False

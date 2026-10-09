@@ -18,7 +18,8 @@ from policy_bridge import SteeringController
 from steering_filter import FilterConfig, add_arguments, config_from_args
 
 CONTROL_REASONS = {'new_block','continue_block','minimum_hold','brief_loss_hold','geometry_lost_yaw_zero',
-                   'loss_history_turn','loss_timeout_stop','loss_no_history_stop'}
+                   'loss_history_turn','loss_timeout_stop','loss_no_history_stop',
+                   'loss_default_left','loss_walking_disabled'}
 
 
 def replay(rows, arguments, filter_config, *, recovery_config=None, segment_fallback=False):

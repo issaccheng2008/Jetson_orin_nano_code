@@ -804,6 +804,10 @@ def main():
             print(f'[steering-loss] mode={args.steering_loss_mode}; max={args.steering_loss_max_s:g}s; '
                   f'history={args.steering_loss_history_s:g}s; '
                   f'qualified_segment_fallback={args.steering_segment_fallback}',flush=True)
+            if args.steering_loss_mode != 'legacy':
+                print('[steering-loss] 丢线保持前进；无近期转向或沿用到期后，'
+                      '按左转0.3寻找赛道（服从 yaw-sign 和左转幅值上限）。'
+                      '起步闸、图卡停车和人工停止仍优先。', flush=True)
             left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
             print(f"[wz] 视觉逐帧选档；模型入口最短保持可调（自动启动值 {args.command_min_hold_s:g}s）；"
@@ -811,7 +815,8 @@ def main():
                   f"[-{args.heading_left_tolerance_deg:g}, +{args.heading_right_tolerance_deg:g}]°，"
                   f"横向走廊 ±{args.heading_corridor_cm:g}cm；"
                   f"左档 {left_text}，右档 {right_text}，直行 {controller.straight_wz:+g}"
-                  f"（共 6 档；--heading-left-wz / --heading-right-wz / "
+                  f"（实际共 {1 + len(controller.left_levels) + len(controller.right_levels)} 档；"
+                  f"--heading-left-wz / --heading-right-wz / "
                   f"--heading-straight-wz 可调）。"
                   "观测趋势仅用于提前减小正在执行的转向。"
                   "旧 PID/bias/fire/stop/turn/gap 参数不参与本模式。"

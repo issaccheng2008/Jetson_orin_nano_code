@@ -1,4 +1,4 @@
-"""Bounded command-history recovery; never estimates robot yaw from requested WZ."""
+"""Keep walking through lane loss; reuse a recent turn, then search left."""
 from collections import deque
 from dataclasses import dataclass
 import argparse
@@ -32,16 +32,21 @@ class TurnHistory:
         while self.samples and now-self.samples[0][0] > self.config.history_s:
             self.samples.popleft()
 
-    def command(self, now, loss_s, current):
+    def command(self, now, loss_s, current, *, walking_vx=0., left_wz=.3):
+        # Called only during normal lane following. The caller owns QR/button,
+        # card and manual stops and does not call recovery during those windows.
+        speed = current[0] if current[0] != 0. else walking_vx
+        if speed == 0.:
+            return (0., 0.), 'loss_walking_disabled'
+        fallback = (speed, left_wz)
+        # This deadline bounds reuse of an old turn, not forward motion.
         if loss_s >= self.config.max_loss_s:
-            return (0., 0.), 'loss_timeout_stop'
-        if current[0] == 0:
-            return (0., 0.), 'loss_no_history_stop'
+            return fallback, 'loss_default_left'
         if self.recovery is None:
             recent = [(t,p,d) for t,p,d in self.samples if now-t <= self.config.history_s]
             turns = [(t,p,d) for t,p,d in recent if p[0] != 0 and p[1] not in (0., self.straight_wz)]
             if not turns or now-turns[-1][0] > self.config.history_s*.5:
-                return (0., 0.), 'loss_no_history_stop'
+                return fallback, 'loss_default_left'
             # Recent time-weighted modal command, not frame count. Newer wins ties.
             weights = {}
             for t, pair, dt in turns:
@@ -50,12 +55,16 @@ class TurnHistory:
             pair = max(weights, key=lambda p: (weights[p], next(t for t,p2,_ in reversed(turns) if p2==p)))
             # A real last turn has priority over older opposite-direction history.
             self.recovery = current if current[1] not in (0., self.straight_wz) else (current[0], pair[1])
-        return self.recovery, 'loss_history_turn'
+        return (speed, self.recovery[1]), 'loss_history_turn'
 
 
 def add_arguments(parser):
-    parser.add_argument('--steering-loss-mode', choices=('history-stop','legacy'), default='history-stop')
-    parser.add_argument('--steering-loss-max-s', type=float, default=.8)
+    parser.add_argument('--steering-loss-mode', choices=('history-turn','history-stop','legacy'),
+                        default='history-turn',
+                        help='history-turn keeps walking and searches left without a recent turn; '
+                             'history-stop is a compatibility alias with the same behavior')
+    parser.add_argument('--steering-loss-max-s', type=float, default=.8,
+                        help='Maximum reuse of a recent turn during lane loss; then search left, never stop')
     parser.add_argument('--steering-loss-history-s', type=float, default=.8)
     parser.add_argument('--steering-segment-fallback', action=argparse.BooleanOptionalAction,
                         default=True, help='Allow quality-gated near segment when global direction is invalid')
@@ -63,4 +72,4 @@ def add_arguments(parser):
 
 def config_from_args(args):
     config = RecoveryConfig(args.steering_loss_max_s, args.steering_loss_history_s)
-    return config if args.steering_loss_mode == 'history-stop' else None
+    return config if args.steering_loss_mode in ('history-turn', 'history-stop') else None

@@ -4,7 +4,7 @@ Policy wz is a command, not a measured angular velocity. Prediction only brakes
 an ongoing correction using observed visual trends; it never assumes wz*T is
 the physical rotation. Explicit stops and loss of steering may interrupt the
 normal hold. Legacy loss clears yaw; configured recovery retains a recent turn
-briefly, then stops both commands. External stops clear recovery history.
+briefly, then searches left while keeping forward speed. External stops clear history.
 When only one boundary is still in view, its direction supplies the heading —
 the walk follows the single line instead of standing still.
 """
@@ -278,7 +278,9 @@ class HeadingSteeringController:
             self._loss_s += dt
             self._samples.clear()
             if self._turn_history is not None:
-                pair, reason = self._turn_history.command(self._clock, self._loss_s, self._command)
+                pair, reason = self._turn_history.command(
+                    self._clock, self._loss_s, self._command,
+                    walking_vx=self.inner.vx, left_wz=min(.3, self._cap(+1))*self.yaw_sign)
                 if pair == (0., 0.):
                     self._stop(reason)
                 else:
