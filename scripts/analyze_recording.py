@@ -50,6 +50,20 @@ def orientation_degrees(quaternion):
     return tuple(math.degrees(v) for v in (roll, pitch, yaw))
 
 
+def display_orientation_degrees(quaternion):
+    return tuple(v % 360 if math.isfinite(v) else v for v in orientation_degrees(quaternion))
+
+
+def deviation_values(row):
+    measurement = row.get('measurement', {})
+    valid = row.get('body_track_deviation_valid', measurement.get('heading_control_valid', False))
+    raw = (number(row.get('body_track_deviation_deg', measurement.get('heading_control_deg')))
+           if valid is True else math.nan)
+    filtered = number(measurement.get('steering_filter_heading_deg',
+                      measurement.get('steering_filter_shadow_steering_filter_heading_deg')))
+    return raw, filtered
+
+
 def unique_file(root, pattern):
     paths = list(root.rglob(pattern))
     # Analysis outputs must never become inputs to a later invocation.
@@ -82,29 +96,28 @@ def plot(visual, control, directory):
     import matplotlib.pyplot as plt
     vt = [r['t_s'] for r in visual]
     ct = [r['t_s'] for r in control]
-    deviation = []
-    for row in visual:
-        measurement = row.get('measurement', {})
-        valid = row.get('body_track_deviation_valid', measurement.get('heading_control_valid', False))
-        deviation.append(number(row.get('body_track_deviation_deg', measurement.get('heading_control_deg')))
-                         if valid is True else math.nan)
+    angles = [deviation_values(row) for row in visual]
+    deviation = [a[0] for a in angles]
+    filtered_deviation = [a[1] for a in angles]
     fig, left = plt.subplots(figsize=(14, 5), constrained_layout=True)
     right = left.twinx()
     left.plot(vt, deviation, color='tab:blue', label='Visual track deviation')
+    left.plot(vt, filtered_deviation, color='tab:purple', label='Filtered steering heading',
+              linewidth=1.6, linestyle='--')
     right.step(vt, [number(r.get('wz')) for r in visual], where='post',
                color='tab:orange', label='Visual WZ', linewidth=1.5)
     right.step(ct, [number(r.get('cmd_wz')) for r in control], where='post',
                color='tab:green', label='Executed model WZ', linestyle='--', linewidth=1.4)
-    left.set(xlabel='Time after start (s)', ylabel='Track deviation (deg)', title='Vision and executed command')
+    left.set(xlabel='Time after start (s)', ylabel='Track deviation (deg)')
     right.set_ylabel('Angular velocity command (rad/s)')
     left.grid(alpha=.25)
     handles, labels = left.get_legend_handles_labels()
     h, l = right.get_legend_handles_labels()
-    left.legend(handles+h, labels+l, loc='upper right')
+    left.legend(handles+h, labels+l, loc='upper center', bbox_to_anchor=(.5, 1.18), ncol=2)
     fig.savefig(directory/'steering.png', dpi=160)
     plt.close(fig)
     fig, axes = plt.subplots(3, 1, figsize=(14, 9), sharex=True, constrained_layout=True)
-    attitudes = [orientation_degrees([r.get('received_orientation_'+a) for a in 'wxyz']) for r in control]
+    attitudes = [display_orientation_degrees([r.get('received_orientation_'+a) for a in 'wxyz']) for r in control]
     for i, label in enumerate(('Roll', 'Pitch', 'Yaw')):
         axes[0].plot(ct, [a[i] for a in attitudes], label=label, linewidth=1.)
     for axis in 'xyz':
@@ -114,9 +127,10 @@ def plot(visual, control, directory):
         ax.set_ylabel(label)
         ax.grid(alpha=.25)
         ax.legend(loc='upper right')
-    axes[0].set_title('Received IMU (quaternion-derived attitude; yaw wraps at ±180 deg)')
+    axes[0].set_ylim(0, 360)
+    axes[0].set_title('Received IMU (attitude 0–360 deg; negative angles +360)')
     axes[2].set_xlabel('Time after start (s)')
-    fig.savefig(directory/'imu.png', dpi=160)
+    fig.savefig(directory/'imu_0_360.png', dpi=160)
     plt.close(fig)
 
 
@@ -157,14 +171,26 @@ def main(argv=None):
         export_csv(output/'vision_after_start.csv', [dict(t_s=r['t_s'], host_time_ns=r['host_time_ns'],
             deviation_deg=r.get('body_track_deviation_deg', r.get('measurement', {}).get('heading_control_deg')),
             deviation_valid=r.get('body_track_deviation_valid', r.get('measurement', {}).get('heading_control_valid', False)),
+            filtered_deviation_deg=(deviation_values(r)[1] if math.isfinite(deviation_values(r)[1]) else None),
+            steering_raw_heading_deg=r.get('measurement', {}).get('steering_heading_deg'),
+            steering_heading_source=r.get('measurement', {}).get('steering_heading_source'),
             vx=r.get('vx'), wz=r.get('wz')) for r in cropped_v])
+        export_csv(output/'imu_after_start.csv', [dict(t_s=r['t_s'], host_unix_s=r['host_unix_s'],
+            **dict(zip(('roll_deg', 'pitch_deg', 'yaw_deg'), display_orientation_degrees(
+                [r.get('received_orientation_'+a) for a in 'wxyz']))),
+            **{key:r.get(key) for group in ('gyro','accel') for a in 'xyz'
+               for key in ['received_'+group+'_'+a]}) for r in cropped_c])
         summary = dict(start_unix_s=start, start_reason=reason, visual_source=str(visual_path),
                        control_source=str(control_path), visual_rows_before=len(visual), control_rows_before=len(control),
                        visual_rows_after=len(cropped_v), control_rows_after=len(cropped_c),
                        first_control_time_s=cropped_c[0]['t_s'],
+                       filtered_angle_samples=sum(math.isfinite(deviation_values(r)[1]) for r in cropped_v),
+                       imu_attitude_display='All Euler angles modulo 360; accel/gyro unchanged.',
                        semantics='Both valves: first frame with both latched; button: first released frame. '
                                  'Executed WZ is model input, not measured body yaw rate. No resampling or filtering.')
         (output/'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
+        if not summary['filtered_angle_samples']:
+            print('No logged filtered heading; its curve is empty, never reconstructed from raw data.')
         print(f'Start: {start:.9f} ({reason}); vision {len(visual)} -> {len(cropped_v)}, '
               f'control {len(control)} -> {len(cropped_c)}; output: {output}')
     except (ValueError, OSError, ImportError, KeyError) as exc:

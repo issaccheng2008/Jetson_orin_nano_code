@@ -1,6 +1,7 @@
 import sys
 import csv
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,18 @@ def frame(t, **fields):
 
 
 class RecordingAnalysisTests(unittest.TestCase):
+    def test_display_angles_wrap_negatives_without_changing_quaternion_math(self):
+        values = analyze_recording.display_orientation_degrees([1, 0, 0, -1])
+        self.assertAlmostEqual(values[2], 270.)
+        self.assertEqual(values[:2], (0., 0.))
+
+    def test_filtered_angle_is_logged_output_and_never_filled_from_raw(self):
+        row = dict(body_track_deviation_deg=30., body_track_deviation_valid=True,
+                   measurement=dict(steering_filter_heading_deg=20.))
+        self.assertEqual(analyze_recording.deviation_values(row), (30., 20.))
+        row['measurement'] = {}
+        self.assertTrue(math.isnan(analyze_recording.deviation_values(row)[1]))
+
     def test_missing_control_columns_are_rejected(self):
         with self.assertRaisesRegex(ValueError, 'columns'):
             analyze_recording.validate_control_columns(['host_unix_s', 'cmd_wz'])
@@ -68,7 +81,7 @@ class RecordingAnalysisTests(unittest.TestCase):
             summary = json.loads((root/'analysis/summary.json').read_text())
             self.assertEqual(summary['visual_rows_after'], 2)
             self.assertEqual(summary['control_rows_after'], 2)
-            for name in ('steering.png', 'imu.png'):
+            for name in ('steering.png', 'imu_0_360.png'):
                 self.assertGreater((root/'analysis'/name).stat().st_size, 1000)
             self.assertEqual(visual.read_text(encoding='utf-8'), original)
             self.assertEqual(unique_file(root, 'line_frames.jsonl'), visual)
