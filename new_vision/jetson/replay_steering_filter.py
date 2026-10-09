@@ -16,14 +16,25 @@ from heading_steering import HeadingSteeringController
 from segment_steering import SegmentSteeringController
 from policy_bridge import SteeringController
 from steering_filter import FilterConfig, add_arguments, config_from_args
+from steering_recovery import RecoveryConfig
 
 CONTROL_REASONS = {'new_block','continue_block','minimum_hold','brief_loss_hold','geometry_lost_yaw_zero',
                    'loss_history_turn','loss_timeout_stop','loss_no_history_stop',
                    'loss_default_left','loss_walking_disabled'}
+_FROM_MANIFEST = object()
 
 
-def replay(rows, arguments, filter_config, *, recovery_config=None, segment_fallback=False):
+def replay(rows, arguments, filter_config, *, recovery_config=_FROM_MANIFEST,
+           segment_fallback=_FROM_MANIFEST):
     get = arguments.get
+    # Missing fields belong to older recordings, before these behaviors existed.
+    # Explicit None/False still disable a stage for the recovery ablation tool.
+    if recovery_config is _FROM_MANIFEST:
+        recovery_config = (RecoveryConfig(get('steering_loss_max_s', .8),
+                                          get('steering_loss_history_s', .8))
+                           if get('steering_loss_mode', 'legacy') in ('history-turn', 'history-stop') else None)
+    if segment_fallback is _FROM_MANIFEST:
+        segment_fallback = get('steering_segment_fallback', False)
     inner = SteeringController(vx=get('vx',.2), max_wz=get('max_wz',.5),
         yaw_sign=get('yaw_sign',1), lost_hold_s=get('lost_hold_s',.2),
         max_lateral_cm=get('max_lateral_cm',0),
@@ -37,7 +48,13 @@ def replay(rows, arguments, filter_config, *, recovery_config=None, segment_fall
         left_levels=tuple(get('heading_left_wz',(.37,.43,.5))),
         right_levels=tuple(get('heading_right_wz',(.3,.5))),
         straight_wz=get('heading_straight_wz',0.), min_hold_s=0., filter_config=filter_config,
-        recovery_config=recovery_config, segment_fallback=segment_fallback)
+        recovery_config=recovery_config, segment_fallback=segment_fallback,
+        position_gain=get('position_gain', 0.), position_dead_cm=get('position_dead_cm', 2.),
+        position_lookahead_cm=get('position_lookahead_cm', 50.),
+        position_max_deg=get('position_max_deg', 12.),
+        position_recovery_cm=get('position_recovery_cm', 0.),
+        position_recovery_full_scale_cm=get('position_recovery_full_scale_cm', 12.),
+        position_confirm_frames=get('position_confirm_frames', 2))
     result, previous = [], None
     for row in rows:
         now = float(row['process_monotonic_s'])

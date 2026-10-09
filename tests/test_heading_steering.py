@@ -27,6 +27,10 @@ def controller(**changes):
     # Preserve baseline geometry/strict-hold regressions explicitly; separate
     # experiment tests exercise the changed branch defaults.
     changes.setdefault("min_hold_s", .5)
+    # Baseline contracts remain testable through the documented legacy switch.
+    # Enabled position control has dedicated mirrored/filtered/hold regressions.
+    changes.setdefault('position_gain', 0.)
+    changes.setdefault('position_recovery_cm', 0.)
     return HeadingSteeringController(SteeringController(**inner_options), **changes)
 
 

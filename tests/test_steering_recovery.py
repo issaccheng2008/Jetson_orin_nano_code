@@ -98,6 +98,73 @@ class RecoveryTests(unittest.TestCase):
         for _ in range(5):valid=c.command(detection(30),1,.1)
         self.assertEqual(c.command(detection(measurement_valid=False),0,.1),valid)
 
+    def test_modal_recovery_weights_previous_published_command_duration(self):
+        c = self.controller(position_gain=0, position_recovery_cm=0)
+        left = c.command(detection(30), 1, .01)
+        self.assertEqual(left, (.2, .5))
+        self.assertEqual(c.command(detection(-80), 1, .3), (.2, -.5))
+        self.assertEqual(c.command(detection(80), 1, .01), (.2, 0.))
+        # Left was applied for .30 s; right was applied for only .01 s.
+        self.assertEqual(c.command(detection(measurement_valid=False), 0, .01), left)
+
+    def test_history_does_not_invent_duration_before_first_observation(self):
+        history = TurnHistory(RecoveryConfig())
+        history.observe(.1, (.2, .5), .1)
+        history.observe(.1, (.2, 0.), 0.)
+        self.assertEqual(history.command(.2, .1, (.2, 0.)),
+                         ((.2, .3), 'loss_default_left'))
+
+    def test_default_search_duration_is_not_attributed_to_expired_right_turn(self):
+        history = TurnHistory(RecoveryConfig())
+        history.observe(0., (.2, -.5), 0.)
+        self.assertEqual(history.command(.9, .9, (.2, -.5)),
+                         ((.2, .3), 'loss_default_left'))
+        history.observe(1., (.2, 0.), .1)
+        _, pair, duration = history.samples[-1]
+        self.assertEqual(pair, (.2, .3))
+        self.assertAlmostEqual(duration, .1)
+
+    def test_no_history_search_duration_is_recorded_before_next_valid_observation(self):
+        history = TurnHistory(RecoveryConfig())
+        history.observe(.1, (.2, 0.), .1)
+        self.assertEqual(history.command(.2, .1, (.2, 0.)),
+                         ((.2, .3), 'loss_default_left'))
+        history.observe(.4, (.2, 0.), .2)
+        _, pair, duration = history.samples[-1]
+        self.assertEqual(pair, (.2, .3))
+        self.assertAlmostEqual(duration, .2)
+
+    def test_history_weights_only_interval_inside_time_window(self):
+        history = TurnHistory(RecoveryConfig(history_s=.8))
+        history.observe(0., (.2, .5), 0.)
+        history.observe(1., (.2, -.5), 1.)
+        history.observe(1.3, (.2, 0.), .3)
+        # At 1.31, the window contains .49 s of older left and .30 s of
+        # newer right. Linear recency weighting makes the right turn stronger.
+        self.assertEqual(history.command(1.31, .01, (.2, 0.))[0], (.2, -.5))
+
+    def test_history_stale_turn_uses_default_search_after_long_straight_interval(self):
+        history = TurnHistory(RecoveryConfig())
+        history.observe(0., (.2, .5), 0.)
+        history.observe(.1, (.2, 0.), .1)
+        self.assertEqual(history.command(.6, .1, (.2, 0.)),
+                         ((.2, .3), 'loss_default_left'))
+
+    def test_history_tied_duration_weight_prefers_newer_turn(self):
+        history = TurnHistory(RecoveryConfig(history_s=1.))
+        for now, pair in ((0., (.2, 0.)), (.25, (.2, .5)),
+                          (.5, (.2, 0.)), (.6875, (.2, -.5)),
+                          (.8125, (.2, 0.))):
+            history.observe(now, pair, 0.)
+        # Each turn's integrated weight is exactly .09375 at t=1.
+        self.assertEqual(history.command(1., .1875, (.2, 0.))[0], (.2, -.5))
+
+    def test_current_turn_has_priority_over_longer_opposite_history(self):
+        history = TurnHistory(RecoveryConfig())
+        history.observe(0., (.2, .5), 0.)
+        history.observe(.3, (.2, -.5), .3)
+        self.assertEqual(history.command(.31, .01, (.2, -.5))[0], (.2, -.5))
+
     def test_offset_safeguard_keeps_raw_two_frame_confirmation(self):
         c=self.controller(filter_config=FilterConfig(algorithm='robust'))
         c.command(detection(30,near=-8),1,.1)
@@ -105,7 +172,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue(c.diagnostics['steering_left_offset_confirmed'])
 
     def test_vetoed_turn_is_removed_before_default_left_search(self):
-        c=self.controller()
+        c=self.controller(position_gain=0, position_recovery_cm=0)
         c.command(detection(60,z=25),1,.1)
         for _ in range(2):c.command(detection(60,near=6,z=25),1,.1)
         self.assertEqual(c.diagnostics['steering_decision'],'left_offset_release')
