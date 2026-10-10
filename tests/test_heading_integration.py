@@ -164,7 +164,7 @@ class HeadingIntegrationTests(unittest.TestCase):
             self.assertEqual(camera_controls.call_args.args[0],'/dev/video0')
             self.assertEqual(camera_controls.call_args.args[1].camera_exposure_mode, 'manual' if camera_settings else 'keep')
         self.assertEqual(len(rows), 42)
-        detector.set_heading_far_cm.assert_called_once_with(29.0)
+        detector.set_heading_distances.assert_called_once_with(None, 29.0)
         self.assertTrue(all(r['start_gate_mode'] == 'off' for r in rows))
         self.assertTrue(all(r['qr_passed'] is False and r['shape_passed'] is False for r in rows))
         self.assertTrue(all(r['body_track_deviation_valid'] for r in rows))

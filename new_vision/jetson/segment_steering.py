@@ -11,6 +11,7 @@ import math
 
 from heading_steering import HeadingSteeringController
 from lane_segments import SEGMENTS_CM
+from steering_config import validate_segment_regions
 
 CONFIRM_FRAMES = 3
 MAX_CONFIRMATION_GAP_S = 0.5
@@ -22,7 +23,8 @@ MAX_BEARING_JUMP_DEG = 10.0
 
 
 class SegmentSteeringController(HeadingSteeringController):
-    def __init__(self, inner, **options):
+    def __init__(self, inner, segment_regions_cm=SEGMENTS_CM, **options):
+        self.segment_regions_cm = validate_segment_regions(segment_regions_cm)
         super().__init__(inner, **options)
         self.shadow = HeadingSteeringController(deepcopy(inner), **options)
         self._segment_depth = self.lookahead_cm
@@ -44,8 +46,7 @@ class SegmentSteeringController(HeadingSteeringController):
     def _target_distance_cm(self):
         return self._segment_depth
 
-    @staticmethod
-    def _segment(debug, index):
+    def _segment(self, debug, index):
         prefix = f'fit_seg{index}_'
         if not debug.get(prefix + 'valid', False):
             return None
@@ -57,7 +58,7 @@ class SegmentSteeringController(HeadingSteeringController):
             return None
         if not all(math.isfinite(v) for v in values.values()):
             return None
-        lo, hi = SEGMENTS_CM[index]
+        lo, hi = self.segment_regions_cm[index]
         if not (lo <= values['z_min_cm'] <= values['z_cm'] <= values['z_max_cm'] < hi
                 and values['z_max_cm'] - values['z_min_cm'] >= MAX_DEPTH_GAP_CM
                 and abs(values['heading_deg']) < 80.
@@ -90,9 +91,11 @@ class SegmentSteeringController(HeadingSteeringController):
                 and abs(self._x_at(first, near_z) - near) <= MAX_JOIN_CM):
             return None, 'near_anchor_disagrees'
         segments = [(0, first), (1, middle)]
-        far = self._segment(debug, 2)
-        if far is not None and self._joined(middle, far):
-            segments.append((2, far))
+        for index in range(2, len(self.segment_regions_cm)):
+            further = self._segment(debug, index)
+            if further is None or not self._joined(segments[-1][1], further):
+                break
+            segments.append((index, further))
         target = None
         for index, segment in segments[1:]:
             if segment['z_min_cm'] > self.lookahead_cm:

@@ -155,6 +155,7 @@ class LineDetector:
         self.lateral_scale_alpha = 0.02  # ~10Hz 下 τ≈5s
 
         # 逐行地面 LUT 依赖上面那组内参，必须排在它们之后。
+        self.near_scale_row = self.NEAR_BAND_ROW
         self._build_ground_lut()
         self._rebuild_err_scale()
 
@@ -219,6 +220,7 @@ class LineDetector:
         self.band_step_low = 2
         self.band_step_mid = 2
         self.heading_far_cm = None  # Legacy rows unless the heading entrypoint opts in.
+        self.heading_near_cm = None
         # Band weights
         self.band_weight_low = 0.65
         self.band_weight_mid = 0.35
@@ -286,6 +288,8 @@ class LineDetector:
         # Optional three-segment ground-path diagnostic. It never changes the
         # legacy low/mid observation or the published steering command.
         self.lane_segments_enable = False
+        from steering_config import DEFAULT_SEGMENT_REGIONS_CM
+        self.segment_regions_cm = DEFAULT_SEGMENT_REGIONS_CM
         self.curve_smooth_alpha = 0.85   # ~6-frame EMA, for telling a curve from jitter
         self.curve_angle_deg = 8.0       # fitted heading past which one band is a curve
         # 车偏得这么远就强制进弯道模式：这是**转向策略**的门槛，不是"锁可不可信"
@@ -520,25 +524,43 @@ class LineDetector:
         self.M = self._build_birdseye_matrix(lookahead=self._ipm_lookahead)
         self.M_inv = np.linalg.inv(self.M)
         self._build_ground_lut()
-        self._rebuild_err_scale()
         if self.heading_far_cm is not None:
-            self.set_heading_far_cm(self.heading_far_cm)
+            self.set_heading_distances(self.heading_near_cm, self.heading_far_cm)
+        self._rebuild_err_scale()
 
     def set_heading_far_cm(self, distance_cm):
-        """Centre the eight far scan rows on calibrated ground distance.
+        self.set_heading_distances(self.heading_near_cm, distance_cm)
 
-        Called at setup or geometry rebuild; the per-frame scan cost is unchanged.
+    def set_heading_distances(self, near_cm, far_cm):
+        """Move measured bands atomically; None keeps the original near geometry.
+
+        Eight rows per band are retained. The near lock and pixel scale follow
+        a configured near point, while the separate narrow-gate reference stays put.
         """
-        distance_cm = float(distance_cm)
-        if not math.isfinite(distance_cm) or distance_cm <= 0:
-            raise ValueError("heading far distance must be finite and positive")
-        span = (self.band_rows_mid - 1) * self.band_step_mid
-        centre = int(np.argmin(np.abs(self._lut_z_cm - distance_cm)))
-        first, last = centre - span // 2, centre - span // 2 + span
-        if first < 0 or last >= self.band_low_y0:
-            raise ValueError("heading far scan must fit above the near band within the birdseye image")
-        self.band_mid_y0, self.band_mid_y1 = first, last
-        self.heading_far_cm = distance_cm
+        def band(distance, rows, step):
+            distance = float(distance)
+            if (not math.isfinite(distance) or distance <= 0
+                    or not min(self._lut_z_cm) <= distance <= max(self._lut_z_cm)):
+                raise ValueError('heading observation distance is outside the calibrated image')
+            centre = int(np.argmin(np.abs(self._lut_z_cm-distance)))
+            span = (rows-1)*step
+            first, last = centre-span//2, centre-span//2+span
+            if first < 0 or last >= self.bird_h:
+                raise ValueError('heading observation band does not fit in the image')
+            return first, last
+
+        low = (350, 399) if near_cm is None else band(near_cm, self.band_rows_low, self.band_step_low)
+        mid = band(far_cm, self.band_rows_mid, self.band_step_mid)
+        lock_last = low[0] + (self.bottom_lock_rows-1)*self.bottom_lock_step
+        if mid[1] + 8 > low[0] or lock_last >= self.bird_h:
+            raise ValueError('heading far band must be separated from near by >=8 rows; near lock must fit')
+        self.band_low_y0, self.band_low_y1 = low
+        self.band_mid_y0, self.band_mid_y1 = mid
+        self.heading_near_cm = None if near_cm is None else float(near_cm)
+        self.heading_far_cm = float(far_cm)
+        self.near_scale_row = self.NEAR_BAND_ROW if near_cm is None else .5*(low[0]+low[1])
+        self.bottom_lock_start_ratio = (low[0]+.5)/self.bird_h if near_cm is not None else .875
+        self._rebuild_err_scale()
 
     def _build_ground_lut(self):
         """逐行的地面距离和横向比例尺。
@@ -580,7 +602,7 @@ class LineDetector:
     def _rebuild_err_scale(self):
         """fused_err 是无量纲的 near_err_px/(0.5*bird_w)，而消费者（PID 增益、
         STEP_LEN_CM、steer_full_scale_cm）全按厘米标定，所以换算要一起发布。"""
-        self.err_scale_cm = 0.5 * self.bird_w * self.cm_per_px_at(self.NEAR_BAND_ROW)
+        self.err_scale_cm = 0.5 * self.bird_w * self.cm_per_px_at(self.near_scale_row)
 
     def _update_lateral_scale(self, near):
         """拿低带量到的车道宽，把横向比例尺锚到赛道的真实宽度上。
@@ -595,7 +617,7 @@ class LineDetector:
         width_px = float(near.get("lane_width_px", 0.0) or 0.0)
         if width_px <= 0 or float(near.get("pair_ratio", 0.0)) < 0.45:
             return
-        measured_cm = width_px * self.cm_per_px_at(self.NEAR_BAND_ROW)
+        measured_cm = width_px * self.cm_per_px_at(self.near_scale_row)
         if measured_cm <= 1.0:
             return
         target = clamp(self.lateral_scale * self.lane_width_true_cm / measured_cm,
@@ -992,7 +1014,7 @@ class LineDetector:
             out.update(describe_lane_segments(
                 ys, cx, widths, self._lut_z_cm,
                 self._lut_cm_per_px * self.lateral_scale,
-                self.center_x, self.lane_width_true_cm))
+                self.center_x, self.lane_width_true_cm, regions_cm=self.segment_regions_cm))
         if len(ys) < self.lane_fit_min_pts or ys.max() - ys.min() < 40.0:
             return out
         coeff = np.polyfit(ys, cx, 2)
@@ -1207,8 +1229,8 @@ class LineDetector:
                                 hint_x, lane_width_hint, gray_raw=None):
         """Scan the near band and the configurable far observation band."""
         band_specs = [
-            ("low", self.band_low_y0 / float(self.bird_h),
-                    self.band_low_y1 / float(self.bird_h),
+            ("low", (self.band_low_y0 + 0.5) / float(self.bird_h),
+                    (self.band_low_y1 + 0.5) / float(self.bird_h),
              self.band_rows_low, self.band_step_low, self.band_weight_low),
             # Half-pixel margin preserves integer rows through int(ratio * height).
             ("mid", (self.band_mid_y0 + 0.5) / float(self.bird_h),
@@ -1801,7 +1823,7 @@ class LineDetector:
                     lock_cm = float(median([self._px_to_ground_cm(x, y)[0]
                                             for y, x in zip(lock_ys, lock_centers)]))
                 else:
-                    lock_cm = bottom_sym_err_px * self.cm_per_px_at(self.NEAR_BAND_ROW)
+                    lock_cm = bottom_sym_err_px * self.cm_per_px_at(self.near_scale_row)
                 near_err_cm = (1.0 - lock_gain) * near_err_cm + lock_gain * lock_cm
 
             near_z_cm = float(near["dist_cm"])

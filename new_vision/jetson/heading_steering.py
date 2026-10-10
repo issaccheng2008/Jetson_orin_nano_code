@@ -30,7 +30,7 @@ class HeadingSteeringController:
                  position_gain=1.0, position_dead_cm=2.0,
                  position_lookahead_cm=50.0, position_max_deg=12.0,
                  position_recovery_cm=8.0, position_recovery_full_scale_cm=12.0,
-                 position_confirm_frames=2):
+                 position_confirm_frames=2, angle_wz_table=None):
         from steering_recovery import TurnHistory
         self._turn_history = (TurnHistory(recovery_config, straight_wz*inner.yaw_sign)
                               if recovery_config is not None else None)
@@ -81,6 +81,15 @@ class HeadingSteeringController:
         self.corridor_cm = float(corridor_cm)
         self.straight_wz = float(straight_wz)
         self.min_hold_s = float(min_hold_s)
+        from steering_config import validate_angle_wz_table
+        self.angle_wz_table = validate_angle_wz_table(angle_wz_table,
+            min(self._cap(+1), self._cap(-1)) if allow_right else self._cap(+1),
+            filter_config.hysteresis_deg if filter_config is not None else 0.)
+        if self.angle_wz_table is not None:
+            if straight_wz != 0:
+                raise ValueError('angle table requires heading-straight-wz=0')
+            # Protection and recovery use the actual configured turn magnitudes.
+            left_levels = right_levels = tuple(sorted({v for _, _, v in self.angle_wz_table if v > 0}))
         # These are geometric left/right magnitudes; yaw_sign maps them onto
         # the robot wire convention. Caps remove levels, never create new ones.
         self.left_levels = tuple(v for v in left_levels if v <= self._cap(+1))
@@ -93,8 +102,9 @@ class HeadingSteeringController:
             from steering_filter import GeometryFilter, validate_ladder
             if filter_config.algorithm != 'none':
                 self._observation_filter = GeometryFilter(filter_config)
-            validate_ladder(self.left_levels, self._cap(+1), self.full_scale_deg, filter_config.hysteresis_deg)
-            validate_ladder(self.right_levels, self._cap(-1), self.full_scale_deg, filter_config.hysteresis_deg)
+            if self.angle_wz_table is None:
+                validate_ladder(self.left_levels, self._cap(+1), self.full_scale_deg, filter_config.hysteresis_deg)
+                validate_ladder(self.right_levels, self._cap(-1), self.full_scale_deg, filter_config.hysteresis_deg)
         self._clock = 0.0
         self._started = None
         self._samples = []
@@ -225,6 +235,10 @@ class HeadingSteeringController:
         return self.lookahead_cm
 
     def _map_angle(self, demand):
+        if self.angle_wz_table is not None:
+            from steering_config import table_level
+            return (table_level(self.angle_wz_table, demand)
+                    if demand >= 0 or self.allow_right else self.straight_wz)
         # Angular tolerance may be widened, but never widen the spatial corridor.
         corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
         positive_gate = min(self.right_tolerance_deg, corridor_angle)
@@ -239,6 +253,11 @@ class HeadingSteeringController:
         return self.straight_wz
 
     def _filtered_level(self, demand):
+        if self.angle_wz_table is not None:
+            from steering_config import table_level
+            return (table_level(self.angle_wz_table, demand, self._command[1]*self.yaw_sign,
+                                self.filter_config.hysteresis_deg)
+                    if demand >= 0 or self.allow_right else self.straight_wz)
         from steering_filter import select_level
         cfg = self.filter_config
         current = self._command[1]*self.yaw_sign
@@ -386,6 +405,8 @@ class HeadingSteeringController:
             steering_combined_demand_deg=combined, steering_position_recovery=position_recovery,
             steering_position_confirm_frames=self._position_frames,
             steering_position_recovery_cm=self.position_recovery_cm)
+        if self.angle_wz_table is not None:
+            self.diagnostics['steering_table_wz'] = self._map_angle(combined)*self.yaw_sign
         self.diagnostics.update(steering_left_offset_confirmed=left_offset_confirmed,
                                 steering_left_offset_release_cm=LEFT_OFFSET_RELEASE_CM)
         self.inner.last_err_eff = combined  # Units explicitly renamed in entry-point logging.

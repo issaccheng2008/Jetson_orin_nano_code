@@ -18,6 +18,23 @@ from steering_recovery import RecoveryConfig
 
 
 class SteeringFilterReplayTests(unittest.TestCase):
+    def test_manifest_table_and_region_settings_reproduce_commands(self):
+        from segment_steering import SegmentSteeringController
+        from test_steering_config import SteeringConfigTests, TABLE
+        regions = ((20, 32), (32, 44), (44, 56), (56, 68))
+        for mode, controller_type in (('heading', HeadingSteeringController), ('segments', SegmentSteeringController)):
+            options = dict(angle_wz_table=TABLE, position_gain=0, position_recovery_cm=0,
+                           lookahead_cm=65, corridor_cm=100)
+            if mode == 'segments':
+                options['segment_regions_cm'] = regions
+            controller = controller_type(SteeringController(), **options)
+            frame = detection(40, z=25, fit_seg_anchored=True, **SteeringConfigTests().segments(regions))
+            rows = self.recorded_rows(controller, [(frame, 1., .1)]*5)
+            arguments = dict(wz_mode=mode, steering_angle_wz_table=TABLE,
+                             segment_regions_cm=regions, heading_lookahead_cm=65, heading_corridor_cm=100)
+            replayed = importlib.import_module('replay_steering_filter').replay(rows, arguments, None)
+            self.assertEqual([r['new_wz'] for r in replayed], [r['wz'] for r in rows])
+
     def recorded_rows(self, controller, observations):
         rows, now = [], 10.
         for index, (debug, confidence, dt) in enumerate(observations):

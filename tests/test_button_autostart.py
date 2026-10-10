@@ -16,6 +16,26 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_array_and_near_distance_config_reaches_real_parser(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = (REPO / 'config/button_start.env.example').read_text()
+            (checkout / 'config/button_start.env').write_text(original + "\nWZ_MODE=segments\n"
+                "HEADING_NEAR_CM=27\nHEADING_FAR_CM=34\n"
+                "STEERING_ANGLE_WZ_TABLE='[[0,10,0],[10,30,0.3],[30,90,0.3]]'\n"
+                "SEGMENT_REGIONS_CM='[[20,32],[32,44]]'\n")
+            command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+            with patch.dict(os.environ, {}, clear=True), patch('sys.argv', command[2:]):
+                args = run_policy_vision.parse_args()
+            self.assertEqual(args.heading_near_cm, 27)
+            self.assertEqual(args.heading_far_cm, 34)
+            self.assertEqual(args.steering_angle_wz_table[1], (10, 30, .3))
+            self.assertEqual(len(args.segment_regions_cm), 2)
+
     def test_heading_far_distance_default_and_configured_value_reach_cli(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision

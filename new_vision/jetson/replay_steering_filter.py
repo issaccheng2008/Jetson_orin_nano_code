@@ -41,6 +41,9 @@ def replay(rows, arguments, filter_config, *, recovery_config=_FROM_MANIFEST,
         max_wz_right=get('max_wz_right') or get('max_wz',.5))
     controller_type = SegmentSteeringController if get('wz_mode','heading') == 'segments' else HeadingSteeringController
     controller = controller_type(inner, lookahead_cm=get('heading_lookahead_cm',50.),
+        angle_wz_table=get('steering_angle_wz_table'),
+        **({'segment_regions_cm': get('segment_regions_cm', ((20,32),(32,44),(44,56)))}
+           if controller_type is SegmentSteeringController else {}),
         right_tolerance_deg=get('heading_right_tolerance_deg',12.),
         left_tolerance_deg=get('heading_left_tolerance_deg',4.),
         full_scale_deg=get('heading_full_scale_deg',20.), max_step=get('wz_step',.5),

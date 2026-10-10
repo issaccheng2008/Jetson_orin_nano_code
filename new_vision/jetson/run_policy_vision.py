@@ -365,9 +365,17 @@ def parse_args():
     parser.add_argument("--heading-lookahead-cm", type=float, default=50.0,
                         help="heading mode: forward target plane, cm; beyond near band")
     parser.add_argument("--heading-far-cm", type=float,
-                        default=float(os.getenv("HEADING_FAR_CM", "29")),
+                        default=os.getenv("HEADING_FAR_CM", "29"),
                         help="heading/segments: far observation centre in ground cm "
                              "(default 29; HEADING_FAR_CM); distinct from projected lookahead")
+    parser.add_argument('--heading-near-cm', type=float,
+                        default=os.getenv('HEADING_NEAR_CM') or None,
+                        help='near observation centre in ground cm; unset keeps legacy ~25.07cm rows')
+    parser.add_argument('--steering-angle-wz-table', default=os.getenv('STEERING_ANGLE_WZ_TABLE', ''),
+                        help='JSON [[lo_deg,hi_deg,wz_rad_s],...]; absolute final decision angle, '
+                             'automatic turn sign, [lo,hi) bins covering 0–90; empty uses legacy mapping')
+    parser.add_argument('--segment-regions-cm', default=os.getenv('SEGMENT_REGIONS_CM') or '[[20,32],[32,44],[44,56]]',
+                        help='JSON ground distance regions; 2–5 contiguous bins >=6cm within 20–70cm')
     parser.add_argument("--heading-right-tolerance-deg", type=float, default=12.0,
                         help="heading mode: positive target-bearing dead zone, degrees; "
                              "tolerates body pointing right before left correction")
@@ -612,6 +620,26 @@ def parse_args():
             or not 0 <= args.heading_right_tolerance_deg < 90
             or not 0 <= args.heading_left_tolerance_deg < 90):
         parser.error("heading far/lookahead/full-scale must be finite and positive; tolerances in [0,90)")
+    if args.wz_mode in ('heading', 'segments'):
+        near = args.heading_near_cm if args.heading_near_cm is not None else 25.07
+        if (not math.isfinite(near) or near < 20 or args.heading_far_cm-near < 3
+                or args.heading_far_cm > 85 or near >= args.heading_lookahead_cm):
+            parser.error('heading near must be >=20cm and below lookahead; far must be >=near+3cm and <=85cm; image fit is checked at setup')
+    from steering_config import validate_angle_wz_table, validate_segment_regions
+    try:
+        cap = min(args.wz_step, args.max_wz,
+                  args.max_wz_right if args.max_wz_right is not None else args.max_wz)
+        args.steering_angle_wz_table = validate_angle_wz_table(args.steering_angle_wz_table, cap,
+            filter_config.hysteresis_deg if args.steering_filter_mode != 'legacy' else 0.)
+        args.segment_regions_cm = validate_segment_regions(args.segment_regions_cm)
+        if args.steering_angle_wz_table is not None and args.heading_straight_wz != 0:
+            raise ValueError('angle table requires heading-straight-wz=0')
+        if args.wz_mode == 'segments':
+            near = args.heading_near_cm if args.heading_near_cm is not None else 25.07
+            if not args.segment_regions_cm[0][0] <= near < args.segment_regions_cm[0][1]:
+                raise ValueError('first segment region must contain the heading near observation centre')
+    except ValueError as exc:
+        parser.error(str(exc))
     ladders = args.heading_left_wz + args.heading_right_wz
     if (not all(math.isfinite(v) and 0 < v <= 0.5 for v in ladders)
             or any(a >= b for a, b in zip(args.heading_left_wz, args.heading_left_wz[1:]))
@@ -622,7 +650,7 @@ def parse_args():
             or not 0 <= args.heading_straight_wz < min(args.heading_left_wz[0],
                                                        args.heading_right_wz[0])):
         parser.error("heading-straight-wz must be in [0, the smallest turn level)")
-    if args.wz_mode in ("heading", "segments"):
+    if args.wz_mode in ("heading", "segments") and args.steering_angle_wz_table is None:
         max_wz_right = args.max_wz if args.max_wz_right is None else args.max_wz_right
         if args.yaw_sign > 0:
             left_cap, right_cap = args.wz_step, min(args.wz_step, max_wz_right)
@@ -699,6 +727,8 @@ def main():
             controller_type = SegmentSteeringController
         from steering_filter import configured_controller
         controller = configured_controller(controller_type, controller, dict(
+            angle_wz_table=args.steering_angle_wz_table,
+            **({'segment_regions_cm': args.segment_regions_cm} if args.wz_mode == 'segments' else {}),
             lookahead_cm=args.heading_lookahead_cm,
             right_tolerance_deg=args.heading_right_tolerance_deg,
             left_tolerance_deg=args.heading_left_tolerance_deg,
@@ -806,7 +836,7 @@ def main():
                                 cam_pitch_deg=args.camera_pitch_deg,
                                 cam_vfov_deg=args.camera_vfov_deg)
         if args.wz_mode in ("heading", "segments"):
-            detector.set_heading_far_cm(args.heading_far_cm)
+            detector.set_heading_distances(args.heading_near_cm, args.heading_far_cm)
         detector.preprocess_mode = args.line_preprocess
         detector.photometric_mode = args.photometric_mode
         print(f"[line-preprocess] {detector.preprocess_mode}; "
@@ -816,6 +846,7 @@ def main():
         detector.anticipation_clip = args.anticipation_clip
         detector.lane_fit_enable = args.lane_fit or args.lane_fit_segments
         detector.lane_segments_enable = args.lane_fit_segments
+        detector.segment_regions_cm = args.segment_regions_cm
         detector.lane_fit_near_cm = args.lane_fit_near_cm
         detector.lane_fit_far_cm = args.lane_fit_far_cm
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
@@ -862,7 +893,12 @@ def main():
                       '起步闸、图卡停车和人工停止仍优先。', flush=True)
             left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
+            if args.steering_angle_wz_table is not None:
+                print(f'[steering-angle-table] {json.dumps(args.steering_angle_wz_table)}; '
+                      'input=|combined filtered demand| deg; output=rad/s; '
+                      'corridor/position/loss protection retained', flush=True)
             print(f"[wz] 视觉逐帧选档；模型入口最短保持可调（自动启动值 {args.command_min_hold_s:g}s）；"
+                  f"近端观测中心 {args.heading_near_cm if args.heading_near_cm is not None else 25.07:g}cm，"
                   f"远端观测中心 {args.heading_far_cm:g}cm，"
                   f"前视 {args.heading_lookahead_cm:g}cm，目标方位容忍区 "
                   f"[-{args.heading_left_tolerance_deg:g}, +{args.heading_right_tolerance_deg:g}]°，"
@@ -875,6 +911,7 @@ def main():
                   "旧 PID/bias/fire/stop/turn/gap 参数不参与本模式。"
                   "需配套新 connector 和 C；停车/失联可立即打断。", flush=True)
         if args.wz_mode == "segments":
+            print(f'[segment-regions] {json.dumps(args.segment_regions_cm)} cm', flush=True)
             print("[segment-control] 已接入实际转向：连续 3 帧通过近端锚定、宽度、"
                   "残差和分段连续性检查后，使用观测范围内的前方目标；"
                   "不足时回退 heading。原 heading 的对照输出只写日志。", flush=True)
@@ -990,7 +1027,7 @@ def main():
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
-                                "line_telemetry.py", "lane_segments.py", "segment_steering.py",
+                                "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
                                 "steering_filter.py", "steering_recovery.py", "startup_sequence.py", "camera_controls.py",
                                 "line_preprocess.py", "photometric_thresholds.py", "canny_candidates.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
@@ -1692,11 +1729,12 @@ def main():
                               f"top={debug.get('fit_top_cm') or 0:.0f}cm）",
                               flush=True)
                 if args.lane_fit_segments:
+                    segment_angles = ' '.join(
+                        f"seg{i}={fmt(debug.get(f'fit_seg{i}_heading_deg'), '+.1f')}°"
+                        for i in range(len(args.segment_regions_cm)))
                     print(f"[lane-segments] anchored={int(bool(debug.get('fit_seg_anchored')))} "
                           f"segments={debug.get('fit_seg_count', 0)} "
-                          f"near={fmt(debug.get('fit_seg0_heading_deg'), '+.1f')}° "
-                          f"mid={fmt(debug.get('fit_seg1_heading_deg'), '+.1f')}° "
-                          f"far={fmt(debug.get('fit_seg2_heading_deg'), '+.1f')}° "
+                          f"{segment_angles} "
                           f"change={fmt(debug.get('fit_seg_heading_change_deg'), '+.1f')}° "
                           f"pattern={debug.get('fit_seg_pattern', 'insufficient_support')}",
                           flush=True)
