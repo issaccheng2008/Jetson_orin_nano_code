@@ -14,11 +14,15 @@ from collections import defaultdict
 import numpy as np
 
 
-SEGMENTS_CM = ((20.0, 32.0), (32.0, 44.0), (44.0, 56.0))
+from steering_config import DEFAULT_SEGMENT_REGIONS_CM, validate_segment_regions
+
+SEGMENTS_CM = DEFAULT_SEGMENT_REGIONS_CM
 
 
 def describe_lane_segments(ys, centres_px, widths_px, z_by_row,
-                           cm_per_px_by_row, centre_column, lane_width_cm):
+                           cm_per_px_by_row, centre_column, lane_width_cm,
+                           regions_cm=SEGMENTS_CM):
+    regions_cm = validate_segment_regions(regions_cm)
     result = {"fit_seg_valid": False, "fit_seg_pattern": "insufficient_support"}
     if not (len(ys) == len(centres_px) == len(widths_px)):
         return result
@@ -38,10 +42,12 @@ def describe_lane_segments(ys, centres_px, widths_px, z_by_row,
     x = (x_px - centre_column) * scale
     width_horizontal = width_px * scale
     accepted = []
-    for index, (z_lo, z_hi) in enumerate(SEGMENTS_CM):
+    for index, (z_lo, z_hi) in enumerate(regions_cm):
         chosen = (z >= z_lo) & (z < z_hi)
         zz, xx, ww = z[chosen], x[chosen], width_horizontal[chosen]
         prefix = f"fit_seg{index}_"
+        result[prefix + 'region_min_cm'] = z_lo
+        result[prefix + 'region_max_cm'] = z_hi
         result[prefix + "points"] = len(zz)
         if len(zz) < 5 or np.ptp(zz) < 4.0:
             continue
@@ -76,15 +82,17 @@ def describe_lane_segments(ys, centres_px, widths_px, z_by_row,
     # continuity, even if the near fit itself is sound.
     if len(accepted) < 2 or accepted[0][0] != 0 or accepted[1][0] != 1:
         return result
+    # Describe only a contiguous observed prefix, never skip a missing region.
+    accepted = accepted[:next((i for i, (index, _) in enumerate(accepted) if index != i), len(accepted))]
     # Distinguish a direction change along the path from simply entering a
     # straight lane at a yaw angle. No class is released without near support.
     delta = accepted[-1][1] - accepted[0][1]
     result["fit_seg_heading_change_deg"] = delta
-    if len(accepted) == 3:
-        steps = [accepted[i + 1][1] - accepted[i][1] for i in range(2)]
+    if len(accepted) >= 3:
+        steps = [accepted[i + 1][1] - accepted[i][1] for i in range(len(accepted)-1)]
         if max(abs(v) for v in steps) < 4.0:
             pattern = "constant_heading"
-        elif min(abs(v) for v in steps) >= 4.0 and steps[0] * steps[1] > 0:
+        elif min(abs(v) for v in steps) >= 4.0 and all(v*steps[0] > 0 for v in steps):
             pattern = "left_bend" if delta > 0 else "right_bend"
         else:
             pattern = "transition_or_inconsistent"

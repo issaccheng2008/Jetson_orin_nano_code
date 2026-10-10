@@ -1,4 +1,4 @@
-"""Keep walking through lane loss; reuse a recent turn, then search left."""
+"""Keep walking through lane loss; reuse a recent turn, then use configured yaw."""
 from collections import deque
 from dataclasses import dataclass
 import argparse
@@ -9,11 +9,14 @@ import math
 class RecoveryConfig:
     max_loss_s: float = .8
     history_s: float = .8
+    fallback_wz: float = .3
 
     def __post_init__(self):
         if not (math.isfinite(self.max_loss_s) and self.max_loss_s >= 0
                 and math.isfinite(self.history_s) and self.history_s > 0):
             raise ValueError('loss max must be finite >=0 and history must be finite >0')
+        if not math.isfinite(self.fallback_wz) or abs(self.fallback_wz) > .5:
+            raise ValueError('steering-loss-fallback-wz must be finite in [-0.5, 0.5]')
 
 
 class TurnHistory:
@@ -45,7 +48,7 @@ class TurnHistory:
         self._advance(now)
         self.previous = now, pair
 
-    def command(self, now, loss_s, current, *, walking_vx=0., left_wz=.3):
+    def command(self, now, loss_s, current, *, walking_vx=0., left_wz=None):
         # Called only during normal lane following. The caller owns QR/button,
         # card and manual stops and does not call recovery during those windows.
         self._advance(now)
@@ -53,17 +56,19 @@ class TurnHistory:
         if speed == 0.:
             self.previous = now, (0., 0.)
             return (0., 0.), 'loss_walking_disabled'
-        fallback = (speed, left_wz)
+        fallback = (speed, self.config.fallback_wz if left_wz is None else left_wz)
+        fallback_reason = ('loss_default_left' if self.config.fallback_wz > 0 else
+                           'loss_default_right' if self.config.fallback_wz < 0 else 'loss_default_straight')
         # This deadline bounds reuse of an old turn, not forward motion.
         if loss_s >= self.config.max_loss_s:
             self.previous = now, fallback
-            return fallback, 'loss_default_left'
+            return fallback, fallback_reason
         if self.recovery is None:
             recent = [(t,p,d) for t,p,d in self.samples if now-t <= self.config.history_s]
             turns = [(t,p,d) for t,p,d in recent if p[0] != 0 and p[1] not in (0., self.straight_wz)]
             if not turns or now-turns[-1][0] > self.config.history_s*.5:
                 self.previous = now, fallback
-                return fallback, 'loss_default_left'
+                return fallback, fallback_reason
             # Recent time-weighted modal command, not frame count. Newer wins ties.
             weights = {}
             for t, pair, dt in turns:
@@ -82,15 +87,18 @@ class TurnHistory:
 def add_arguments(parser):
     parser.add_argument('--steering-loss-mode', choices=('history-turn','history-stop','legacy'),
                         default='history-turn',
-                        help='history-turn keeps walking and searches left without a recent turn; '
+                        help='history-turn keeps walking and uses fallback yaw without a recent turn; '
                              'history-stop is a compatibility alias with the same behavior')
     parser.add_argument('--steering-loss-max-s', type=float, default=.8,
-                        help='Maximum reuse of a recent turn during lane loss; then search left, never stop')
+                        help='Maximum reuse of a recent turn during lane loss; then use fallback yaw, never stop')
     parser.add_argument('--steering-loss-history-s', type=float, default=.8)
+    parser.add_argument('--steering-loss-fallback-wz', type=float, default=.3,
+                        help='Signed geometric fallback yaw: positive left, negative right; obeys yaw-sign and caps')
     parser.add_argument('--steering-segment-fallback', action=argparse.BooleanOptionalAction,
                         default=True, help='Allow quality-gated near segment when global direction is invalid')
 
 
 def config_from_args(args):
-    config = RecoveryConfig(args.steering_loss_max_s, args.steering_loss_history_s)
+    config = RecoveryConfig(args.steering_loss_max_s, args.steering_loss_history_s,
+                            getattr(args, 'steering_loss_fallback_wz', .3))
     return config if args.steering_loss_mode in ('history-turn', 'history-stop') else None

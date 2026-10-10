@@ -16,6 +16,72 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_array_and_near_distance_config_reaches_real_parser(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = (REPO / 'config/button_start.env.example').read_text()
+            (checkout / 'config/button_start.env').write_text(original + "\nWZ_MODE=segments\n"
+                "HEADING_REGIONS_CM=''\nHEADING_NEAR_CM=27\nHEADING_FAR_CM=34\n"
+                "STEERING_ANGLE_WZ_TABLE='[[-90,-10,-0.2],[-10,10,0],[10,90,0.3]]'\n"
+                "SEGMENT_REGIONS_CM='[[20,32],[32,44]]'\n")
+            command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+            with patch.dict(os.environ, {}, clear=True), patch('sys.argv', command[2:]):
+                args = run_policy_vision.parse_args()
+            self.assertEqual(args.heading_near_cm, 27)
+            self.assertEqual(args.heading_far_cm, 34)
+            self.assertEqual(args.steering_angle_wz_table[2], (10, 90, .3))
+            self.assertEqual(len(args.segment_regions_cm), 2)
+            (checkout / 'config/button_start.env').write_text(original + "\nWZ_MODE=heading\n"
+                "HEADING_REGIONS_CM='[[24,26],[28,30]]'\n"
+                "STEERING_ANGLE_WZ_TABLE='[[-90,-10,-0.2],[-10,10,-0.1],[10,90,0.3]]'\n")
+            command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+            with patch.dict(os.environ, {}, clear=True), patch('sys.argv', command[2:]):
+                args = run_policy_vision.parse_args()
+            self.assertEqual(args.heading_regions_cm, ((24,26),(28,30)))
+            self.assertEqual(args.steering_angle_wz_table[1][2], -.1)
+
+    def test_median_window_and_loss_fallback_config_reach_real_parser(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('STEERING_COMMAND_', 'STEERING_LOSS_FALLBACK_WZ='))) + '\n'
+            for extra, expected in [('', (.5, 'lower', .3)),
+                    ('STEERING_COMMAND_WINDOW_S=0.7\nSTEERING_COMMAND_MEDIAN=upper\nSTEERING_LOSS_FALLBACK_WZ=-0.25\n',
+                     (.7, 'upper', -.25))]:
+                (checkout / 'config/button_start.env').write_text(original + extra)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    args = run_policy_vision.parse_args()
+                self.assertEqual((args.steering_command_window_s, args.steering_command_median,
+                                  args.steering_loss_fallback_wz), expected)
+
+    def test_heading_far_distance_default_and_configured_value_reach_cli(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('HEADING_FAR_CM=', 'HEADING_REGIONS_CM='))) + '\n'
+            for setting, expected in (('', 29), ('HEADING_FAR_CM=30\n', 30)):
+                (checkout / 'config/button_start.env').write_text(original + setting)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                   '--dry-run', cwd=checkout))
+                with patch.dict(os.environ, {}, clear=True), patch('sys.argv', command[2:]):
+                    self.assertEqual(run_policy_vision.parse_args().heading_far_cm, expected)
+
     def test_position_defaults_and_all_configured_values_reach_cli(self):
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary) / 'robot'
@@ -95,6 +161,22 @@ class ButtonAutostartTests(unittest.TestCase):
             (checkout / 'config/button_start.env').write_text(original+f"STARTUP_SEQUENCE='{sequence}'\n")
             args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
             self.assertEqual(args[args.index('--startup-sequence')+1], sequence)
+
+    def test_video_source_defaults_old_configs_to_bird_pair_and_can_restore(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('VIDEO_SOURCE=')) + '\n'
+            for extra, expected in [('', 'bird_pair'), ('VIDEO_SOURCE=binary\n', 'binary'), ('VIDEO_SOURCE=camera\n', 'camera')]:
+                (checkout / 'config/button_start.env').write_text(original + extra)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    self.assertEqual(run_policy_vision.parse_args().video_source, expected)
 
     def test_video_defaults_old_config_and_passes_disable_and_size(self):
         with tempfile.TemporaryDirectory() as temporary:

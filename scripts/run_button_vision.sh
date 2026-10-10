@@ -19,6 +19,9 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --start-policy-model "$WALKING_MODEL" --start-policy-one-foot-model "$ONE_FOOT_MODEL"
     --start-policy-max-seconds "$POLICY_MAX_SECONDS"
     --command-min-hold-s "$COMMAND_MIN_HOLD_S"
+    --steering-command-window-s "$STEERING_COMMAND_WINDOW_S"
+    --steering-command-median "$STEERING_COMMAND_MEDIAN"
+    --steering-loss-fallback-wz "$STEERING_LOSS_FALLBACK_WZ"
     --startup-first-walk-s "$STARTUP_FIRST_WALK_S"
     --startup-sequence "$STARTUP_SEQUENCE"
     --steering-filter-mode "$STEERING_FILTER_MODE" --steering-filter-algorithm "$STEERING_FILTER_ALGORITHM"
@@ -43,7 +46,13 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --heading-full-scale-deg "$HEADING_FULL_SCALE_DEG" --heading-left-wz "${left_wz[@]}"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
     --recording-root "$RECORDS_DIR/tests" "$video_flag"
-    --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
+    --video-source "$VIDEO_SOURCE" --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
+for setting in HEADING_REGIONS_CM HEADING_NEAR_CM HEADING_FAR_CM STEERING_ANGLE_WZ_TABLE SEGMENT_REGIONS_CM; do
+    if [[ -n "${!setting:-}" ]]; then
+        flag="${setting,,}"
+        command+=("--${flag//_/-}" "${!setting}")
+    fi
+done
 position_names=(POSITION_GAIN POSITION_DEAD_CM POSITION_LOOKAHEAD_CM POSITION_MAX_DEG
                 POSITION_RECOVERY_CM POSITION_RECOVERY_FULL_SCALE_CM POSITION_CONFIRM_FRAMES)
 for setting in "${position_names[@]}"; do

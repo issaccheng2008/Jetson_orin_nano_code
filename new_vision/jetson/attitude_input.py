@@ -56,6 +56,8 @@ class AttitudeInput:
         self.card_tilt_status_seen = False
         self.card_tilt_event_id = 0
         self.card_tilt_done = False
+        self._executed_command = None
+        self._executed_received_s = None
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.setblocking(False)
         try:
@@ -70,7 +72,7 @@ class AttitudeInput:
         seen = False
         while True:
             try:
-                payload, _address = self.socket.recvfrom(512)
+                payload, _address = self.socket.recvfrom(2048)
             except (BlockingIOError, OSError):
                 break
             try:
@@ -91,6 +93,7 @@ class AttitudeInput:
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError,
                     ValueError, OverflowError):
                 continue
+            self._observe_execution(message.get('executed_command'), now)
             dt = (now - self.last_packet_s) if self.received else 0.0
             alpha = 1.0 if dt <= 0.0 else 1.0 - math.exp(-dt / self.tau_s)
             if not self.received:
@@ -101,6 +104,42 @@ class AttitudeInput:
             self.last_packet_s = now
             seen = True
         return seen
+
+    def _observe_execution(self, data, now):
+        if not isinstance(data, dict):
+            return
+        try:
+            velocity = [float(v) for v in data['velocity']]
+            stamp = float(data['monotonic_s'])
+            host_time = float(data['host_unix_s'])
+            step = data['step']
+            remaining = float(data.get('hold_remaining_s', 0.))
+            if (len(velocity) != 3 or not all(math.isfinite(v) for v in velocity)
+                    or not math.isfinite(stamp) or not -.01 <= now-stamp <= .5
+                    or not math.isfinite(host_time) or host_time <= 0
+                    or not isinstance(step, int) or isinstance(step, bool) or step < 0
+                    or not isinstance(data['enabled'], bool)
+                    or data['send_result'] not in ('written', 'not_written', 'unknown')
+                    or not isinstance(data['policy_mode'], str)
+                    or not math.isfinite(remaining) or remaining < 0):
+                return
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return
+        if self._executed_command is not None and stamp < self._executed_command['monotonic_s']:
+            return
+        self._executed_command = dict(velocity=velocity, monotonic_s=stamp, host_unix_s=host_time,
+            step=step, enabled=data['enabled'], send_result=data['send_result'],
+            policy_mode=data['policy_mode'], hold_remaining_s=remaining)
+        self._executed_received_s = now
+
+    def executed_command(self, now=None, max_age_s=.5):
+        """Latest actual model command, unfiltered; None means absent or stale."""
+        now = time.monotonic() if now is None else float(now)
+        data = self._executed_command
+        if (data is None or not -.01 <= now-data['monotonic_s'] <= max_age_s
+                or now-self._executed_received_s > max_age_s):
+            return None
+        return dict(data, velocity=list(data['velocity']))
 
     def close(self):
         self.socket.close()

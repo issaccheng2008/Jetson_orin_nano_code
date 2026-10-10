@@ -26,6 +26,8 @@ import numpy as np
 from camera_config import load as load_camera
 from policy_bridge import ConnectorClient, SteeringController
 from line_telemetry import LineTelemetry
+from command_video import line_lost
+from steering_command_window import SteeringCommandWindow, effective_policy_hold
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
 CARD_NAMES_ZH = {
@@ -66,7 +68,9 @@ def parse_args():
     parser.add_argument('--recording-root', default='',
                         help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths.')
     parser.add_argument('--record-video', action=argparse.BooleanOptionalAction, default=True,
-                        help='Record camera with published-command arrows inside recording-root; red on line loss.')
+                        help='Record selected video-source with command arrows inside recording-root; red on line loss.')
+    parser.add_argument('--video-source', choices=('bird_pair', 'binary', 'camera'), default='bird_pair',
+                        help='Recorded image: paired BGR birdseye + final binary mask (default), binary only, or original camera')
     parser.add_argument('--video-fps', type=float, default=10.,
                         help='Recorded playback FPS, 1..30; repeats samples by timestamp, not camera processing rate.')
     parser.add_argument('--video-width', type=int, default=960,
@@ -193,8 +197,8 @@ def parse_args():
                         help='Optional JSON array of duration_s/vx/wz steps before first card action; '
                              'overrides startup-first-walk-s; empty uses a single straight step.')
     parser.add_argument('--command-min-hold-s', type=float, default=0.0,
-                        help='Minimum actual walking command duration in launched policy; '
-                             '0 disables, 0.5 restores original duration; vision adds no second hold')
+                        help='Legacy minimum walking command duration in launched policy; '
+                             'used only when steering-command-window-s is 0; median window disables it')
     parser.add_argument("--qr-every", type=int, default=5,
                         help="Decode a QR every N frames while the first valve is "
                              "still waiting. The decoder is CPU-only and costs tens "
@@ -364,6 +368,21 @@ def parse_args():
                              "which also removes the normal minimum hold")
     parser.add_argument("--heading-lookahead-cm", type=float, default=50.0,
                         help="heading mode: forward target plane, cm; beyond near band")
+    parser.add_argument("--heading-far-cm", type=float,
+                        default=os.getenv("HEADING_FAR_CM", "29"),
+                        help="heading/segments: far observation centre in ground cm "
+                             "(default 29; HEADING_FAR_CM); distinct from projected lookahead")
+    parser.add_argument('--heading-near-cm', type=float,
+                        default=os.getenv('HEADING_NEAR_CM') or None,
+                        help='near observation centre in ground cm; unset keeps legacy ~25.07cm rows')
+    parser.add_argument('--heading-regions-cm', default=os.getenv('HEADING_REGIONS_CM', ''),
+                        help='JSON [[near_min,near_max],[far_min,far_max]] in ground cm; '
+                             'eight rows inside each interval; overrides near/far centre settings')
+    parser.add_argument('--steering-angle-wz-table', default=os.getenv('STEERING_ANGLE_WZ_TABLE', ''),
+                        help='JSON [[lo_deg,hi_deg,signed_wz_rad_s],...]; signed final decision angle, '
+                             '[lo,hi) bins covering -90 to +90; yaw-sign maps wire direction; empty uses legacy mapping')
+    parser.add_argument('--segment-regions-cm', default=os.getenv('SEGMENT_REGIONS_CM') or '[[20,32],[32,44],[44,56]]',
+                        help='JSON ground distance regions; 2–5 contiguous bins >=6cm within 20–70cm')
     parser.add_argument("--heading-right-tolerance-deg", type=float, default=12.0,
                         help="heading mode: positive target-bearing dead zone, degrees; "
                              "tolerates body pointing right before left correction")
@@ -494,9 +513,25 @@ def parse_args():
     add_arguments(parser)
     from steering_recovery import add_arguments as add_recovery_arguments, config_from_args as recovery_from_args
     add_recovery_arguments(parser)
+    from steering_command_window import add_arguments as add_window_arguments
+    add_window_arguments(parser)
     args = parser.parse_args()
     if not math.isfinite(args.line_adaptive_c):
         parser.error("--line-adaptive-c must be finite")
+    try:
+        SteeringCommandWindow(args.steering_command_window_s, args.steering_command_median)
+    except ValueError as exc:
+        parser.error(str(exc))
+    from steering_config import validate_heading_regions
+    try:
+        args.heading_regions_cm = validate_heading_regions(args.heading_regions_cm)
+        if args.heading_regions_cm is not None:
+            if args.wz_mode in ('heading','segments') and args.heading_regions_cm[0][1] > args.heading_lookahead_cm:
+                raise ValueError('heading near interval must be entirely below the lookahead target')
+            args.heading_near_cm = sum(args.heading_regions_cm[0])/2
+            args.heading_far_cm = sum(args.heading_regions_cm[1])/2
+    except ValueError as exc:
+        parser.error(str(exc))
     position_values = (args.position_gain, args.position_dead_cm, args.position_lookahead_cm,
                        args.position_max_deg, args.position_recovery_cm,
                        args.position_recovery_full_scale_cm)
@@ -606,25 +641,48 @@ def parse_args():
                      "wz-turn-s > 0, and wz-gap-s >= 0 (0 = no forced coast)")
     if args.wz_mode in ("heading", "segments") and args.wz_step > 0.5:
         parser.error("heading wz-step must be <=0.5: connector wire limit is +/-0.5")
-    heading_values = (args.heading_lookahead_cm, args.heading_right_tolerance_deg,
+    heading_values = (args.heading_far_cm, args.heading_lookahead_cm, args.heading_right_tolerance_deg,
                       args.heading_left_tolerance_deg, args.heading_full_scale_deg, args.heading_corridor_cm)
     if (not all(math.isfinite(v) for v in heading_values)
-            or args.heading_lookahead_cm <= 0 or args.heading_full_scale_deg <= 0
+            or args.heading_far_cm <= 0 or args.heading_lookahead_cm <= 0 or args.heading_full_scale_deg <= 0
             or args.heading_corridor_cm <= 0
             or not 0 <= args.heading_right_tolerance_deg < 90
             or not 0 <= args.heading_left_tolerance_deg < 90):
-        parser.error("heading lookahead/full-scale must be positive; tolerances in [0,90)")
+        parser.error("heading far/lookahead/full-scale must be finite and positive; tolerances in [0,90)")
+    if args.wz_mode in ('heading', 'segments') and args.heading_regions_cm is None:
+        near = args.heading_near_cm if args.heading_near_cm is not None else 25.07
+        if (not math.isfinite(near) or near < 20 or args.heading_far_cm-near < 3
+                or args.heading_far_cm > 85 or near >= args.heading_lookahead_cm):
+            parser.error('heading near must be >=20cm and below lookahead; far must be >=near+3cm and <=85cm; image fit is checked at setup')
+    from steering_config import validate_angle_wz_table, validate_segment_regions
+    try:
+        cap = min(args.wz_step,args.max_wz)
+        wire_right_cap = min(cap,args.max_wz_right if args.max_wz_right is not None else args.max_wz)
+        left_cap,right_cap = (cap,wire_right_cap) if args.yaw_sign > 0 else (wire_right_cap,cap)
+        args.steering_angle_wz_table = validate_angle_wz_table(args.steering_angle_wz_table, left_cap,
+            filter_config.hysteresis_deg if args.steering_filter_mode != 'legacy' else 0., right_cap=right_cap)
+        args.segment_regions_cm = validate_segment_regions(args.segment_regions_cm)
+        if args.wz_mode == 'segments':
+            near = args.heading_near_cm if args.heading_near_cm is not None else 25.07
+            if not args.segment_regions_cm[0][0] <= near < args.segment_regions_cm[0][1]:
+                raise ValueError('first segment region must contain the heading near observation centre')
+            if args.heading_regions_cm is not None and not (
+                    args.segment_regions_cm[0][0] <= args.heading_regions_cm[0][0]
+                    and args.heading_regions_cm[0][1] <= args.segment_regions_cm[0][1]):
+                raise ValueError('first segment region must contain the entire configured heading near interval')
+    except ValueError as exc:
+        parser.error(str(exc))
     ladders = args.heading_left_wz + args.heading_right_wz
     if (not all(math.isfinite(v) and 0 < v <= 0.5 for v in ladders)
             or any(a >= b for a, b in zip(args.heading_left_wz, args.heading_left_wz[1:]))
             or any(a >= b for a, b in zip(args.heading_right_wz, args.heading_right_wz[1:]))):
         parser.error("heading left/right wz levels must be positive, increasing and "
                      "<=0.5 (connector wire limit)")
-    if (not math.isfinite(args.heading_straight_wz)
+    if args.steering_angle_wz_table is None and (not math.isfinite(args.heading_straight_wz)
             or not 0 <= args.heading_straight_wz < min(args.heading_left_wz[0],
                                                        args.heading_right_wz[0])):
         parser.error("heading-straight-wz must be in [0, the smallest turn level)")
-    if args.wz_mode in ("heading", "segments"):
+    if args.wz_mode in ("heading", "segments") and args.steering_angle_wz_table is None:
         max_wz_right = args.max_wz if args.max_wz_right is None else args.max_wz_right
         if args.yaw_sign > 0:
             left_cap, right_cap = args.wz_step, min(args.wz_step, max_wz_right)
@@ -701,6 +759,8 @@ def main():
             controller_type = SegmentSteeringController
         from steering_filter import configured_controller
         controller = configured_controller(controller_type, controller, dict(
+            angle_wz_table=args.steering_angle_wz_table,
+            **({'segment_regions_cm': args.segment_regions_cm} if args.wz_mode == 'segments' else {}),
             lookahead_cm=args.heading_lookahead_cm,
             right_tolerance_deg=args.heading_right_tolerance_deg,
             left_tolerance_deg=args.heading_left_tolerance_deg,
@@ -751,6 +811,7 @@ def main():
                                  max_edge_px=args.qr_max_edge_px,
                                  upscale=args.qr_upscale,
                                  max_side=args.qr_max_side)
+    command_window = SteeringCommandWindow(args.steering_command_window_s, args.steering_command_median)
     policy_launcher = startup_button_link = None
     if args.start_policy_on_gate:
         from policy_gate_launcher import PolicyGateLauncher
@@ -759,7 +820,7 @@ def main():
                                              args.start_policy_max_seconds,
                                              policy_python=args.start_policy_python,
                                              one_foot_model=args.start_policy_one_foot_model,
-                                             command_min_hold_s=args.command_min_hold_s,
+                                             command_min_hold_s=effective_policy_hold(args),
                                              **({'recording_directory': recording_directory}
                                                 if recording_directory is not None else {}))
     if args.start_gate == "button":
@@ -807,6 +868,11 @@ def main():
         detector = LineDetector(width, height, cam_height_cm=args.camera_height_cm,
                                 cam_pitch_deg=args.camera_pitch_deg,
                                 cam_vfov_deg=args.camera_vfov_deg)
+        if args.wz_mode in ("heading", "segments"):
+            if args.heading_regions_cm is not None:
+                detector.set_heading_regions_cm(args.heading_regions_cm)
+            else:
+                detector.set_heading_distances(args.heading_near_cm, args.heading_far_cm)
         detector.preprocess_mode = args.line_preprocess
         detector.adaptive_c = args.line_adaptive_c
         detector.photometric_mode = args.photometric_mode
@@ -817,6 +883,7 @@ def main():
         detector.anticipation_clip = args.anticipation_clip
         detector.lane_fit_enable = args.lane_fit or args.lane_fit_segments
         detector.lane_segments_enable = args.lane_fit_segments
+        detector.segment_regions_cm = args.segment_regions_cm
         detector.lane_fit_near_cm = args.lane_fit_near_cm
         detector.lane_fit_far_cm = args.lane_fit_far_cm
         print(f"Camera {args.camera}: {width}x{height}; UDP -> "
@@ -849,7 +916,7 @@ def main():
                   f'beta={args.steering_filter_beta:g}; '
                   f'hysteresis={args.steering_hysteresis_deg:g}deg; '
                   f'entry/exit={args.steering_enter_deg:g}/{args.steering_exit_deg:g}deg; '
-                  f'model_min_hold={args.command_min_hold_s:g}s (launched policy only)', flush=True)
+                  f'model_min_hold={effective_policy_hold(args):g}s (launched policy only)', flush=True)
             if args.steering_filter_algorithm == 'robust':
                 print(f'[steering-filter] robust tau={args.steering_filter_robust_tau_s:g}s; '
                       f'window={args.steering_filter_robust_window_s:g}s; '
@@ -859,11 +926,21 @@ def main():
                   f'qualified_segment_fallback={args.steering_segment_fallback}',flush=True)
             if args.steering_loss_mode != 'legacy':
                 print('[steering-loss] 丢线保持前进；无近期转向或沿用到期后，'
-                      '按左转0.3寻找赛道（服从 yaw-sign 和左转幅值上限）。'
+                      f'使用备用 WZ={args.steering_loss_fallback_wz:+g}（服从 yaw-sign 和方向幅值上限）。'
                       '起步闸、图卡停车和人工停止仍优先。', flush=True)
             left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
-            print(f"[wz] 视觉逐帧选档；模型入口最短保持可调（自动启动值 {args.command_min_hold_s:g}s）；"
+            if args.steering_angle_wz_table is not None:
+                print(f'[steering-angle-table] {json.dumps(args.steering_angle_wz_table)}; '
+                      'input=signed combined filtered demand deg; output=signed rad/s; '
+                      'corridor/position/loss protection retained', flush=True)
+            if args.heading_regions_cm is not None:
+                print(f'[heading-regions] {json.dumps(args.heading_regions_cm)} cm; '
+                      'eight rows per region; centre settings overridden', flush=True)
+            print(f"[wz] 视觉逐帧选档；窗口 {args.steering_command_window_s:g}s，"
+                  f"中位数 {args.steering_command_median}；自动启动模型保持 {effective_policy_hold(args):g}s；"
+                  f"近端观测中心 {args.heading_near_cm if args.heading_near_cm is not None else 25.07:g}cm，"
+                  f"远端观测中心 {args.heading_far_cm:g}cm，"
                   f"前视 {args.heading_lookahead_cm:g}cm，目标方位容忍区 "
                   f"[-{args.heading_left_tolerance_deg:g}, +{args.heading_right_tolerance_deg:g}]°，"
                   f"横向走廊 ±{args.heading_corridor_cm:g}cm；"
@@ -875,6 +952,7 @@ def main():
                   "旧 PID/bias/fire/stop/turn/gap 参数不参与本模式。"
                   "需配套新 connector 和 C；停车/失联可立即打断。", flush=True)
         if args.wz_mode == "segments":
+            print(f'[segment-regions] {json.dumps(args.segment_regions_cm)} cm', flush=True)
             print("[segment-control] 已接入实际转向：连续 3 帧通过近端锚定、宽度、"
                   "残差和分段连续性检查后，使用观测范围内的前方目标；"
                   "不足时回退 heading。原 heading 的对照输出只写日志。", flush=True)
@@ -990,8 +1068,8 @@ def main():
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
-                                "line_telemetry.py", "lane_segments.py", "segment_steering.py",
-                                "steering_filter.py", "steering_recovery.py", "startup_sequence.py", "camera_controls.py",
+                                "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
+                                "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
                                 "line_preprocess.py", "photometric_thresholds.py", "canny_candidates.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
@@ -1000,10 +1078,11 @@ def main():
             print(f"[vision] per-frame log: {line_log.path}", flush=True)
         if recording_directory is not None and args.record_video:
             try:
-                from command_video import CommandVideo, line_lost
+                from command_video import CommandVideo
                 command_video = CommandVideo(recording_directory/'video', fps=args.video_fps,
-                                             width=args.video_width, max_wz=args.max_wz)
-                print(f'[video] camera + vision sent commands: {recording_directory / "video"}; '
+                                             width=args.video_width, max_wz=args.max_wz,
+                                             frame_source=args.video_source)
+                print(f'[video] source={args.video_source} + vision sent commands: {recording_directory / "video"}; '
                       f'{args.video_fps:g} playback FPS; asynchronous encoder', flush=True)
             except Exception as exc:
                 print(f'[video] recording disabled: {exc}', flush=True)
@@ -1569,6 +1648,18 @@ def main():
                                  segment_shadow_vx=0.0, segment_shadow_wz=0.0,
                                  segment_shadow_reason="external_stop",
                                  segment_gate_reason="external_stop", segment_confirm_frames=0)
+            debug['steering_frame_wz'] = wz
+            if in_card_window or gate_window_open or args.hold_still or startup_first_card_pending:
+                # Stops and explicit startup/card actions own the command now.
+                command_window.reset()
+                debug['steering_window_reason'] = 'external_bypass'
+            else:
+                vx, wz = command_window.update(vx, wz, processed,
+                                                valid=not line_lost(debug, confidence))
+                debug.update(command_window.diagnostics)
+            debug['steering_applied_wz'] = wz
+            if args.wz_mode == 'segments':
+                debug['segment_applied_wz'] = wz
             last_cmd_vx = vx
             # Aggregate policy/card logic; QR and shape fields below are sub-stages.
             decision_ms = (time.perf_counter_ns() - decision_start_ns) / 1_000_000.0
@@ -1592,8 +1683,17 @@ def main():
             if command_video is not None:
                 recording_submit_start_ns = time.perf_counter_ns()
                 try:
-                    command_video.submit(frame, frame_id=frames, host_time_ns=command_host_time_ns,
-                        monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence))
+                    actual_command = None
+                    if attitude is not None:
+                        attitude.poll()
+                        actual_command = attitude.executed_command()
+                    # Reuse this frame's detector output. Missing binary evidence
+                    # disables auxiliary recording rather than substituting raw video.
+                    video_frame = ((debug['bird_color'], debug['binary']) if args.video_source == 'bird_pair'
+                                   else debug['binary'] if args.video_source == 'binary' else frame)
+                    command_video.submit(video_frame, frame_id=frames, host_time_ns=command_host_time_ns,
+                        monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence),
+                        executed=actual_command)
                 except Exception as exc:
                     # Auxiliary diagnostics must not escape into the motor loop.
                     print(f'[video] frame submission disabled: {exc}', flush=True)
@@ -1717,11 +1817,12 @@ def main():
                               f"top={debug.get('fit_top_cm') or 0:.0f}cm）",
                               flush=True)
                 if args.lane_fit_segments:
+                    segment_angles = ' '.join(
+                        f"seg{i}={fmt(debug.get(f'fit_seg{i}_heading_deg'), '+.1f')}°"
+                        for i in range(len(args.segment_regions_cm)))
                     print(f"[lane-segments] anchored={int(bool(debug.get('fit_seg_anchored')))} "
                           f"segments={debug.get('fit_seg_count', 0)} "
-                          f"near={fmt(debug.get('fit_seg0_heading_deg'), '+.1f')}° "
-                          f"mid={fmt(debug.get('fit_seg1_heading_deg'), '+.1f')}° "
-                          f"far={fmt(debug.get('fit_seg2_heading_deg'), '+.1f')}° "
+                          f"{segment_angles} "
                           f"change={fmt(debug.get('fit_seg_heading_change_deg'), '+.1f')}° "
                           f"pattern={debug.get('fit_seg_pattern', 'insufficient_support')}",
                           flush=True)

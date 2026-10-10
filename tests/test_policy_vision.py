@@ -1276,12 +1276,13 @@ class SingleLineTrackingTests(unittest.TestCase):
     def _band(self, detector, stripes, hint_width=140.0):
         gray = np.zeros((detector.bird_h, detector.bird_w), np.uint8)
         for x in stripes:
+            x = x - 160 + detector.center_x
             gray[:, x:x + 10] = 255
         bgr = np.zeros((detector.bird_h, detector.bird_w, 3), np.uint8)
         return detector._scan_band_midline(
-            gray, bgr, 128, False, 160.0, hint_width,
+            gray, bgr, 128, False, float(detector.center_x), hint_width,
             detector.band_low_y0 / float(detector.bird_h),
-            detector.band_low_y1 / float(detector.bird_h), 10, 5)
+            detector.band_low_y1 / float(detector.bird_h), 10, 2)
 
     @staticmethod
     def _arc_lane(k):
@@ -1316,7 +1317,7 @@ class SingleLineTrackingTests(unittest.TestCase):
         which the pair gate rejected the real span and it never grew back."""
         detector = self._detector()
         result = self._band(detector, [200], hint_width=0.0)
-        self.assertAlmostEqual(result["center_px"], 204.5 - 70.0)
+        self.assertAlmostEqual(result["center_px"], detector.center_x + 44.5 - detector.lane_width_init_px/2)
         self.assertAlmostEqual(result["lane_width_px"], detector.lane_width_init_px)
         # Feeding the reported width back, as process() does, is a fixed point.
         again = self._band(detector, [200], hint_width=result["lane_width_px"])
@@ -1359,10 +1360,10 @@ class SingleLineTrackingTests(unittest.TestCase):
                 self.assertEqual(result["side"], side)
                 self.assertAlmostEqual(
                     result["center_px"],
-                    run_center + (70.0 if side == "left" else -70.0))
-                self.assertLessEqual(
-                    abs(result["center_px"] - detector.center_x),
-                    detector.max_track_width / 2.0)
+                    run_center + detector.lane_width_init_px/2 * (1 if side == "left" else -1))
+                self.assertAlmostEqual(
+                    abs(result["center_px"] - run_center),
+                    detector.lane_width_init_px / 2.0)
 
     def test_single_line_without_width_support_cannot_supply_curve_heading(self):
         """P1 does not infer a lane heading from an unassociated single edge."""
@@ -1394,7 +1395,7 @@ class SingleLineTrackingTests(unittest.TestCase):
                 near = detector._scan_band_midline(
                     gray, bgr, 128, False, 160.0, 140.0,
                     detector.band_low_y0 / float(detector.bird_h),
-                    detector.band_low_y1 / float(detector.bird_h), 10, 5)
+                    detector.band_low_y1 / float(detector.bird_h), 10, 2)
                 self.assertIsNotNone(near)
                 self.assertEqual(near["single_side"], "left")
                 out = detector._fit_single_edge_heading(near)
@@ -1544,7 +1545,7 @@ class LaneFitTests(unittest.TestCase):
         detector = self._detector(top_cm=70.0)
         fit = self._fit(detector, self.ARC_CM)
         self.assertTrue(fit["fit_ok"])
-        self.assertLess(fit["fit_top_cm"], 58.0)
+        self.assertLess(fit["fit_top_cm"], detector.lane_fit_top_cm)
         self.assertGreater(fit["fit_top_cm"], 50.0)
         truth_far = self._centre_px(detector, 50.0, self.ARC_CM)
         self.assertAlmostEqual(fit["fit_far_px"], truth_far, delta=5.0)
@@ -1587,10 +1588,9 @@ class LineDetectorStateTests(unittest.TestCase):
         # 换成后仰姿态，几何必须真的变
         detector.set_camera_pitch_deg(30.0)
         self.assertFalse(np.array_equal(detector.M, M0))
-        self.assertFalse(np.array_equal(detector._lut_cm_per_px, lut0))
-        self.assertNotAlmostEqual(detector.err_scale_cm, scale0)
-        # 横向比例尺随俯角变小：视线更平，同样像素跨的横向距离更远
-        self.assertLess(detector.err_scale_cm, scale0)
+        np.testing.assert_allclose(detector._lut_cm_per_px, lut0)
+        # Pose changes sensor coverage, not the metric raster scale.
+        self.assertAlmostEqual(detector.err_scale_cm, scale0)
 
         # 换回安装角要精确还原
         detector.set_camera_pitch_deg(45.0)
@@ -2560,7 +2560,7 @@ class UdpIntegrationTests(unittest.TestCase):
 
 
 class GroundScaleTests(unittest.TestCase):
-    """鸟瞰不是等距的：横向比例尺和纵向距离都随行变化，全图一个常数会把低带放大 51%。"""
+    """Metric birdseye must have uniform horizontal and longitudinal scale."""
 
     def test_the_camera_config_actually_loads(self):
         # camera_config.load 把异常全吞了、回退到 _DEFAULTS，所以 cameras.json 里
@@ -2581,7 +2581,7 @@ class GroundScaleTests(unittest.TestCase):
         depths = np.array([detector.z_cm_at(y) for y in rows])
         widths = np.array([detector.cm_per_px_at(y) for y in rows])
         self.assertTrue(np.all(np.diff(depths) < 0.0), "越往上越远")
-        self.assertTrue(np.all(np.diff(widths) < 0.0), "越往上每像素代表越多厘米")
+        np.testing.assert_allclose(widths, detector.cm_per_px)
         self.assertAlmostEqual(detector.z_cm_at(detector.bird_h - 1), 20.2, delta=0.5)
         self.assertGreater(detector.z_cm_at(0), 80.0)
 
@@ -2589,10 +2589,8 @@ class GroundScaleTests(unittest.TestCase):
         detector = self.detector
         near = detector.cm_per_px_at(detector.NEAR_BAND_ROW)
         far = detector.cm_per_px_at(0.0)
-        self.assertAlmostEqual(near, 0.2238, delta=0.002)
-        self.assertAlmostEqual(far, 0.3310, delta=0.003)
-        # 旧代码在整幅图上用 0.330 —— 那是远端的值，低带会大 51%。
-        self.assertLess(near / far, 0.70)
+        self.assertAlmostEqual(near, detector.cm_per_px)
+        self.assertAlmostEqual(far, near)
 
     def test_the_error_scale_follows_the_near_band_not_the_whole_image(self):
         detector = self.detector
@@ -2601,14 +2599,15 @@ class GroundScaleTests(unittest.TestCase):
             0.5 * detector.bird_w * detector.cm_per_px_at(detector.NEAR_BAND_ROW),
             places=6,
         )
-        self.assertLess(detector.err_scale_cm, 40.0)
+        self.assertAlmostEqual(detector.err_scale_cm, detector.bird_w*detector.cm_per_px/2)
 
-    def test_the_depth_is_not_linear_in_the_row(self):
-        # 旧的 z = 20 + Δy·0.1504 假设透视是线性的，中段会偏 11cm。
+    def test_the_metric_depth_is_linear_in_the_row(self):
+        # The corrected ground raster is linear in physical forward distance.
         detector = self.detector
         mid = detector.z_cm_at(200.0) - detector.z_cm_at(201.0)
         far = detector.z_cm_at(50.0) - detector.z_cm_at(51.0)
-        self.assertGreater(far, 1.3 * mid, "远端每行代表的距离明显超过中段")
+        self.assertAlmostEqual(far, mid)
+        self.assertAlmostEqual(mid, detector.cm_per_px)
 
     def test_the_ground_projection_round_trips_through_the_warp(self):
         import cv2
@@ -2638,7 +2637,7 @@ class LaneWidthAnchorTests(unittest.TestCase):
 
     def test_a_too_wide_reading_shrinks_the_scale_until_the_lane_reads_true(self):
         detector = self.detector
-        width_px = 146.5   # 标定照片里量到的
+        width_px = 37.0 / detector.cm_per_px  # Deliberately 2cm too wide in this raster.
         self._feed(width_px)
         self.assertAlmostEqual(
             width_px * detector.cm_per_px_at(detector.NEAR_BAND_ROW),
@@ -3304,7 +3303,8 @@ class StartGateIntegrationTests(unittest.TestCase):
 
         launcher_cls.assert_called_once_with(
             "custom walking.onnx", "/dev/ttyACM0", 1200.0,
-            policy_python=None, one_foot_model="custom standing.onnx", command_min_hold_s=.23)
+            # Vision median window owns timing; the launched policy must not add another hold.
+            policy_python=None, one_foot_model="custom standing.onnx", command_min_hold_s=0.)
         launcher.start.assert_called_once()
         launcher.close.assert_called_once()
         published = client_cls.return_value.publish.call_args_list

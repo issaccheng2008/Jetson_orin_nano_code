@@ -604,6 +604,7 @@ def main() -> int:
         held_observation = None
         last_action_tx = -float("inf")
         startup_ready_sent = False
+        last_executed_feedback = None
 
         def link_loss_recovery(exc: Exception, where: str) -> None:
             """掉线后的统一恢复：重连，并把节拍和命令保持重新起表。"""
@@ -943,6 +944,8 @@ def main() -> int:
                     diagnostics.write(**diagnostic_values, send_result="error", send_error=str(exc),
                                       send_done_monotonic_s=time.monotonic_ns() * 1e-9)
                 raise
+            command_sent_monotonic_s = time.monotonic_ns() * 1e-9
+            command_sent_host_unix_s = time.time()
             if diagnostics is not None:
                 diagnostics.write(**diagnostic_values,
                     send_result="written" if send_result is True else "not_written" if send_result is False else "unknown",
@@ -989,16 +992,30 @@ def main() -> int:
                 )
 
             # 10 Hz 就够：视觉那边用长时间常数低通，滤掉的正是步态摆动。
-            if attitude is not None and step % 5 == 0:
+            feedback_velocity = (diagnostic_velocity.tolist()
+                if diagnostic_mode == 'walking49' and diagnostic_source == 'onnx'
+                and diagnostic_velocity is not None else [0., 0., 0.])
+            feedback_result = ('written' if send_result is True else
+                               'not_written' if send_result is False else 'unknown')
+            feedback_key = (*feedback_velocity, diagnostic_mode, feedback_result, args.enable_motors)
+            if attitude is not None and (step % 5 == 0 or feedback_key != last_executed_feedback):
                 # Only the current lean event may open the next voting window.
                 # A previous card's DONE must not be mistaken for this card's DONE.
                 tilt_event_id = card_tilt_event if card_tilt_active else 0
-                attitude.publish(
-                    projected_gravity, elapsed_s,
-                    card_tilt_event_id=tilt_event_id,
-                    card_tilt_done=(tilt_event_id != 0 and
-                                    link.get_action_status(tilt_event_id) == ACTION_DONE),
-                )
+                try:
+                    attitude.publish(
+                        projected_gravity, elapsed_s,
+                        card_tilt_event_id=tilt_event_id,
+                        card_tilt_done=(tilt_event_id != 0 and
+                                        link.get_action_status(tilt_event_id) == ACTION_DONE),
+                        executed_command=dict(velocity=feedback_velocity, policy_mode=diagnostic_mode,
+                            send_result=feedback_result, enabled=bool(args.enable_motors), step=step,
+                            monotonic_s=command_sent_monotonic_s, host_unix_s=command_sent_host_unix_s,
+                            hold_remaining_s=float(command_hold_remaining)),
+                    )
+                    last_executed_feedback = feedback_key
+                except OSError:
+                    pass  # Optional visual feedback must not change motor control.
 
             if step % max(1, args.log_every) == 0:
                 print(

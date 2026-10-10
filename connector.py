@@ -17,6 +17,8 @@ import socket
 import time
 from typing import Any
 
+# STRAIGHT_WZ = 0.1  # Fixed straight-walking compensation disabled, rad/s.
+
 
 def clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
@@ -80,10 +82,12 @@ def process_vision_output(message: dict[str, Any], wz_bias: float = 0.0) -> dict
         "card_tilt": bool(message.get("card_tilt", False)),
     }
     # Apply once per received packet, not on each 50 Hz publication. Walking
-    # straight (vx > 0, wz == 0) gets compensation; a full stop stays zero.
+    # straight yaw stays zero when wz_bias=0; a full stop stays zero with any bias.
     # Posture requests are stopped downstream by CommandSmoother.
     if (not result["hold_upright"] and not result["card_tilt"]
             and (result["vx"] != 0.0 or wz != 0.0)):
+        # if result["vx"] > 0.0 and wz == 0.0:
+        #     wz = STRAIGHT_WZ
         result["wz"] = clamp(wz + wz_bias, -0.5, 0.5)
     if mode is not None:
         result["command_mode"] = mode

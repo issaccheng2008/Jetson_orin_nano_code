@@ -2,6 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "new_vision/jetson"))
@@ -9,6 +10,27 @@ from photometric_thresholds import Photometry, measure, GRAY_REFERENCE, MAX_CHAN
 
 
 class PhotometricMatchingTests(unittest.TestCase):
+    def test_line_detector_matches_camera_input_before_ipm(self):
+        from line_detector_v1_warp import LineDetector
+        rng = np.random.default_rng(49)
+        base = np.clip(rng.normal(84., 6., (720, 1280)), 0, 255).astype(np.uint8)
+        frame = np.stack((np.maximum(base.astype(np.int16)-16, 0),
+                          np.maximum(base.astype(np.int16)-7, 0), base), axis=2).astype(np.uint8)
+        original = frame.copy()
+        detector = LineDetector()
+        detector.photometric_mode = 'legacy'
+        photo = measure(np.max(frame, axis=2), 'legacy', MAX_CHANNEL_REFERENCE)
+        expected = cv2.warpPerspective(photo.match_image(frame), detector.M,
+                                       (detector.bird_w, detector.bird_h))
+        raw_bird = cv2.warpPerspective(frame, detector.M,
+                                      (detector.bird_w, detector.bird_h))
+        self.assertFalse(np.array_equal(expected, raw_bird))
+        debug = detector.process(frame, dt=.1)[-1]
+        np.testing.assert_array_equal(debug['bird_color'][detector.ground_valid_mask],
+                                      expected[detector.ground_valid_mask])
+        self.assertFalse(np.any(debug['binary'][~detector.ground_valid_mask]))
+        np.testing.assert_array_equal(frame, original)
+
     def test_gray_image_matches_reference_mean_and_std_without_mutating_input(self):
         rng = np.random.default_rng(20261010)
         source = np.clip(rng.normal(72.0, 5.0, (540, 960)), 0, 255).astype(np.uint8)

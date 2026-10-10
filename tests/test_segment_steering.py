@@ -56,6 +56,7 @@ class SegmentSteeringTests(unittest.TestCase):
             with self.subTest(direction=direction):
                 d = LineDetector(z_calib=(1.13233, -2.4862), lane_width_cm=35)
                 d.M = np.eye(3)
+                d.ground_valid_mask[:]=True
                 d.startup_force_simple_bottom = False
                 d.lane_fit_enable = d.lane_segments_enable = True
                 c = controller()
@@ -63,12 +64,12 @@ class SegmentSteeringTests(unittest.TestCase):
                 z = np.asarray([d.z_cm_at(y) for y in ys])
                 scale = np.asarray([d.cm_per_px_at(y) for y in ys])
                 for curved in (True, False):
-                    frame = np.full((400, 320, 3), 255, np.uint8)
+                    frame = np.full((d.bird_h, d.bird_w, 3), 255, np.uint8)
                     x = direction*bend(z) if curved else np.zeros_like(z)
                     slope = direction*-.07*np.maximum(0., z-30.) if curved else np.zeros_like(z)
                     width = 35*np.sqrt(1+slope*slope)
                     for side in (-1, 1):
-                        points = np.column_stack((160+(x+side*width/2)/scale, ys)).astype(np.int32)
+                        points = np.column_stack((d.center_x+(x+side*width/2)/scale, ys)).astype(np.int32)
                         cv2.polylines(frame, [points], False, (0, 0, 0), 5)
                     for _ in range(20):
                         _, _, confidence, _, debug = d.process(frame, dt=.1)

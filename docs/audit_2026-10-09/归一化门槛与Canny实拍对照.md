@@ -61,7 +61,7 @@ OpenCV 自适应二值化用局部均值减去 `C` 得到门槛，见 [官方阈
 
 ## 3. 实拍结果与可看演示
 
-[65.5 秒连续活动片段视频](canny_demo/comparison_moving_65s.mp4) · [8 秒预览](canny_demo/preview_8s.gif) · [丢线画面](canny_demo/comparison_frame_590.png) · [晚段真实卡片画面](canny_demo/comparison_frame_1150.png)。演示五列是原画面、原鸟瞰灰度、contrast、Canny 原始边缘、Canny 填充候选。
+[65.5 秒连续活动片段视频](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/canny_demo/comparison_moving_65s.mp4) · [8 秒预览](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/canny_demo/preview_8s.gif) · [丢线画面](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/canny_demo/comparison_frame_590.png) · [晚段真实卡片画面](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/canny_demo/comparison_frame_1150.png)。演示五列是原画面、原鸟瞰灰度、contrast、Canny 原始边缘、Canny 填充候选。
 
 只取源视频 32.7–71.0、79.6–87.7、98.7–117.8 秒，保留困难过程；没有把全部 134.2 秒算为运动数据。源录像存在冻结，旧 HUD 非零速度不是运动证明，详见 [分段说明](canny_demo/README.md)。
 
@@ -93,9 +93,9 @@ OpenCV 自适应二值化用局部均值减去 `C` 得到门槛，见 [官方阈
 | 原图乘 0.6 | 24 / 3 | 26 / 2 |
 | 原图乘 0.4 | 24 / 3 | 26 / 1 |
 
-后两行是同场景像素乘法模拟，不是新光照实拍；仍有错类，不能宣称暗图全部解决。每张重建检测器，不以旧卡历史帮助下一张。全图对照包含全部失败样本：[原始 31 图](photometric_cards/allphotos_gain1.0.jpg)、[0.6 模拟](photometric_cards/allphotos_gain0.6.jpg)、[0.4 模拟](photometric_cards/allphotos_gain0.4.jpg)；[逐图 CSV](photometric_cards/photo_scores.csv) 与 [报告](photometric_cards/report.json) 可复核。
+后两行是同场景像素乘法模拟，不是新光照实拍；仍有错类，不能宣称暗图全部解决。每张重建检测器，不以旧卡历史帮助下一张。全图对照包含全部失败样本：[原始 31 图](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/photometric_cards/allphotos_gain1.0.jpg)、[0.6 模拟](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/photometric_cards/allphotos_gain0.6.jpg)、[0.4 模拟](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/photometric_cards/allphotos_gain0.4.jpg)；[逐图 CSV](photometric_cards/photo_scores.csv) 与 [报告](photometric_cards/report.json) 可复核。
 
-真实新视频帧 1130/1220/1230 中，原版没有 cue，归一化恢复出口候选，参考分数分别 4.197/4.183/4.037；帧 1150 新旧都检测分类为 square。前三帧独立检测器没有累积历史，`presence` 还未确认，**候选过分数门槛不等于已触发停车**。这些帧没有完整六类真值，不计入分类正确率。[真实晚段对照](photometric_cards/camera_commands3_1130.jpg)；另外的 `背景.png` 负例三版均无检测或分类。
+真实新视频帧 1130/1220/1230 中，原版没有 cue，归一化恢复出口候选，参考分数分别 4.197/4.183/4.037；帧 1150 新旧都检测分类为 square。前三帧独立检测器没有累积历史，`presence` 还未确认，**候选过分数门槛不等于已触发停车**。这些帧没有完整六类真值，不计入分类正确率。[真实晚段对照](https://github.com/issaccheng2008/Jetson_orin_nano_code/blob/7016d44590b06545a9e412d02bdd13d5138a0258/docs/audit_2026-10-09/photometric_cards/camera_commands3_1130.jpg)；另外的 `背景.png` 负例三版均无检测或分类。
 
 ## 4. 使用与日志
 

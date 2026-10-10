@@ -99,10 +99,11 @@ class ShapeMainTests(unittest.TestCase):
 
         packets = broadcaster_cls.return_value.publish.call_args_list
         self.assertGreaterEqual(len(packets), 2)
-        self.assertEqual(packets[0].kwargs,
+        self.assertEqual({k:v for k,v in packets[0].kwargs.items() if k != 'executed_command'},
                          {"card_tilt_event_id": 1, "card_tilt_done": False})
-        self.assertEqual(packets[1].kwargs,
+        self.assertEqual({k:v for k,v in packets[1].kwargs.items() if k != 'executed_command'},
                          {"card_tilt_event_id": 1, "card_tilt_done": True})
+        self.assertIn('executed_command', packets[0].kwargs)
 
     def test_the_untilt_is_requested_before_the_shape_action(self):
         """8 必须排在 1-6 前面。STM32 一次只跑一个动作，后到的直接 BUSY 丢掉 ——
