@@ -733,14 +733,20 @@ class LineDetector:
 
     def _otsu_threshold(self, gray):
         """Manual Otsu — same algorithm as V0 (not cv2.THRESH_OTSU)."""
-        return sampled_otsu_threshold(gray)
+        return sampled_otsu_threshold(gray, self.ground_valid_mask
+            if gray.shape == self.ground_valid_mask.shape else None)
 
     # ═══════════════════════════════════════════════════════════
     # Obstacle detection
     # ═══════════════════════════════════════════════════════════
 
     def _detect_row_blocker(self, gray, bgr, y, x0, x1, black_th, track_is_dark):
-        n = max(1, x1 - x0 + 1)
+        observed = (self.ground_valid_mask[y, x0:x1 + 1]
+                    if gray.shape == self.ground_valid_mask.shape
+                    else np.ones(gray[y, x0:x1 + 1].shape, bool))
+        n = int(np.count_nonzero(observed))
+        if n == 0:
+            return False, False
         red_block = False
         black_block = False
 
@@ -752,6 +758,7 @@ class LineDetector:
             vv = hsv[:, :, 2].astype(np.int32)
             is_red = (((hh <= self.red_h_max) | (hh >= self.red_h_min))
                       & (ss >= self.red_s_min) & (vv >= self.red_v_min))
+            is_red &= observed[None, :]
             if np.count_nonzero(is_red) / n >= self.red_row_ratio:
                 red_block = True
 
@@ -761,6 +768,7 @@ class LineDetector:
                 is_track = row_g <= black_th
             else:
                 is_track = row_g >= black_th
+            is_track &= observed
             padded = np.concatenate(([False], is_track, [False]))
             rises = np.where(np.diff(padded.astype(np.int8)) == 1)[0]
             falls = np.where(np.diff(padded.astype(np.int8)) == -1)[0]
@@ -785,13 +793,16 @@ class LineDetector:
                 is_black = row <= black_th
             else:
                 is_black = row >= black_th
+            observed = (self.ground_valid_mask[y]
+                        if gray.shape == self.ground_valid_mask.shape else np.ones(row.shape, bool))
+            is_black &= observed
             padded = np.concatenate(([False], is_black, [False]))
             rises = np.where(np.diff(padded.astype(np.int8)) == 1)[0]
             falls = np.where(np.diff(padded.astype(np.int8)) == -1)[0]
             if len(rises) > 0:
                 longest = np.max(falls - rises + 1)
                 cover = np.sum(is_black)
-                row_score = longest / max(1, self.bird_w)
+                row_score = longest / max(1, int(np.count_nonzero(observed)))
                 if row_score > 0.25 and cover > 40 and row_score > best_score:
                     best_score = row_score
                     best_y = y
@@ -858,6 +869,8 @@ class LineDetector:
         else:
             mask = row >= black_th
 
+        if gray.shape == self.ground_valid_mask.shape:
+            mask &= self.ground_valid_mask[y, x0:x1 + 1]
         padded = np.concatenate(([False], mask, [False]))
         rises = np.where(np.diff(padded.astype(np.int8)) == 1)[0] + x0
         falls = np.where(np.diff(padded.astype(np.int8)) == -1)[0] + x0 - 1
@@ -883,8 +896,12 @@ class LineDetector:
         会找错地方。这里全行搜凹陷，只把期望线宽当「挑哪一对」的偏好。
         """
         row = gray_raw[y, x0:x1 + 1].astype(np.float32)
-        bg = float(np.percentile(row, 60))
-        d = np.clip(bg - row, 0.0, None)
+        valid = (self.ground_valid_mask[y, x0:x1 + 1]
+                 if gray_raw.shape == self.ground_valid_mask.shape else np.ones(row.shape, bool))
+        if not np.any(valid):
+            return None
+        bg = float(np.percentile(row[valid], 60))
+        d = np.where(valid, np.clip(bg - row, 0.0, None), 0.)
         peak = float(d.max())
         min_contrast = (self._photometry.difference(self.centroid_min_contrast)
                         if self._photometry is not None else self.centroid_min_contrast)
@@ -1855,10 +1872,9 @@ class LineDetector:
 
         # ── Step 1: Warp to birdseye (single warp, derive gray on birdseye) ──
         bgr_bird = cv2.warpPerspective(bgr, self.M, (self.bird_w, self.bird_h))
-        # Neutral padding prevents the missing sensor area becoming a dark edge.
+        # Unobserved ground stays black for display, and has ZERO weight in processing.
         valid = self.ground_valid_mask
-        fill = np.median(bgr_bird[valid], axis=0) if np.any(valid) else np.array([255]*3)
-        bgr_bird[~valid] = fill
+        bgr_bird[~valid] = 0
         # Custom grayscale on birdseye: max of max(R,G,B) and standard grayscale
         gray_max = np.max(bgr_bird, axis=2)
         gray_std = cv2.cvtColor(bgr_bird, cv2.COLOR_BGR2GRAY)
@@ -1868,7 +1884,7 @@ class LineDetector:
         img_cx = self.center_x
         gray_detect, binary_clean, black_th, preprocess_debug = extract_lane_candidates(
             gray, self.preprocess_mode, self.th_offset, self.th_min, self.th_max,
-            photometry=self._photometry, adaptive_c=self.adaptive_c)
+            photometry=self._photometry, adaptive_c=self.adaptive_c, valid_mask=valid)
         gray_detect[~valid] = 0
         binary_clean[~valid] = 0
         preprocess_debug["ipm_metric_cm_per_px"] = self.cm_per_px
@@ -2315,7 +2331,9 @@ class LineDetector:
         )
 
         # ── Debug info ──
-        binary_raw_inv = 255 - binary_clean  # invert for display: black line on white bg
+        vis[~valid] = 0
+        binary_raw_inv = 255 - binary_clean  # valid ground: black line on white bg
+        binary_raw_inv[~valid] = 0
         scan_debug = {f'scan_{name}_{key}': value
                       for name, values in self._scan_diagnostics.items()
                       for key, value in values.items()}

@@ -7,6 +7,7 @@ polarities across a stroke. They do not infer lane identity or card shape.
 """
 import cv2
 import numpy as np
+from masked_ground import validity, gaussian as masked_gaussian, morphology as masked_morphology
 
 
 def _validate(gray, shape):
@@ -24,27 +25,36 @@ def _ray(mask, dx, dy, radius):
     return cv2.dilate(mask, kernel, borderType=cv2.BORDER_CONSTANT) > 0
 
 
-def _extract(gray, mode, bh_size, radius, min_area, min_span):
+def _extract(gray, mode, bh_size, radius, min_area, min_span, valid_mask=None):
+    valid = validity(gray, valid_mask)
+    masked = valid is not None and not np.all(valid)
+    observed = np.ones_like(gray, bool) if valid is None else valid
+    gradient_valid = (cv2.erode(observed.astype(np.uint8), np.ones((3,3),np.uint8),
+                     borderType=cv2.BORDER_CONSTANT, borderValue=1) > 0) if masked else observed
     # A small blur suppresses sensor noise while retaining the card's thin ink.
-    smooth = cv2.GaussianBlur(gray, (3, 3), 0.7)
+    smooth = (np.clip(np.rint(masked_gaussian(gray, valid, (3,3), .7)),0,255).astype(np.uint8)
+              if masked else cv2.GaussianBlur(gray, (3, 3), 0.7))
     residual = gray.astype(np.float32) - smooth.astype(np.float32)
-    residual -= np.median(residual)
-    noise = float(np.median(np.abs(residual)) / 0.67448975)
+    samples = residual[observed]
+    noise = float(np.median(np.abs(samples-np.median(samples))) / 0.67448975) if samples.size else 0.
     gx = cv2.Sobel(smooth, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(smooth, cv2.CV_32F, 0, 1, ksize=3)
     magnitude = cv2.magnitude(gx, gy)
     # Sparse ink should not set a global image-intensity threshold. The floor
     # and noise term protect flat floors; the gradient percentile adapts to
     # exposure/texture. Sobel units match Canny aperture=3 and L2gradient=True.
-    high = max(12.0, noise * 6.0, float(np.percentile(magnitude, 90)) * 1.3)
+    high = max(12.0, noise * 6.0, (float(np.percentile(magnitude[gradient_valid], 90)) if gradient_valid.any() else 0.) * 1.3)
     low = high * 0.4
     edges = cv2.Canny(smooth, low, high, apertureSize=3, L2gradient=True)
-    response = cv2.morphologyEx(
-        smooth, cv2.MORPH_BLACKHAT,
-        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (bh_size, bh_size)))
+    edges[~gradient_valid] = 0
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (bh_size, bh_size))
+    response = (masked_morphology(smooth, cv2.MORPH_BLACKHAT, kernel, valid)
+                if masked else cv2.morphologyEx(smooth, cv2.MORPH_BLACKHAT, kernel))
     ink_threshold = max(3.0, noise * 3.5,
-                        float(np.percentile(response, 70)) * 1.3)
+                        (float(np.percentile(response[observed], 70)) if observed.any() else 0.) * 1.3)
     ink = np.where(response >= ink_threshold, 255, 0).astype(np.uint8)
+
+    ink[~observed] = 0
 
     paired = np.zeros_like(gray, bool)
     # Four normal directions cover vertical/horizontal/oblique tape and bends.
@@ -62,9 +72,9 @@ def _extract(gray, mode, bh_size, radius, min_area, min_span):
     supported = np.where((ink > 0) & paired, 255, 0).astype(np.uint8)
     # Only a 3px close: repair tiny raster gaps without completing missing card
     # sides or filling large closed contours. Holes inside rings remain holes.
-    candidate = cv2.morphologyEx(
-        supported, cv2.MORPH_CLOSE,
-        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    candidate = (masked_morphology(supported, cv2.MORPH_CLOSE, kernel, valid)
+                 if masked else cv2.morphologyEx(supported, cv2.MORPH_CLOSE, kernel))
     count, labels, stats, _ = cv2.connectedComponentsWithStats(candidate, 8)
     keep = np.zeros(count, np.uint8)
     widths = []
@@ -93,8 +103,8 @@ def _extract(gray, mode, bh_size, radius, min_area, min_span):
         "canny_pair_radius": radius,
         "canny_blackhat_size": bh_size,
         "canny_raw_edge_pixels": int(np.count_nonzero(edges)),
-        "preprocess_gray_mean": float(gray.mean()),
-        "preprocess_gray_std": float(gray.std()),
+        "preprocess_gray_mean": float(gray[observed].mean()) if observed.any() else 0.,
+        "preprocess_gray_std": float(gray[observed].std()) if observed.any() else 0.,
         "preprocess_threshold_pixels": int(np.count_nonzero(ink)),
         "preprocess_morph_pixels": int(np.count_nonzero(candidate)),
         "preprocess_foreground_pixels": int(np.count_nonzero(mask)),
@@ -108,14 +118,13 @@ def _extract(gray, mode, bh_size, radius, min_area, min_span):
     return mask, diagnostics
 
 
-def lane_canny(gray320x400):
-    """Return filled lane candidates and diagnostics for a (400, 320) image.
-
-    Local blackhat support limits the supported tape width to roughly 32px.
-    Candidates preserve direction; subsequent geometry chooses lane boundaries.
-    """
-    _validate(gray320x400, (400, 320))
-    return _extract(gray320x400, "lane", 33, 24, 48, 24)
+def lane_canny(gray, valid_mask=None):
+    """Filled lane strokes on the current metric raster (width is not fixed)."""
+    if not isinstance(gray, np.ndarray) or gray.dtype != np.uint8 or gray.ndim != 2:
+        raise ValueError("lane Canny requires a uint8 grayscale image")
+    if min(gray.shape) < 33:
+        raise ValueError("lane Canny image must fit its 33px neighbourhood")
+    return _extract(gray, "lane", 33, 24, 48, 24, valid_mask=valid_mask)
 
 
 def card_canny(gray960x540):
