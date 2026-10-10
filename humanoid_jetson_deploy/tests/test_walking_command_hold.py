@@ -86,7 +86,7 @@ class WalkingCommandHoldTests(unittest.TestCase):
         np.testing.assert_array_equal(stopped, np.zeros(3))
         self.assertIsNone(hold.applied)
 
-    def run_main(self, times, requests, *, hold_upright=None, onefoot_at=None, command_hold=None, command_min_hold_s=None):
+    def run_main(self, times, requests, *, hold_upright=None, onefoot_at=None, command_hold=None, command_min_hold_s=None, feedback=False):
         seen = []
         clock = SimpleNamespace(now=9.)
         hold = legacy_hold() if command_hold is None else command_hold
@@ -123,6 +123,9 @@ class WalkingCommandHoldTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             argv = ["main.py", "--model", "fake.onnx", "--no-plot", "--attitude-port", "0",
                     "--command-source", "vision", "--diagnostic-log-dir", folder]
+            if feedback:
+                argv[argv.index('--attitude-port')+1] = '5007'
+                argv.append('--enable-motors')
             if onefoot_at is not None:
                 argv += ["--one-foot-model", "foot.onnx"]
             if command_min_hold_s is not None:
@@ -143,16 +146,33 @@ class WalkingCommandHoldTests(unittest.TestCase):
                     patch.object(main, "UdpCommandSource", return_value=source), \
                     patch.object(main, "SerialLink", return_value=link), patch.object(main, "PositionCsvLogger"), \
                     patch.object(main, "WalkingCommandHold", return_value=hold) as hold_factory, \
+                    patch.object(main, "AttitudeBroadcaster") as broadcaster, \
                     patch.object(main.time, "monotonic", side_effect=lambda: clock.now), \
                     patch.object(main.time, "monotonic_ns", side_effect=lambda: round(clock.now * 1e9)), \
                     patch.object(main.time, "sleep"), redirect_stdout(io.StringIO()):
                 self.assertEqual(main.main(), 1)
                 self.command_hold_constructor = hold_factory.call_args
+                self.execution_feedback = [call.kwargs.get('executed_command')
+                    for call in broadcaster.return_value.publish.call_args_list]
             with next(Path(folder).glob("*.csv")).open(newline="") as handle:
                 rows = list(csv.DictReader(handle))
             self.assertIsNone(hold.applied)  # fault/disable never leaves a live contract
             self.sent_gain_scales = [call.args[2:4] for call in link.send_command.call_args_list[:len(times)]]
             return seen, rows
+
+    def test_actual_feedback_follows_model_hold_and_reports_immediate_stop(self):
+        self.run_main([0, .1, .49, .51, .52],
+            [[.2,0,.5], [.2,0,-.5], [.2,0,-.5], [.2,0,-.5], [0,0,0]], feedback=True)
+        packets = self.execution_feedback
+        self.assertTrue(packets)
+        self.assertEqual([round(p['velocity'][2], 4) for p in packets], [.5, -.5, 0.])
+        self.assertGreaterEqual(packets[1]['monotonic_s'], 10.5)
+        self.assertTrue(all(p['send_result'] == 'written' for p in packets))
+
+    def test_feedback_reports_no_walking_velocity_during_upright_takeover(self):
+        self.run_main([0, .1], [[.2,0,.5], [0,0,0]], hold_upright=[False,True], feedback=True)
+        self.assertEqual(self.execution_feedback[-1]['velocity'], [0.,0.,0.])
+        self.assertEqual(self.execution_feedback[-1]['policy_mode'], 'upright_hold')
 
     def test_real_main_policy_observation_pair_stays_constant_until_half_second(self):
         first = [.2, 0, .5]

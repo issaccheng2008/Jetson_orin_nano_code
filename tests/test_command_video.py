@@ -15,6 +15,61 @@ from command_video import CommandVideo, draw_command, line_lost
 
 
 class CommandVideoTests(unittest.TestCase):
+    def test_resampled_frames_expire_actual_feedback_during_camera_gap(self):
+        feedback = dict(velocity=[.2,0.,-.5], enabled=True, send_result='written',
+                        policy_mode='walking49', monotonic_s=10., step=1)
+        writer = Mock()
+        writer.isOpened.return_value = True
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.cv2.VideoWriter', return_value=writer):
+            recorder = CommandVideo(Path(tmp), width=320, queue_size=16)
+            image = np.zeros((180,320,3), np.uint8)
+            recorder.submit(image, frame_id=1, host_time_ns=100, monotonic_s=10.1,
+                            vx=.2, wz=.5, lost=False, executed=feedback)
+            recorder.submit(image, frame_id=2, host_time_ns=200, monotonic_s=11.1,
+                            vx=.2, wz=.5, lost=False, executed=None)
+            recorder.close()
+            rows = [json.loads(x) for x in (Path(tmp)/'frames.jsonl').read_text().splitlines()]
+        self.assertIsNotNone(rows[0]['executed_command'])
+        for row in rows:
+            if 10.1+row['video_time_s'] > 10.5+1e-7:
+                self.assertIsNone(row['executed_command'], row)
+
+    def test_frame_index_keeps_both_commands_and_owns_feedback_snapshot(self):
+        feedback = dict(velocity=[.2, 0., -.5], enabled=True, send_result='written',
+                        policy_mode='walking49', monotonic_s=10., step=1)
+        writer = Mock()
+        writer.isOpened.return_value = True
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.cv2.VideoWriter', return_value=writer):
+            recorder = CommandVideo(Path(tmp), width=320)
+            recorder.submit(np.zeros((180,320,3), np.uint8), frame_id=1, host_time_ns=100,
+                monotonic_s=10.1, vx=.2, wz=.5, lost=False, executed=feedback)
+            feedback['velocity'][2] = 9.
+            recorder.close()
+            row = json.loads((Path(tmp)/'frames.jsonl').read_text().splitlines()[0])
+        self.assertEqual(row['wz'], .5)
+        self.assertEqual(row['executed_command']['velocity'][2], -.5)
+
+    def test_video_has_separate_vision_and_actual_held_arrows(self):
+        image = np.zeros((360, 640, 3), np.uint8)
+        feedback = dict(velocity=[.2, 0., -.5], enabled=True, send_result='written',
+                        policy_mode='walking49', monotonic_s=10., step=1)
+        with patch('command_video.cv2.arrowedLine', wraps=cv2.arrowedLine) as arrow:
+            draw_command(image, .2, .5, False, .5, 0., executed=feedback)
+            self.assertEqual(arrow.call_count, 2)
+            first, second = arrow.call_args_list
+            self.assertLess(first.args[2][0], first.args[1][0])
+            self.assertGreater(second.args[2][0], second.args[1][0])
+        with patch('command_video.cv2.arrowedLine') as arrow:
+            draw_command(image, .2, .5, True, .5, 0., executed=feedback)
+            self.assertTrue(all(call.args[3] == (0, 0, 255) for call in arrow.call_args_list))
+
+    def test_missing_actual_feedback_is_unknown_and_never_copies_vision(self):
+        image = np.zeros((360, 640, 3), np.uint8)
+        with patch('command_video.cv2.arrowedLine') as arrow, patch('command_video.cv2.putText') as text:
+            draw_command(image, .2, .5, False, .5, 0., executed=None)
+        self.assertEqual(arrow.call_count, 1)
+        self.assertTrue(any('UNKNOWN' in call.args[1] for call in text.call_args_list))
+
     def test_copy_failure_cannot_escape_into_control(self):
         with tempfile.TemporaryDirectory() as tmp:
             recorder = CommandVideo(Path(tmp))

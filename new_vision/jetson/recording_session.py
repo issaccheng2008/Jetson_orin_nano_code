@@ -19,7 +19,7 @@ def create_session(root):
         'policy_console': 'main_*.log',
         'camera_video': 'video/camera_commands.avi (when enabled)',
         'camera_video_index': 'video/frames.jsonl',
-        'camera_video_semantics': 'Arrow is vision-published vx/wz, before connector bias/model hold; red means line lost',
+        'camera_video_semantics': 'VISION is vision-published vx/wz; ROBOT CMD is policy feedback after hold/takeovers and serial send; red means line lost; absent/stale execution is UNKNOWN',
         'time_alignment': 'vision host_time_ns / 1e9 and control host_unix_s',
         'execution_semantics': 'cmd_wz is model input; motor_send_argument_* is sent joint target, not measured body yaw',
     }

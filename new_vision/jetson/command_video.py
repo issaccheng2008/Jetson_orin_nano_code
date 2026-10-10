@@ -22,7 +22,7 @@ def line_lost(debug, confidence):
             or reason in ('brief_loss_hold', 'geometry_lost_yaw_zero', 'invalid_clock'))
 
 
-def draw_command(image, vx, wz, lost, max_wz, elapsed_s):
+def draw_command(image, vx, wz, lost, max_wz, elapsed_s, executed=None):
     """Draw a direction symbol on the encoder's private image, never on control input."""
     h, w = image.shape[:2]
     colour = (0, 0, 255) if lost else (255, 0, 0)  # BGR: red / blue
@@ -30,16 +30,41 @@ def draw_command(image, vx, wz, lost, max_wz, elapsed_s):
     panel[:] = (panel * .35).astype(image.dtype)
     scale = max(.35, min(.65, w/960))
     label = 'LINE LOST' if lost else 'TRACK'
-    cv2.putText(image, f'{label}  VISION SENT vx={vx:+.2f} wz={wz:+.2f}',
-                (8, h-85), cv2.FONT_HERSHEY_SIMPLEX, scale, colour, 1, cv2.LINE_AA)
-    cv2.putText(image, f't={elapsed_s:.2f}s', (8, h-60),
+    cv2.putText(image, f'{label} t={elapsed_s:.2f}s', (8, h-92),
                 cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), 1, cv2.LINE_AA)
-    start = (w//2, h-18 if vx >= 0 else h-72)
+    columns = [(w//4, 'VISION', vx, wz)]
+    status = None
+    if executed is None:
+        status = 'UNKNOWN'
+    elif executed.get('send_result') != 'written':
+        status = 'UNKNOWN (not sent)'
+    elif not executed.get('enabled', False):
+        status = 'MOTORS OFF'
+    else:
+        velocity = executed['velocity']
+        columns.append((3*w//4, 'ROBOT CMD', velocity[0], velocity[2]))
+        cv2.putText(image, f'{executed.get("policy_mode", "")} hold={executed.get("hold_remaining_s", 0.):.2f}s',
+                    (w//2+4, h-92), cv2.FONT_HERSHEY_SIMPLEX, max(.3, scale*.8),
+                    (255, 255, 255), 1, cv2.LINE_AA)
+    if status:
+        cv2.putText(image, f'ROBOT CMD {status}', (w//2+4, h-72),
+                    cv2.FONT_HERSHEY_SIMPLEX, max(.3, scale*.8), (180, 180, 180), 1, cv2.LINE_AA)
+    for centre, name, column_vx, column_wz in columns:
+        cv2.putText(image, f'{name} vx={column_vx:+.2f} wz={column_wz:+.2f}',
+                    (max(4, centre-w//4+4), h-72), cv2.FONT_HERSHEY_SIMPLEX,
+                    max(.3, scale*.8), colour, 1, cv2.LINE_AA)
+        _draw_arrow(image, centre, column_vx, column_wz, colour, max_wz)
+    return image
+
+
+def _draw_arrow(image, centre, vx, wz, colour, max_wz):
+    h = image.shape[0]
+    start = (centre, h-12 if vx >= 0 else h-62)
     if vx == 0 and wz == 0:
-        cv2.putText(image, 'STOP', (w//2-24, h-28),
+        cv2.putText(image, 'STOP', (centre-24, h-22),
                     cv2.FONT_HERSHEY_SIMPLEX, .55, colour, 2, cv2.LINE_AA)
-        cv2.line(image, (w//2-8, h-65), (w//2+8, h-49), colour, 3)
-        cv2.line(image, (w//2+8, h-65), (w//2-8, h-49), colour, 3)
+        cv2.line(image, (centre-8, h-59), (centre+8, h-43), colour, 3)
+        cv2.line(image, (centre+8, h-59), (centre-8, h-43), colour, 3)
     else:
         # Positive published yaw means LEFT; amplitude scales the symbol's angle,
         # not an estimated trajectory or physical steering angle.
@@ -47,7 +72,6 @@ def draw_command(image, vx, wz, lost, max_wz, elapsed_s):
         end = (start[0]-round(52*math.sin(angle)),
                start[1]-round(52*math.cos(angle))*(1 if vx >= 0 else -1))
         cv2.arrowedLine(image, start, end, colour, 4, cv2.LINE_AA, tipLength=.3)
-    return image
 
 
 class CommandVideo:
@@ -63,12 +87,13 @@ class CommandVideo:
         self.error = None
         self.truncated = False
         self._shutdown_deadline = None
+        self._origin_monotonic_s = None
         self._queue = queue.Queue(maxsize=queue_size)
         self._closing = threading.Event()
         self._thread = threading.Thread(target=self._run, name='command-video', daemon=True)
         self._thread.start()
 
-    def submit(self, image, *, frame_id, host_time_ns, monotonic_s, vx, wz, lost):
+    def submit(self, image, *, frame_id, host_time_ns, monotonic_s, vx, wz, lost, executed=None):
         if self.error is not None or self._closing.is_set():
             return False
         if self._queue.full():
@@ -78,7 +103,8 @@ class CommandVideo:
         try:
             sample = (image.copy(), dict(source_frame=frame_id,
                 command_host_time_ns=host_time_ns, command_monotonic_s=monotonic_s,
-                vx=vx, wz=wz, line_lost=bool(lost)))
+                vx=vx, wz=wz, line_lost=bool(lost), executed_command=(
+                    None if executed is None else dict(executed, velocity=list(executed['velocity'])))))
             self._queue.put_nowait(sample)
         except queue.Full:
             self.dropped_samples += 1
@@ -116,6 +142,7 @@ class CommandVideo:
                     raise ValueError('video command clock regressed or is non-finite')
                 if writer is None:
                     origin = now
+                    self._origin_monotonic_s = origin
                     h, w = raw.shape[:2]
                     out_w = min(self.width, w)//2*2
                     out_h = max(2, round(h*out_w/w)//2*2)
@@ -132,9 +159,6 @@ class CommandVideo:
                     self._write(writer, index, previous, next_tick)
                     next_tick += 1
                 image = cv2.resize(raw, dimensions, interpolation=cv2.INTER_AREA)
-                elapsed = now-origin
-                draw_command(image, metadata['vx'], metadata['wz'], metadata['line_lost'],
-                             self.max_wz, elapsed)
                 previous = (image, metadata)
                 if next_tick <= tick:
                     self._write(writer, index, previous, tick)
@@ -157,9 +181,10 @@ class CommandVideo:
                 except OSError as exc:
                     self.error = self.error or str(exc)
             try:
-                manifest = dict(schema='command_video_v1', codec='MJPG', video='camera_commands.avi',
+                manifest = dict(schema='command_video_v2', codec='MJPG', video='camera_commands.avi',
                     frame_index='frames.jsonl', fps=self.fps, dimensions=dimensions,
                     command_source='vision publish -> connector; before connector bias/model hold',
+                    executed_command_source='policy feedback after model hold/takeovers and serial send; not measured body motion',
                     colour='BGR blue for tracking, red for lost line; STOP has no direction arrow',
                     clock='video_time_s + origin_monotonic_s; ceil to next tick; repeated source frames allowed',
                     origin_monotonic_s=origin, written_frames=self.written_frames,
@@ -175,7 +200,16 @@ class CommandVideo:
             self.truncated = True
             raise RuntimeError('shutdown drain deadline reached; video tail truncated')
         image, metadata = sample
-        writer.write(image)
+        output_time = self._origin_monotonic_s + tick/self.fps
+        actual = metadata['executed_command']
+        if actual is not None:
+            age = output_time-float(actual['monotonic_s'])
+            if not -.01 <= age <= .5+1e-7:
+                actual = None
+        drawn = image.copy()
+        draw_command(drawn, metadata['vx'], metadata['wz'], metadata['line_lost'],
+                     self.max_wz, tick/self.fps, executed=actual)
+        writer.write(drawn)
         index.write(json.dumps(dict(video_frame=self.written_frames,
-            video_time_s=tick/self.fps, **metadata), allow_nan=False)+'\n')
+            video_time_s=tick/self.fps, **dict(metadata, executed_command=actual)), allow_nan=False)+'\n')
         self.written_frames += 1

@@ -27,7 +27,8 @@ class AttitudeBroadcaster:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def publish(self, projected_gravity, elapsed_s: float,
-                card_tilt_event_id: int = 0, card_tilt_done: bool = False) -> None:
+                card_tilt_event_id: int = 0, card_tilt_done: bool = False,
+                executed_command=None) -> None:
         gravity = np.asarray(projected_gravity, dtype=np.float64).reshape(3)
         if not np.all(np.isfinite(gravity)):
             return
@@ -37,6 +38,13 @@ class AttitudeBroadcaster:
             "card_tilt_event_id": int(card_tilt_event_id),
             "card_tilt_done": bool(card_tilt_done),
         }
+        if executed_command is not None:
+            try:
+                json.dumps(executed_command, allow_nan=False)
+            except (TypeError, ValueError):
+                pass  # Optional command diagnostics must not suppress valid attitude.
+            else:
+                message['executed_command'] = executed_command
         self.socket.sendto(
             json.dumps(message, separators=(",", ":")).encode("utf-8"), self.address
         )

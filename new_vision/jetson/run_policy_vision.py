@@ -1639,8 +1639,13 @@ def main():
             command_host_time_ns = time.time_ns()
             if command_video is not None:
                 try:
+                    actual_command = None
+                    if attitude is not None:
+                        attitude.poll()
+                        actual_command = attitude.executed_command()
                     command_video.submit(frame, frame_id=frames, host_time_ns=command_host_time_ns,
-                        monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence))
+                        monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence),
+                        executed=actual_command)
                 except Exception as exc:
                     # Auxiliary diagnostics must not escape into the motor loop.
                     print(f'[video] frame submission disabled: {exc}', flush=True)
