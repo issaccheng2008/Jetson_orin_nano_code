@@ -96,7 +96,10 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_video_initialization_failure_does_not_stop_publication(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(video_error=True)
 
-    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False):
+    def test_signed_table_and_heading_intervals_reach_publication_and_manifest(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(custom_config=True)
+
+    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False, custom_config=False):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
         camera.isOpened.return_value = True
@@ -122,6 +125,10 @@ class HeadingIntegrationTests(unittest.TestCase):
                 heading_control_valid=True, heading_control_deg=angle)
         detector.process.side_effect = process
         camera_extra = ['--camera-exposure-mode','manual','--camera-exposure-ms','5'] if camera_settings else []
+        table = [[-90,-10,-.2],[-10,10,.1],[10,90,.3]]
+        if custom_config:
+            camera_extra += ['--steering-angle-wz-table',json.dumps(table),
+                             '--heading-regions-cm','[[24,26],[28,30]]']
         camera_report = dict(status='applied' if camera_settings else 'unchanged',settings=[])
         with (
             tempfile.TemporaryDirectory() as tmp,
@@ -160,11 +167,18 @@ class HeadingIntegrationTests(unittest.TestCase):
                     for line in p.read_text().splitlines()]
             manifests = [json.loads(p.read_text()) for p in Path(tmp).rglob('run_manifest.json')]
             self.assertEqual(manifests[0]['camera_controls'],camera_report)
+            if custom_config:
+                self.assertEqual(manifests[0]['arguments']['steering_angle_wz_table'], table)
+                self.assertEqual(manifests[0]['arguments']['heading_regions_cm'], [[24,26],[28,30]])
             self.assertEqual(order[0],'settings')
             self.assertEqual(camera_controls.call_args.args[0],'/dev/video0')
             self.assertEqual(camera_controls.call_args.args[1].camera_exposure_mode, 'manual' if camera_settings else 'keep')
         self.assertEqual(len(rows), 42)
-        detector.set_heading_distances.assert_called_once_with(None, 29.0)
+        if custom_config:
+            detector.set_heading_regions_cm.assert_called_once_with(((24,26),(28,30)))
+            detector.set_heading_distances.assert_not_called()
+        else:
+            detector.set_heading_distances.assert_called_once_with(None, 29.0)
         self.assertTrue(all(r['start_gate_mode'] == 'off' for r in rows))
         self.assertTrue(all(r['qr_passed'] is False and r['shape_passed'] is False for r in rows))
         self.assertTrue(all(r['body_track_deviation_valid'] for r in rows))
@@ -179,7 +193,7 @@ class HeadingIntegrationTests(unittest.TestCase):
         self.assertTrue(all(s[3].get("command_mode") == "held" for s in walking))
         levels = {round(s[2],6) for s in walking}
         self.assertGreaterEqual(len(levels), 3, levels)
-        self.assertTrue(levels <= {0., .37, .43, .5, -.3, -.5}, levels)
+        self.assertTrue(levels <= ({.1,.3,-.2} if custom_config else {0., .37, .43, .5, -.3, -.5}), levels)
         self.assertTrue(any(wz < 0 for wz in levels), levels)
         start, previous = walking[0][0], walking[0][1:3]
         for now,vx,wz,_ in walking[1:]:

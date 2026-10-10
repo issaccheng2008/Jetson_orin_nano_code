@@ -69,7 +69,7 @@ class HeadingSteeringController:
             if (not ladder or not all(math.isfinite(v) and v > 0 for v in ladder)
                     or any(a >= b for a, b in zip(ladder, ladder[1:]))):
                 raise ValueError(f"heading {name} wz levels must be positive and increasing")
-        if not 0 <= straight_wz < min(left_levels[0], right_levels[0]):
+        if (angle_wz_table is None or angle_wz_table == '') and not 0 <= straight_wz < min(left_levels[0], right_levels[0]):
             raise ValueError("straight wz must be in [0, the smallest turn level)")
         self.inner = inner
         self.lookahead_cm = float(lookahead_cm)
@@ -83,13 +83,16 @@ class HeadingSteeringController:
         self.min_hold_s = float(min_hold_s)
         from steering_config import validate_angle_wz_table
         self.angle_wz_table = validate_angle_wz_table(angle_wz_table,
-            min(self._cap(+1), self._cap(-1)) if allow_right else self._cap(+1),
-            filter_config.hysteresis_deg if filter_config is not None else 0.)
+            self._cap(+1), filter_config.hysteresis_deg if filter_config is not None else 0.,
+            right_cap=self._cap(-1), allow_right=allow_right)
         if self.angle_wz_table is not None:
-            if straight_wz != 0:
-                raise ValueError('angle table requires heading-straight-wz=0')
+            from steering_config import table_level
+            self.straight_wz = table_level(self.angle_wz_table, 0.)
+            if self._turn_history is not None:
+                self._turn_history.straight_wz = self.straight_wz*inner.yaw_sign
             # Protection and recovery use the actual configured turn magnitudes.
-            left_levels = right_levels = tuple(sorted({v for _, _, v in self.angle_wz_table if v > 0}))
+            left_levels = tuple(sorted({v for _, _, v in self.angle_wz_table if v > 0}))
+            right_levels = tuple(sorted({-v for _, _, v in self.angle_wz_table if v < 0}))
         # These are geometric left/right magnitudes; yaw_sign maps them onto
         # the robot wire convention. Caps remove levels, never create new ones.
         self.left_levels = tuple(v for v in left_levels if v <= self._cap(+1))
@@ -237,8 +240,8 @@ class HeadingSteeringController:
     def _map_angle(self, demand):
         if self.angle_wz_table is not None:
             from steering_config import table_level
-            return (table_level(self.angle_wz_table, demand)
-                    if demand >= 0 or self.allow_right else self.straight_wz)
+            level = table_level(self.angle_wz_table, demand)
+            return level if level >= 0 or self.allow_right else self.straight_wz
         # Angular tolerance may be widened, but never widen the spatial corridor.
         corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
         positive_gate = min(self.right_tolerance_deg, corridor_angle)
@@ -255,9 +258,9 @@ class HeadingSteeringController:
     def _filtered_level(self, demand):
         if self.angle_wz_table is not None:
             from steering_config import table_level
-            return (table_level(self.angle_wz_table, demand, self._command[1]*self.yaw_sign,
+            level = table_level(self.angle_wz_table, demand, self._command[1]*self.yaw_sign,
                                 self.filter_config.hysteresis_deg)
-                    if demand >= 0 or self.allow_right else self.straight_wz)
+            return level if level >= 0 or self.allow_right else self.straight_wz
         from steering_filter import select_level
         cfg = self.filter_config
         current = self._command[1]*self.yaw_sign

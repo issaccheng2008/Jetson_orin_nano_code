@@ -17,3 +17,7 @@
 - [x] Run focused and existing vision/controller/Bash tests and request focused independent review.
 
 Validation: 316 related unittest cases pass with Python UTF-8 and Git Bash; independent review found no blockers and separately passed the 10 new configuration tests. Full-suite connector/command-timing failures (5 subtest failures) reproduce on unchanged `88df0b3`; connector code was not changed. Delivery uses a normal commit and direct push to `policy49flitter`, followed by local/remote head verification.
+
+Follow-up scope: signed intervals cover [-90,+90] with independent rates for both sides. Zero degrees uses its configured rate (positive, negative or zero), and that rate is the normal baseline for loss history. Explicit stops stay zero. Heading accepts two independent ground intervals with eight image rows each, aligned near lock and scale, startup validation and legacy centre compatibility. Heading and segments remain separate; the proposed auto mode was cancelled. Validate controller boundaries, nonzero zero-angle output, calibrated rows/pitch, real Bash parsing, live publication/manifest and replay, then review and push.
+
+Follow-up verification: all 486 unittest cases pass (49.3s, Python UTF-8/Git Bash, bytecode disabled). Independent read-only review passed 33 configuration/replay/legacy-centre cases and found no blockers. Changes remain startup validation and existing fixed-budget sampling; no hardware run was performed. Base `bd51359` matches the fetched remote branch; existing user stash remains intact.

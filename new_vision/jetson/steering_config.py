@@ -25,36 +25,52 @@ def _rows(value, columns, name):
         raise ValueError(f'{name} must be a JSON array of finite numeric {columns}-value rows') from exc
 
 
-def validate_angle_wz_table(value, cap=.5, hysteresis_deg=0.):
+def validate_angle_wz_table(value, cap=.5, hysteresis_deg=0., right_cap=None, allow_right=True):
     if value is None or value == '':
         return None
     rows = _rows(value, 3, 'steering-angle-wz-table')
-    if (not 2 <= len(rows) <= 32 or rows[0][0] != 0 or rows[-1][1] != 90
-            or rows[0][2] != 0 or not any(rate > 0 for _, _, rate in rows)
-            or any(not 0 <= lo < hi <= 90 or not 0 <= rate <= cap for lo, hi, rate in rows)
+    cap = min(.5, cap)
+    right_cap = min(.5, cap if right_cap is None else right_cap)
+    if (not 2 <= len(rows) <= 32 or rows[0][0] != -90 or rows[-1][1] != 90
+            or not any(rate > 0 for _, _, rate in rows)
+            or (allow_right and not any(rate < 0 for _, _, rate in rows))
+            or any(not -90 <= lo < hi <= 90 or not -right_cap <= rate <= cap for lo,hi,rate in rows)
             or any(a[1] != b[0] for a, b in zip(rows, rows[1:]))
             or any(hi-lo <= 2*hysteresis_deg for lo, hi, _ in rows)):
-        raise ValueError('angle table must cover [0,90] without gaps/overlap, start at 0 rad/s, '
-                         f'contain a turn, use rates <= {cap:g} rad/s and bins wider than twice hysteresis')
+        raise ValueError('angle table must cover [-90,+90] without gaps/overlap, '
+                         'include turn levels for enabled directions; '
+                         f'limits are [-{right_cap:g},+{cap:g}] rad/s and bins must be wider than twice hysteresis')
     return rows
 
 
 def table_level(table, demand, current=0., width=0.):
-    """Use |final decision angle|; bins are [lo,hi), with saturated last bin.
+    """Use signed final decision angle; bins are [lo,hi), endpoints saturate.
 
     Keep an adjacent applied level within the configured boundary hysteresis.
     Never retain a command pointing in the opposite direction.
     """
-    magnitude = abs(demand)
-    index = next((i for i, (_, hi, _) in enumerate(table) if magnitude < hi-1e-9), len(table)-1)
+    index = next((i for i, (_, hi, _) in enumerate(table) if demand < hi-1e-9), len(table)-1)
     level = table[index][2]
-    if width > 0 and current*demand >= 0:
+    # Exactly zero always uses its configured rate, including a nonzero bias.
+    if demand == 0:
+        return level
+    if width > 0 and current*level >= 0:
         for neighbour, boundary in ((index-1, table[index][0]), (index+1, table[index][1])):
-            if (0 <= neighbour < len(table) and abs(magnitude-boundary) < width
-                    and table[neighbour][2] == abs(current)):
-                level = abs(current)
+            if (0 <= neighbour < len(table) and abs(demand-boundary) < width
+                    and table[neighbour][2] == current):
+                level = current
                 break
-    return math.copysign(level, demand) if demand else 0.
+    return level
+
+
+def validate_heading_regions(value):
+    if value is None or value == '':
+        return None
+    rows = _rows(value, 2, 'heading-regions-cm')
+    if (len(rows) != 2 or any(not 20 <= lo < hi <= 85 for lo,hi in rows)
+            or rows[0][1] > rows[1][0]):
+        raise ValueError('heading regions need exactly two ordered non-overlapping intervals within 20–85cm')
+    return rows
 
 
 def validate_segment_regions(value=DEFAULT_SEGMENT_REGIONS_CM):

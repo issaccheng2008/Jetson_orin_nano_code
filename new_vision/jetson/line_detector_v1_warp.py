@@ -221,6 +221,8 @@ class LineDetector:
         self.band_step_mid = 2
         self.heading_far_cm = None  # Legacy rows unless the heading entrypoint opts in.
         self.heading_near_cm = None
+        self.heading_regions_cm = None
+        self._heading_region_rows = None
         # Band weights
         self.band_weight_low = 0.65
         self.band_weight_mid = 0.35
@@ -524,12 +526,43 @@ class LineDetector:
         self.M = self._build_birdseye_matrix(lookahead=self._ipm_lookahead)
         self.M_inv = np.linalg.inv(self.M)
         self._build_ground_lut()
-        if self.heading_far_cm is not None:
+        if self.heading_regions_cm is not None:
+            self.set_heading_regions_cm(self.heading_regions_cm)
+        elif self.heading_far_cm is not None:
             self.set_heading_distances(self.heading_near_cm, self.heading_far_cm)
         self._rebuild_err_scale()
 
     def set_heading_far_cm(self, distance_cm):
         self.set_heading_distances(self.heading_near_cm, distance_cm)
+
+    def set_heading_regions_cm(self, regions_cm):
+        """Select eight evenly spaced image rows INSIDE each ground interval.
+
+        The near lock uses the same rows. Validate before replacing geometry;
+        this adds no per-frame scans and never connects segment regions.
+        """
+        from steering_config import validate_heading_regions
+        regions_cm = validate_heading_regions(regions_cm)
+        if regions_cm is None:
+            raise ValueError('heading regions must contain two intervals')
+        rows = []
+        for lo,hi in regions_cm:
+            eligible = np.flatnonzero((self._lut_z_cm >= lo) & (self._lut_z_cm < hi))
+            if len(eligible) < 8 or hi > max(self._lut_z_cm):
+                raise ValueError('each heading region must contain at least eight calibrated image rows')
+            rows.append(tuple(int(v) for v in eligible[np.linspace(0,len(eligible)-1,8,dtype=int)]))
+        low,mid = rows
+        if mid[-1] >= low[0]:
+            raise ValueError('heading far region must be above the near region')
+        self.band_low_y0,self.band_low_y1 = low[0],low[-1]
+        self.band_mid_y0,self.band_mid_y1 = mid[0],mid[-1]
+        self.heading_regions_cm = regions_cm
+        self._heading_region_rows = tuple(rows)
+        self.heading_near_cm = float(np.median(self._lut_z_cm[list(low)]))
+        self.heading_far_cm = float(np.median(self._lut_z_cm[list(mid)]))
+        self.near_scale_row = float(np.median(low))
+        self.bottom_lock_start_ratio = (low[0]+.5)/self.bird_h
+        self._rebuild_err_scale()
 
     def set_heading_distances(self, near_cm, far_cm):
         """Move measured bands atomically; None keeps the original near geometry.
@@ -558,6 +591,7 @@ class LineDetector:
         self.band_mid_y0, self.band_mid_y1 = mid
         self.heading_near_cm = None if near_cm is None else float(near_cm)
         self.heading_far_cm = float(far_cm)
+        self.heading_regions_cm = self._heading_region_rows = None
         self.near_scale_row = self.NEAR_BAND_ROW if near_cm is None else .5*(low[0]+low[1])
         self.bottom_lock_start_ratio = (low[0]+.5)/self.bird_h if near_cm is not None else .875
         self._rebuild_err_scale()
@@ -1047,7 +1081,7 @@ class LineDetector:
     def _scan_band_midline(self, gray, bgr, black_th, track_is_dark,
                            hint_x, lane_width_hint,
                            y_start_ratio, y_end_ratio, max_rows, row_step,
-                           gray_raw=None):
+                           gray_raw=None, sample_rows=None):
         """Scan a band of rows on the birdseye, find midline per row.
 
         gray_raw: 未做黑帽/掩膜处理的鸟瞰灰度，只给质心兜底用。gray 上的线是
@@ -1082,20 +1116,18 @@ class LineDetector:
         last_width = lane_width_hint
 
         rows_done = 0
-        y = y_start
-        while y <= y_end and rows_done < max_rows:
+        scan_rows = range(y_start,y_end+1,row_step) if sample_rows is None else sample_rows
+        for y in scan_rows[:max_rows]:
             red_block, black_block = self._detect_row_blocker(
                 gray, bgr, y, x0, x1, black_th, track_is_dark
             )
             if red_block:
                 red_block_rows += 1
                 rows_done += 1
-                y += row_step
                 continue
             if black_block:
                 black_block_rows += 1
                 rows_done += 1
-                y += row_step
                 continue
 
             runs = self._collect_track_runs_on_row(
@@ -1125,11 +1157,9 @@ class LineDetector:
                     jump = abs(center_px - last_center)
                     if jump > max(30.0, lane_w * 1.2):
                         rows_done += 1
-                        y += row_step
                         continue
                 if abs(center_px - last_center) > (self.max_center_jump_px * 2.2):
                     rows_done += 1
-                    y += row_step
                     continue
                 x_cm, z_cm = self._px_to_ground_cm(center_px, y)
                 mode = int(chosen.get("line_mode", 1))
@@ -1154,7 +1184,6 @@ class LineDetector:
                     last_width = lane_w
 
             rows_done += 1
-            y += row_step
 
         if len(centers_px) < 3:
             return None
@@ -1247,6 +1276,8 @@ class LineDetector:
                 last_center, last_width,
                 ys, ye, rows, step,
                 gray_raw=gray_raw,
+                **({'sample_rows': self._heading_region_rows[0 if name == 'low' else 1]}
+                   if self._heading_region_rows is not None else {}),
             )
             if res is None:
                 continue
@@ -1292,7 +1323,9 @@ class LineDetector:
         y = int(clamp(self.bottom_lock_start_ratio * self.bird_h, 0, self.bird_h - 1))
         hint_width = float(self._state["last_lane_width_px"])
         hint_center = float(self._state["last_lane_center_x"])
-        while y < self.bird_h and rows_done < max(1, self.bottom_lock_rows):
+        lock_rows = (range(y,self.bird_h,max(1,self.bottom_lock_step))[:max(1,self.bottom_lock_rows)]
+                     if self._heading_region_rows is None else self._heading_region_rows[0])
+        for y in lock_rows:
             red, black = self._detect_row_blocker(gray, bgr, y, 0, self.bird_w - 1,
                                                    black_th, track_is_dark)
             if not red and not black:
@@ -1305,7 +1338,6 @@ class LineDetector:
                     widths.append(float(chosen["lane_width_px"]))
                     ys.append(y)
             rows_done += 1
-            y += max(1, self.bottom_lock_step)
         if not centers:
             return empty
         ratio = len(centers) / float(rows_done)
