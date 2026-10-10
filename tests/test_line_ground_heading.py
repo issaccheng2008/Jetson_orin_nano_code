@@ -109,7 +109,7 @@ class GroundHeadingTests(unittest.TestCase):
             self.assertEqual(d._fit_trusted_heading([r,ignored],lock),
                              old._fit_trusted_heading([r,ignored],lock))
 
-    def test_process_keeps_old_outputs_and_does_not_replay_control_heading_on_loss(self):
+    def test_process_preserves_lateral_output_and_does_not_replay_heading_on_loss(self):
         d=self.detector();old=self.detector(frozen.LineDetector)
         # This frozen-source comparison checks geometry compatibility under the
         # same extraction. Contrast extraction has separate image regressions.
@@ -127,10 +127,12 @@ class GroundHeadingTests(unittest.TestCase):
         for _ in range(3):
             before=old.process(frame,dt=.1)
             after=d.process(frame,dt=.1)
-            self.assertEqual(before[:3],after[:3])
-            for key,value in before[-1].items():
-                if isinstance(value,np.ndarray):np.testing.assert_array_equal(value,after[-1][key])
-                else:self.assertEqual(value,after[-1][key],key)
+            self.assertEqual(before[0],after[0])
+            self.assertEqual(before[2],after[2])
+            for key in ('base_err_cm','near_error_cm','fused_err_cm',
+                        'measurement_valid','bottom_lock_valid'):
+                self.assertEqual(before[-1][key],after[-1][key],key)
+            self.assertAlmostEqual(after[1],-after[-1]['heading_right_deg'])
         self.assertTrue(after[-1]['heading_control_valid'])
         self.assertEqual(after[-1]['heading_control_source'],'ground_x_z')
         self.assertGreater(after[-1]['heading_control_z_span_cm'],0)

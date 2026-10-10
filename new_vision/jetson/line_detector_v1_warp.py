@@ -18,6 +18,7 @@ from copy import deepcopy
 from utils import clamp
 from line_preprocess import extract_lane_candidates, sampled_otsu_threshold
 from photometric_thresholds import measure, MAX_CHANNEL_REFERENCE
+from continuous_lane_heading import HeadingScanConfig, trace_heading
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -318,6 +319,8 @@ class LineDetector:
         self.preview_max_cm = p1("preview_max_cm", 5.0)
         self.heading_min_points = int(p1("heading_min_points", 6))
         self.heading_min_span_px = p1("heading_min_span_px", 8.0)
+        # Heading only: scan bottom-to-top over the full configured interval.
+        self.heading_scan = HeadingScanConfig()
         for value in (self.lock_width_cv_max, self.observation_rmse_max_px,
                       self.measurement_max_age_s, self.single_width_max_age_s,
                       self.filter_tau_s, self.shake_filter_tau_s):
@@ -352,6 +355,8 @@ class LineDetector:
             "last_lane_center_x": float(self.center_x),
             "last_lane_width_px": float(self.lane_width_init_px),
             "last_band_mask": 0,
+            "heading_rows": [],
+            "heading_rows_time": None,
             "startup_frames": 0,
             "last_bottom_lock_valid": False,
             "near_err_history": [],
@@ -1570,6 +1575,24 @@ class LineDetector:
         # After black-hat, lines are always bright → track_is_dark=False
         track_is_dark = False
 
+        previous_heading_time = state["heading_rows_time"]
+        previous_heading_age = (self._observation_clock_s - previous_heading_time
+                                if previous_heading_time is not None else float("inf"))
+        heading_trace = trace_heading(
+            binary_clean,
+            lambda y: self._collect_track_runs_on_row(
+                gray_detect, y, 0, self.bird_w - 1, black_th, track_is_dark),
+            self._px_to_ground_cm, self.cm_per_px_at,
+            previous_rows=state["heading_rows"], previous_age_s=previous_heading_age,
+            config=self.heading_scan)
+        if heading_trace["valid"] and heading_trace["paired_rows"] >= 2:
+            state["heading_rows"] = [r for r in heading_trace["rows"]
+                                     if r["source"] == "paired"]
+            state["heading_rows_time"] = self._observation_clock_s
+        elif previous_heading_age > self.heading_scan.history_max_age_s:
+            state["heading_rows"] = []
+            state["heading_rows_time"] = None
+
         # ── Startup transient params ──
         startup_active = (
             self.startup_settle_frames > 0
@@ -1723,7 +1746,7 @@ class LineDetector:
         line_visible = False
 
         # ── Pixel-domain error fusion ──
-        if roi_results:
+        if roi_results and heading_trace["valid"]:
             state["lost_frames"] = 0
 
             near = self._pick_result_by_band(roi_results, ("low", "mid"))
@@ -1803,9 +1826,25 @@ class LineDetector:
             base_err_cm = near_err_cm
             base_err_px = near_err_px
 
-            angle_err, heading_valid, heading_rmse_px = self._fit_trusted_heading(
-                roi_results, bottom_lock)
-            heading_control = self._fit_ground_control_heading(roi_results, bottom_lock)
+            # Internal X(Z) slope is positive toward image right. Both published
+            # heading interfaces historically use positive toward image left.
+            angle_err = -heading_trace["heading_right_deg"]
+            heading_valid = True
+            heading_rmse_px = (heading_trace["residual_cm"] /
+                               self.cm_per_px_at(self.NEAR_BAND_ROW))
+            x_ref, slope, z_ref = heading_trace["fit"]
+            heading_control = {
+                "heading_control_deg": angle_err,
+                "heading_control_valid": True,
+                "heading_control_reject_reason": "accepted",
+                "heading_control_rmse_cm": heading_trace["residual_cm"],
+                "heading_control_z_span_cm": heading_trace["span_cm"],
+                "heading_control_points": heading_trace["observed_rows"],
+                "heading_control_slope_dx_dz": slope,
+                "heading_control_intercept_cm": x_ref - slope * z_ref,
+                "heading_control_pixel_rmse_px": heading_rmse_px,
+                "heading_control_source": "ground_x_z",
+            }
             if self.lane_segments_enable:
                 lane_fit["fit_seg_anchored"] = False
                 if (near.get("observation_paired", False)
@@ -1923,6 +1962,13 @@ class LineDetector:
             narrow_gate_score = 1.0
             narrow_gate_dir = 0
 
+        if not measurement_valid:
+            heading_control["heading_control_reject_reason"] = (
+                heading_trace["reason"] if not heading_trace["valid"]
+                else "near_measurement_invalid")
+            heading_control["heading_control_points"] = heading_trace["observed_rows"]
+            heading_control["heading_control_z_span_cm"] = heading_trace["span_cm"]
+
         obstacle = self._derive_narrow_gate(red_bar_detected, red_bar_z_cm, start_line_z)
         red_bar_z_cm = obstacle["red_bar_z_cm"]
         narrow_gate_detected = obstacle["narrow_gate_detected"]
@@ -1951,6 +1997,7 @@ class LineDetector:
         vis = self._build_visualization(
             gray, bgr_bird, roi_results, black_th, track_is_dark,
             dev_px, heading_deg, conf, base_err_px, band_mask,
+            heading_trace,
         )
 
         # ── Debug info ──
@@ -1992,6 +2039,13 @@ class LineDetector:
             "heading_deg": angle_err,
             "heading_valid": heading_valid and measurement_valid,
             "heading_fit_rmse_px": heading_rmse_px,
+            "heading_confidence": heading_trace["confidence"] if measurement_valid else 0.0,
+            "heading_fit_residual": heading_trace["residual_cm"],
+            "heading_observed_rows": heading_trace["observed_rows"],
+            "heading_inferred_rows": heading_trace["inferred_rows"],
+            "heading_span_cm": heading_trace["span_cm"],
+            "heading_right_deg": heading_trace["heading_right_deg"],
+            "heading_rows": heading_trace["rows"],
             **heading_control,
             **single_edge,
             "preview_error_cm": preview_error_cm,
@@ -2043,7 +2097,7 @@ class LineDetector:
     def _build_visualization(self, gray_bird, bgr_bird,
                              roi_results, black_th, track_is_dark,
                              dev_px, heading_deg, conf, base_err_px,
-                             band_mask):
+                             band_mask, heading_trace):
         """Overlay detection results on the birdseye image."""
         vis = cv2.cvtColor(gray_bird, cv2.COLOR_GRAY2BGR)
 
@@ -2084,6 +2138,35 @@ class LineDetector:
             cv2.circle(vis, (cx, approx_y), 5, (0, 255, 255), -1)
             cv2.circle(vis, (cx, approx_y), 7, (0, 180, 180), 1)
 
+        # Actual sampled rows: cyan=paired, orange=single-edge, gray=gap prediction.
+        for row in heading_trace["rows"]:
+            color = ((255, 255, 0) if row["source"] == "paired" else
+                     (0, 165, 255) if row["source"] in ("left", "right") else
+                     (150, 150, 150))
+            y = row["y"]
+            for key in ("left_x", "right_x"):
+                x = row[key]
+                if x is not None and 0 <= x < self.bird_w:
+                    cv2.circle(vis, (int(round(x)), y), 2, color, -1)
+            x = row["center_x"]
+            if x is not None and 0 <= x < self.bird_w:
+                cv2.drawMarker(vis, (int(round(x)), y), color,
+                               cv2.MARKER_CROSS, 7, 1)
+        if heading_trace["valid"]:
+            x_ref, slope, z_ref = heading_trace["fit"]
+            points = []
+            for row in heading_trace["rows"]:
+                y = row["y"]
+                if y < self.heading_scan.fit_top_y:
+                    continue
+                ground_x = x_ref + slope * (self.z_cm_at(y) - z_ref)
+                x = self.center_x + ground_x / self.cm_per_px_at(y)
+                if 0 <= x < self.bird_w:
+                    points.append((int(round(x)), y))
+            if len(points) >= 2:
+                cv2.polylines(vis, [np.asarray(points, np.int32)], False,
+                              (255, 0, 255), 2)
+
         # Center crosshair
         cv2.line(vis, (self.center_x, 0), (self.center_x, self.bird_h - 1),
                  (128, 128, 128), 1)
@@ -2112,6 +2195,8 @@ class LineDetector:
         lines = [
             f"dev={dev_px:+.1f}px  hdg={heading_deg:+.1f}deg  conf={conf:.2f}",
             f"th={black_th}  lost={self._state['lost_frames']}  bmask={band_mask}",
+            f"rowhdg={-heading_trace['heading_right_deg']:+.1f} "
+            f"valid={int(heading_trace['valid'])} c={heading_trace['confidence']:.2f}",
         ]
         for i, text in enumerate(lines):
             y_pos = 16 + i * 18
