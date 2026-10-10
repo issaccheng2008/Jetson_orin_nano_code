@@ -1,0 +1,32 @@
+{"samples": ["/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/001_00_pair0.00_conf0.93_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/001_04_pair1.00_conf0.95_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/002_02_pair0.00_conf0.73_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/003_00_pair0.88_conf0.00_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/003_04_pair0.88_conf0.00_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/004_02_pair1.00_conf0.95_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/005_00_pair0.00_conf0.00_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/005_04_pair0.00_conf0.73_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/006_02_pair0.00_conf0.00_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/007_00_pair0.00_conf0.00_frame.jpg", "/home/isaac/jetson_orin_code/records/tests/2026-10-10/test_202752_990495_0b85a7e7/loss/run_20261010_202753_73806_1791635273969492831/007_04_pair1.00_conf0.99_frame.jpg"], "frames": 33, "opencv": "4.6.0", "python": "/home/isaac/jetson_orin_code/.venv/bin/python", "threads": 6, "total_mean_ms": 178.4594653941123, "stages": {"warp": {"calls": 36, "mean_per_call_ms": 3.7308952506565323, "mean_per_frame_ms": 4.070067546170762}, "photometry_measure": {"calls": 33, "mean_per_call_ms": 1.838117424058234, "mean_per_frame_ms": 1.838117424058234}, "photometry_match": {"calls": 33, "mean_per_call_ms": 15.098095787724366, "mean_per_frame_ms": 15.098095787724366}, "masked_clahe": {"calls": 33, "mean_per_call_ms": 32.18169584832856, "mean_per_frame_ms": 32.18169584832856}, "masked_morphology": {"calls": 99, "mean_per_call_ms": 10.57329971731771, "mean_per_frame_ms": 31.71989915195313}, "masked_gaussian": {"calls": 33, "mean_per_call_ms": 11.341700999434, "mean_per_frame_ms": 11.341700999434}, "components": {"calls": 42, "mean_per_call_ms": 1.2664806426549884, "mean_per_frame_ms": 1.6118844542881672}, "preprocess_total": {"calls": 33, "mean_per_call_ms": 84.33831809099613, "mean_per_frame_ms": 84.33831809099613}, "trace_heading": {"calls": 33, "mean_per_call_ms": 3.044308545323667, "mean_per_frame_ms": 3.044308545323667}, "_scan_band_midline": {"calls": 39, "mean_per_call_ms": 2.9699320771331443, "mean_per_frame_ms": 3.509919727520989}, "_build_visualization": {"calls": 33, "mean_per_call_ms": 5.9863802122312, "mean_per_frame_ms": 5.9863802122312}, "_centroid_pair_center": {"calls": 66, "mean_per_call_ms": 0.6121459395988936, "mean_per_frame_ms": 1.2242918791977873}, "_detect_two_band_lanes": {"calls": 3, "mean_per_call_ms": 6.560064998969513, "mean_per_frame_ms": 0.5963695453608648}}}
+         67584 function calls (67494 primitive calls) in 2.023 seconds
+
+   Ordered by: internal time
+   List reduced from 232 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     3856    0.500    0.000    0.500    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       11    0.312    0.028    0.360    0.033 /home/isaac/jetson_orin_code/new_vision/jetson/masked_ground.py:46(clahe)
+       11    0.166    0.015    0.167    0.015 /home/isaac/jetson_orin_code/new_vision/jetson/photometric_thresholds.py:36(match_image)
+       33    0.150    0.005    0.150    0.005 {dilate}
+       33    0.149    0.005    0.149    0.005 {erode}
+       22    0.087    0.004    0.087    0.004 {GaussianBlur}
+       11    0.074    0.007    2.023    0.184 /home/isaac/jetson_orin_code/new_vision/jetson/line_detector_v1_warp.py:1846(process)
+       11    0.055    0.005    0.951    0.086 /home/isaac/jetson_orin_code/new_vision/jetson/line_preprocess.py:41(extract_lane_candidates)
+       33    0.046    0.001    0.046    0.001 {addWeighted}
+       11    0.038    0.003    0.038    0.003 {warpPerspective}
+       22    0.035    0.002    0.035    0.002 {inRange}
+     2079    0.031    0.000    0.031    0.000 {method 'astype' of 'numpy.ndarray' objects}
+      192    0.029    0.000    0.029    0.000 {cvtColor}
+      312    0.028    0.000    0.041    0.000 /home/isaac/jetson_orin_code/new_vision/jetson/line_detector_v1_warp.py:878(_collect_track_runs_on_row)
+       22    0.027    0.001    0.039    0.002 /usr/lib/python3/dist-packages/numpy/core/_methods.py:135(_var)
+       33    0.021    0.001    0.174    0.005 /home/isaac/jetson_orin_code/new_vision/jetson/masked_ground.py:27(dilate)
+       33    0.020    0.001    0.172    0.005 /home/isaac/jetson_orin_code/new_vision/jetson/masked_ground.py:31(erode)
+      159    0.018    0.000    0.035    0.000 /home/isaac/jetson_orin_code/new_vision/jetson/line_detector_v1_warp.py:756(_detect_row_blocker)
+     1404    0.017    0.000    0.020    0.000 /usr/lib/python3/dist-packages/numpy/lib/function_base.py:1324(diff)
+       14    0.016    0.001    0.016    0.001 {connectedComponentsWithStats}
+       11    0.016    0.001    0.032    0.003 /home/isaac/jetson_orin_code/new_vision/jetson/line_detector_v1_warp.py:797(_detect_start_line)
+       11    0.014    0.001    0.127    0.012 /home/isaac/jetson_orin_code/new_vision/jetson/masked_ground.py:15(gaussian)
+   171/81    0.014    0.000    1.351    0.017 <stdin>:14(fn)
+       11    0.010    0.001    0.010    0.001 /usr/lib/python3/dist-packages/numpy/core/numeric.py:67(zeros_like)
+       99    0.009    0.000    0.009    0.000 /usr/lib/python3/dist-packages/numpy/core/_methods.py:90(_clip)
