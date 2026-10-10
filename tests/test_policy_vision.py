@@ -1101,10 +1101,10 @@ class VisionEntryPointTests(unittest.TestCase):
             self.assertEqual(run_policy_vision.main(), 0)
         self.assertEqual(out.getvalue().count("stand still"), 1)
 
-    def test_unconfirmed_far_cue_can_rearm_but_close_cue_cannot(self):
-        for candidate_cy, expected_stops in ((.2, 2), (.8, 1)):
+    def test_unconfirmed_cue_does_not_rearm_a_card_approach(self):
+        for candidate_cy in (.2, .8):
             with self.subTest(candidate_cy=candidate_cy):
-                self._check_unconfirmed_cue_approach(candidate_cy, expected_stops)
+                self._check_unconfirmed_cue_approach(candidate_cy, 1)
 
     def _check_unconfirmed_cue_approach(self, candidate_cy, expected_stops):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -1973,35 +1973,25 @@ class ShapeDetectorReportingTests(unittest.TestCase):
     stop on that centroid, and a stale one walked 0.51 -> 0.78 while the robot was
     standing still."""
 
-    def test_two_moderate_blurred_cues_confirm_but_floor_does_not(self):
+    def test_moderate_cues_below_legacy_score_threshold_do_not_confirm(self):
         detector = ShapeDetector()
+        self.assertEqual(detector.photometric_mode, "legacy")
         blank = np.zeros((720, 1280, 3), np.uint8)
         detector._presence_cue = lambda _gray: ((40, 190, 120, 90), 1.4)
-        _, first = detector.update(blank)
-        self.assertFalse(first["presence"])
-        self.assertIsNone(first["presence_cy_frac"])
-        self.assertIsNotNone(first["cue_candidate_cy_frac"])
-        self.assertIsNone(first["shape"])
-        _, second = detector.update(blank)
-        self.assertTrue(second["presence"])
-        self.assertIsNotNone(second["presence_cy_frac"])
-        self.assertIsNone(second["shape"])
-        floor = ShapeDetector()
-        floor._presence_cue = lambda _gray: ((40, 190, 120, 90), .8)
-        for _ in range(6):
-            _, rejected = floor.update(blank)
+        for _ in range(9):
+            _, rejected = detector.update(blank)
         self.assertFalse(rejected["presence"])
-        self.assertIsNone(rejected["cue_candidate_cy_frac"])
+        self.assertEqual(detector.cfg["cue_score_min"], 2.0)
+        self.assertEqual(detector.cfg["cue_hist_m"], 3)
 
-    def test_moderate_cues_can_confirm_across_three_missed_detection_calls(self):
+    def test_three_legacy_strength_cues_confirm_across_missed_calls(self):
         detector = ShapeDetector()
-        scores = iter((1.4, 0., 0., 0., 1.4))
+        scores = iter((2.4, 0., 0., 0., 2.4, 0., 0., 0., 2.4))
         detector._presence_cue = lambda _gray: ((40, 190, 120, 90), next(scores))
         blank = np.zeros((720, 1280, 3), np.uint8)
-        for _ in range(4):
+        for _ in range(8):
             _, pending = detector.update(blank)
             self.assertFalse(pending["presence"])
-            self.assertIsNone(pending["presence_cy_frac"])
         _, confirmed = detector.update(blank)
         self.assertTrue(confirmed["presence"])
         self.assertIsNotNone(confirmed["presence_cy_frac"])

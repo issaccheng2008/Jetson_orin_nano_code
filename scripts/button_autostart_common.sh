@@ -14,7 +14,7 @@ load_button_config() {
     WZ_MODE=heading
     LINE_PREPROCESS=contrast
     SHAPE_PREPROCESS=selective
-    PHOTOMETRIC_MODE=normalize
+    PHOTOMETRIC_MODE=legacy
     LOST_HOLD_S=0.2
     WZ_BIAS=0
     COMMAND_MIN_HOLD_S=0

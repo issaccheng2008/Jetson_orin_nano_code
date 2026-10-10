@@ -473,9 +473,10 @@ def parse_args():
                         default=os.getenv("SHAPE_PREPROCESS", "selective"),
                         help="Card ink candidates; canny is an explicit experimental alternative")
     parser.add_argument("--photometric-mode", choices=("normalize", "legacy"),
-                        default=os.getenv("PHOTOMETRIC_MODE", "normalize"),
-                        help="Reference mean/std normalization for card brightness gates "
-                             "and raw-gray lane centroid contrast; legacy uses fixed gates")
+                        default=os.getenv("PHOTOMETRIC_MODE", "legacy"),
+                        help="Input frames are always mean/std matched to the archived "
+                             "auto-exposure reference; legacy keeps fixed gates, while "
+                             "normalize additionally scales photometric thresholds")
     parser.add_argument("--lane-fit", action="store_true",
                         help="EXPERIMENTAL, and it changes nothing on its own: also "
                              "scan one tall band (20~70 cm instead of the two "
@@ -1090,6 +1091,7 @@ def main():
         loss_next_ok = 0.0
         prev_pair = 0.0
         prev_conf = 0.0
+        previous_loop_start_ns = None
         if args.dump_on_loss:
             args.dump_on_loss = _new_dump_run(args.dump_on_loss, run_id, dump_metadata)
             print(f"[vision] run dump: {args.dump_on_loss}", flush=True)
@@ -1105,7 +1107,14 @@ def main():
                 break
             if args.max_seconds > 0 and now - start >= args.max_seconds:
                 break
+            # App read-attempt cadence, not the sensor's hardware frame timestamp.
+            loop_start_ns = time.perf_counter_ns()
+            loop_period_ms = (None if previous_loop_start_ns is None else
+                              (loop_start_ns - previous_loop_start_ns) / 1_000_000.0)
+            previous_loop_start_ns = loop_start_ns
             ok, frame = cap.read()
+            read_return_ns = time.perf_counter_ns()
+            camera_read_ms = (read_return_ns - loop_start_ns) / 1_000_000.0
             if not ok:
                 controller.reset()
                 event = ({"event_id": card_event_id, "event_action": card_action}
@@ -1195,10 +1204,15 @@ def main():
             # the lane search. Still process it for diagnostics and red-bar sensing,
             # but do not let it train the next walking frame's seed/width/EMA.
             tracking_before_frame = detector.snapshot_tracking_state()
+            line_process_start_ns = time.perf_counter_ns()
             _, _, confidence, visualization, debug = detector.process(
                 frame, dt=processed - previous)
+            line_process_ms = (time.perf_counter_ns() - line_process_start_ns) / 1_000_000.0
             if window_open:
                 detector.restore_tracking_state(tracking_before_frame)
+            decision_start_ns = time.perf_counter_ns()
+            qr_decode_ms = None
+            shape_update_ms = None
             frames += 1
             log_frames += 1
             recognized_this_frame = False
@@ -1278,7 +1292,9 @@ def main():
             # 拖垮。扫到就锁存，之后一次都不再进来 —— 行进段一分钱都不付。
             if (qr_reader is not None and not start_gate.qr_passed
                     and frames % args.qr_every == 0):
+                qr_decode_start_ns = time.perf_counter_ns()
                 reading = qr_reader.decode(frame)
+                qr_decode_ms = (time.perf_counter_ns() - qr_decode_start_ns) / 1_000_000.0
                 if reading is not None:
                     if start_gate.observe_qr(reading.payload):
                         print("\n" + "=" * 68, flush=True)
@@ -1293,8 +1309,10 @@ def main():
                         print(f"[start-gate] ⚠️ 扫到 payload={reading.payload!r}，"
                               f"不是 {start_gate.expected_qr!r}，忽略", flush=True)
             if shape is not None and not tilting and (frames % shape_period == 0):
+                shape_update_start_ns = time.perf_counter_ns()
                 action, card_dbg = shape.update(
                     frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
+                shape_update_ms = (time.perf_counter_ns() - shape_update_start_ns) / 1_000_000.0
                 # "多近了"这一个量，动作闸和停车闸共用。有真框就量框宽（对机身俯仰
                 # 不敏感），没框才退回 cy。理由见下面停车那段。
                 _quad = card_dbg.get("quad_work")
@@ -1343,16 +1361,10 @@ def main():
                 # Seeing a card only slows the robot down. Stopping waits until the card
                 # is close, on the same card_reach card_reach_line the action gate uses.
                 #
-                # A trigger has to be earned again by seeing the card well short of the
-                # line. An unconfirmed far cue can establish the approach before
-                # enough presence hits accumulate. The stopping gate below still
-                # requires confirmed presence and a current confirmed position.
-                # A card already past the line cannot earn a new approach.
-                arm_reach = (card_reach if card_reach is not None else
-                             card_dbg.get("cue_candidate_cy_frac"))
-                if (not startup_first_card_lock and arm_reach is not None
-                        and arm_reach < (card_reach_line if card_reach is not None
-                                         else card_trigger_frac)):
+                # A trigger has to be earned again by seeing a confirmed card well
+                # short of the line. Unconfirmed cues never arm a new approach.
+                if (not startup_first_card_lock and card_reach is not None
+                        and card_reach < card_reach_line):
                     card_armed = True
                 # The first card can disappear from a few frames while the robot is
                 # stopped for its action, then reappear close up. Count its departure
@@ -1643,10 +1655,13 @@ def main():
             if args.wz_mode == 'segments':
                 debug['segment_applied_wz'] = wz
             last_cmd_vx = vx
+            # Aggregate policy/card logic; QR and shape fields below are sub-stages.
+            decision_ms = (time.perf_counter_ns() - decision_start_ns) / 1_000_000.0
             # 门控期间按住直立：策略自己的站姿后仰约 20°，而相机 45° 是在直立时
             # 标定的，几何闸只认 38.6~59° —— 不扳直，阀2 会把每一张卡都拒掉，机器人
             # 永远不走。释放那帧仍然按着（gate_window_open 是上一帧的值），下一帧
             # 才落，card_tilt 那条线上不会和它撞在同一帧。
+            udp_publish_start_ns = time.perf_counter_ns()
             client.publish(vx, wz, visible_qr,
                            hold_upright=((args.hold_upright and in_card_window)
                                          or (gate_window_open
@@ -1655,8 +1670,12 @@ def main():
                            card_tilt=(in_card_window and card_event_id == 0),
                            **({"command_mode": "held"} if args.wz_mode in ("heading", "segments") else {}),
                            **event)
+            udp_publish_ms = (time.perf_counter_ns() - udp_publish_start_ns) / 1_000_000.0
             command_host_time_ns = time.time_ns()
+            read_to_publish_ms = (time.perf_counter_ns() - read_return_ns) / 1_000_000.0
+            recording_submit_ms = None
             if command_video is not None:
+                recording_submit_start_ns = time.perf_counter_ns()
                 try:
                     actual_command = None
                     if attitude is not None:
@@ -1673,6 +1692,8 @@ def main():
                     # Auxiliary diagnostics must not escape into the motor loop.
                     print(f'[video] frame submission disabled: {exc}', flush=True)
                     command_video.error = str(exc)
+                recording_submit_ms = (
+                    time.perf_counter_ns() - recording_submit_start_ns) / 1_000_000.0
             if line_log is not None:
                 # Card detection is sampled; only attach this frame's actual
                 # diagnostics, never relabel a previous detection as fresh.
@@ -1683,6 +1704,11 @@ def main():
                 line_log.write(
                     telemetry_debug, frame=frames, host_time_ns=command_host_time_ns,
                     process_monotonic_s=processed, confidence=confidence,
+                    loop_period_ms=loop_period_ms, camera_read_ms=camera_read_ms,
+                    line_process_ms=line_process_ms, qr_decode_ms=qr_decode_ms,
+                    shape_update_ms=shape_update_ms, decision_ms=decision_ms,
+                    udp_publish_ms=udp_publish_ms, read_to_publish_ms=read_to_publish_ms,
+                    recording_submit_ms=recording_submit_ms,
                     vx=vx, wz=wz, mode=args.wz_mode,
                     body_track_deviation_deg=debug.get('heading_control_deg'),
                     body_track_deviation_valid=bool(debug.get('heading_control_valid', False)),

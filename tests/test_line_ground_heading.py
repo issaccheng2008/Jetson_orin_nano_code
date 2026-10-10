@@ -111,8 +111,9 @@ class GroundHeadingTests(unittest.TestCase):
 
     def test_process_keeps_old_outputs_and_does_not_replay_control_heading_on_loss(self):
         d=self.detector();old=self.detector(frozen.LineDetector)
-        # This frozen-source comparison checks geometry compatibility under the
-        # same extraction. Contrast extraction has separate image regressions.
+        # Isolate geometry from the new input mean/std matching. The frozen
+        # detector predates matching; both must receive identical pixels here.
+        # Real matching before IPM is covered by test_photometric_matching.
         d.preprocess_mode='legacy'
         d.photometric_mode='legacy'
         for item in [d,old]:
@@ -126,7 +127,9 @@ class GroundHeadingTests(unittest.TestCase):
             cv2.polylines(frame,[points],False,(0,0,0),7)
         for _ in range(3):
             before=old.process(frame,dt=.1)
-            after=d.process(frame,dt=.1)
+            with patch('photometric_thresholds.Photometry.match_image',
+                       side_effect=lambda image: image):
+                after=d.process(frame,dt=.1)
             self.assertEqual(before[:3],after[:3])
             for key,value in before[-1].items():
                 if isinstance(value,np.ndarray):np.testing.assert_array_equal(value,after[-1][key])
