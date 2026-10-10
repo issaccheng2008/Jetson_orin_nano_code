@@ -179,7 +179,7 @@ class LineDetector:
         self.max_line_width = 120
         self.lane_width_init_px = 140.0
         self.lane_width_tol_px = 50.0  # tighter band → tighter width tolerance
-        self.max_center_jump_px = 45.0  # 50px band, can't jump beyond band height
+        self.max_center_jump_px = 60.0  # Effective 132px jump cap; tolerate body sway and abrupt image shifts.
         self.min_pair_lines = 2
 
         # ── Narrow gate detection ──
