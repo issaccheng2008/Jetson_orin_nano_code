@@ -68,7 +68,9 @@ def parse_args():
     parser.add_argument('--recording-root', default='',
                         help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths.')
     parser.add_argument('--record-video', action=argparse.BooleanOptionalAction, default=True,
-                        help='Record camera with published-command arrows inside recording-root; red on line loss.')
+                        help='Record selected video-source with command arrows inside recording-root; red on line loss.')
+    parser.add_argument('--video-source', choices=('binary', 'camera'), default='binary',
+                        help='Recorded image: final detector birdseye lane mask, or original camera frame')
     parser.add_argument('--video-fps', type=float, default=10.,
                         help='Recorded playback FPS, 1..30; repeats samples by timestamp, not camera processing rate.')
     parser.add_argument('--video-width', type=int, default=960,
@@ -1077,8 +1079,9 @@ def main():
             try:
                 from command_video import CommandVideo
                 command_video = CommandVideo(recording_directory/'video', fps=args.video_fps,
-                                             width=args.video_width, max_wz=args.max_wz)
-                print(f'[video] camera + vision sent commands: {recording_directory / "video"}; '
+                                             width=args.video_width, max_wz=args.max_wz,
+                                             frame_source=args.video_source)
+                print(f'[video] source={args.video_source} + vision sent commands: {recording_directory / "video"}; '
                       f'{args.video_fps:g} playback FPS; asynchronous encoder', flush=True)
             except Exception as exc:
                 print(f'[video] recording disabled: {exc}', flush=True)
@@ -1665,7 +1668,10 @@ def main():
                     if attitude is not None:
                         attitude.poll()
                         actual_command = attitude.executed_command()
-                    command_video.submit(frame, frame_id=frames, host_time_ns=command_host_time_ns,
+                    # Reuse this frame's detector output. Missing binary evidence
+                    # disables auxiliary recording rather than substituting raw video.
+                    video_frame = debug['binary'] if args.video_source == 'binary' else frame
+                    command_video.submit(video_frame, frame_id=frames, host_time_ns=command_host_time_ns,
                         monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence),
                         executed=actual_command)
                 except Exception as exc:

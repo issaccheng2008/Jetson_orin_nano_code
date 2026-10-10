@@ -1,7 +1,7 @@
-"""Bounded, asynchronous camera recording of commands published by vision.
+"""Bounded, asynchronous recording of commands published by vision.
 
 No motor/connector feedback is inferred here. The AVI is a timestamp-resampled
-view of processed camera frames; its JSONL index identifies duplicated frames.
+view of camera frames or detector lane masks; its JSONL index identifies duplicated frames.
 """
 import json
 import math
@@ -75,11 +75,14 @@ def _draw_arrow(image, centre, vx, wz, colour, max_wz):
 
 
 class CommandVideo:
-    def __init__(self, directory, fps=10., width=960, max_wz=.5, queue_size=2):
+    def __init__(self, directory, fps=10., width=960, max_wz=.5, queue_size=2, frame_source='camera'):
         if not math.isfinite(fps) or not 1 <= fps <= 30:
             raise ValueError('video fps must be finite and in [1, 30]')
         if not 64 <= width <= 1920 or queue_size < 1:
             raise ValueError('video width must be in [64, 1920]; queue must be positive')
+        if frame_source not in ('camera', 'binary'):
+            raise ValueError('video source must be camera or binary')
+        self.frame_source = frame_source
         self.directory = Path(directory)
         self.fps, self.width, self.max_wz = fps, width, max_wz
         self.dropped_samples = 0
@@ -128,7 +131,7 @@ class CommandVideo:
         origin = last_time = None
         previous = None
         next_tick = 0
-        dimensions = None
+        dimensions = image_dimensions = None
         try:
             self.directory.mkdir(parents=True, exist_ok=True)
             index = (self.directory/'frames.jsonl').open('x', encoding='utf-8', buffering=65536)
@@ -146,7 +149,8 @@ class CommandVideo:
                     h, w = raw.shape[:2]
                     out_w = min(self.width, w)//2*2
                     out_h = max(2, round(h*out_w/w)//2*2)
-                    dimensions = (out_w, out_h)
+                    image_dimensions = (out_w, out_h)
+                    dimensions = (out_w, out_h + (110 if self.frame_source == 'binary' else 0))
                     writer = cv2.VideoWriter(str(self.directory/'camera_commands.avi'),
                         cv2.VideoWriter_fourcc(*'MJPG'), self.fps, dimensions)
                     if not writer.isOpened():
@@ -158,7 +162,16 @@ class CommandVideo:
                 while previous is not None and next_tick < tick:
                     self._write(writer, index, previous, next_tick)
                     next_tick += 1
-                image = cv2.resize(raw, dimensions, interpolation=cv2.INTER_AREA)
+                if self.frame_source == 'binary':
+                    # This is the detector's final candidate mask, not a new
+                    # threshold of the camera image. Preserve it above the HUD.
+                    if raw.ndim != 2 or raw.dtype != 'uint8':
+                        raise ValueError('binary video needs the detector uint8 lane mask')
+                    raw = cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
+                image = cv2.resize(raw, image_dimensions,
+                    interpolation=cv2.INTER_NEAREST if self.frame_source == 'binary' else cv2.INTER_AREA)
+                if self.frame_source == 'binary':
+                    image = cv2.copyMakeBorder(image, 0, 110, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0))
                 previous = (image, metadata)
                 if next_tick <= tick:
                     self._write(writer, index, previous, tick)
@@ -183,6 +196,10 @@ class CommandVideo:
             try:
                 manifest = dict(schema='command_video_v2', codec='MJPG', video='camera_commands.avi',
                     frame_index='frames.jsonl', fps=self.fps, dimensions=dimensions,
+                    frame_source=self.frame_source,
+                    detector_debug_key='binary' if self.frame_source == 'binary' else None,
+                    image_source=('detector birdseye final lane candidate mask; white on black; HUD below'
+                                  if self.frame_source == 'binary' else 'original camera BGR; HUD overlay'),
                     command_source='vision publish -> connector; before connector bias/model hold',
                     executed_command_source='policy feedback after model hold/takeovers and serial send; not measured body motion',
                     colour='BGR blue for tracking, red for lost line; STOP has no direction arrow',

@@ -162,6 +162,22 @@ class ButtonAutostartTests(unittest.TestCase):
             args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
             self.assertEqual(args[args.index('--startup-sequence')+1], sequence)
 
+    def test_video_source_defaults_old_configs_to_binary_and_camera_can_restore(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('VIDEO_SOURCE=')) + '\n'
+            for extra, expected in [('', 'binary'), ('VIDEO_SOURCE=camera\n', 'camera')]:
+                (checkout / 'config/button_start.env').write_text(original + extra)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    self.assertEqual(run_policy_vision.parse_args().video_source, expected)
+
     def test_video_defaults_old_config_and_passes_disable_and_size(self):
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary) / 'robot'
