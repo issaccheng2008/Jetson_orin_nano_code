@@ -25,10 +25,10 @@ class ButtonStartTests(unittest.TestCase):
     def test_first_card_walk_time_is_configurable_and_validated(self):
         with patch('sys.argv', ['run_policy_vision.py']):
             self.assertEqual(run_policy_vision.parse_args().startup_first_walk_s, .5)
-        with patch('sys.argv', ['run_policy_vision.py', '--startup-first-walk-s', '.3']):
+        with patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', '--startup-first-walk-s', '.3']):
             self.assertEqual(run_policy_vision.parse_args().startup_first_walk_s, .3)
         for value in ('0', '-1', 'nan', 'inf'):
-            with patch('sys.argv', ['run_policy_vision.py', '--startup-first-walk-s', value]), patch('sys.stderr', io.StringIO()):
+            with patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', '--startup-first-walk-s', value]), patch('sys.stderr', io.StringIO()):
                 with self.assertRaises(SystemExit):
                     run_policy_vision.parse_args()
 
@@ -79,7 +79,7 @@ class ButtonStartTests(unittest.TestCase):
         self.assertEqual(decoded.status_flags, flags)
 
     def test_button_gate_requires_automatic_policy_launch(self):
-        with patch("sys.argv", ["run_policy_vision.py", "--start-gate", "button"]), \
+        with patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--start-gate", "button"]), \
                 redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()):
             with self.assertRaises(SystemExit):
                 run_policy_vision.parse_args()
@@ -179,7 +179,7 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
         if sequence is not None:
             extra += ['--startup-sequence', sequence]
         timed_commands = []
-        with (patch("sys.argv", ["run_policy_vision.py", "--headless", "--start-gate", "button",
+        with (patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--start-gate", "button",
                                 "--start-policy-on-gate", "--shape-every", "1", "--attitude-port", "0", *extra]),
               patch.object(run_policy_vision.signal, "signal"),
               patch.object(run_policy_vision, "ConnectorClient") as client_cls,

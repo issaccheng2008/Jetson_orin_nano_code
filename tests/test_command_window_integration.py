@@ -45,7 +45,7 @@ class WindowPublicationTests(unittest.TestCase):
             return (0., 0.) if i == stop_frame else (.2, wz)
         with (
             tempfile.TemporaryDirectory() as tmp,
-            patch('sys.argv', ['run_policy_vision.py', '--headless', '--no-shape-detect',
+            patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', '--headless', '--no-shape-detect',
                               '--no-record-video', '--attitude-port', '0', '--recording-root', tmp,
                               '--steering-command-median', side]),
             patch.object(run_policy_vision.signal, 'signal'),

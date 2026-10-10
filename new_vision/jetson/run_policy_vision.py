@@ -75,6 +75,8 @@ def parse_args():
                         help='Recorded playback FPS, 1..30; repeats samples by timestamp, not camera processing rate.')
     parser.add_argument('--video-width', type=int, default=960,
                         help='Maximum recorded width, 64..1920; does not change detector resolution.')
+    parser.add_argument('--camera-async', action=argparse.BooleanOptionalAction, default=True,
+                        help='Capture continuously in a worker; process only the latest frame')
     parser.add_argument("--camera", type=int, default=int(os.getenv("CAM_IDX", camera["index"])))
     parser.add_argument("--width", type=int, default=camera["width"])
     parser.add_argument("--height", type=int, default=camera["height"])
@@ -857,6 +859,7 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     client = ConnectorClient(args.connector_host, args.connector_port)
     cap = None
+    camera_reader = None
     try:
         cap = open_camera(args.camera, args.width, args.height)
         if not cap.isOpened():
@@ -1070,7 +1073,7 @@ def main():
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
                                 "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
-                                "line_preprocess.py", "masked_ground.py", "photometric_thresholds.py", "canny_candidates.py"):
+                                "line_preprocess.py", "masked_ground.py", "latest_camera.py", "photometric_thresholds.py", "canny_candidates.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
         if args.line_log_dir:
@@ -1101,6 +1104,10 @@ def main():
         if args.dump_on_loss:
             args.dump_on_loss = _new_dump_run(args.dump_on_loss, run_id, dump_metadata)
             print(f"[vision] run dump: {args.dump_on_loss}", flush=True)
+        if args.camera_async:
+            from latest_camera import LatestCamera
+            camera_reader = LatestCamera(cap).start()
+            print('[camera] async capture; one latest-frame slot; stale frames dropped', flush=True)
         while not stopped:
             now = time.monotonic()
             if (policy_launcher is not None and start_released
@@ -1118,7 +1125,11 @@ def main():
             loop_period_ms = (None if previous_loop_start_ns is None else
                               (loop_start_ns - previous_loop_start_ns) / 1_000_000.0)
             previous_loop_start_ns = loop_start_ns
-            ok, frame = cap.read()
+            capture_metadata = {}
+            if camera_reader is not None:
+                ok, frame, capture_metadata = camera_reader.read()
+            else:
+                ok, frame = cap.read()
             read_return_ns = time.perf_counter_ns()
             camera_read_ms = (read_return_ns - loop_start_ns) / 1_000_000.0
             if not ok:
@@ -1136,6 +1147,7 @@ def main():
             # below has to be judged with the same clock as the window that set it -
             # judging it from the top of the loop ran one frame late.
             processed = time.monotonic()
+            frame_observed_at = capture_metadata.get('camera_capture_started_s', processed)
             # 起跑门控关着 = 车还不许走，它算进 window_open —— 于是释放后的交接
             # 自动走下面这段"窗口关闭"，一行都不用另写。
             stop_window = processed < stop_until or processed < card_until
@@ -1286,9 +1298,9 @@ def main():
                         print(f"[shape] STM32 re-pose DONE event={tilt_event_id}; "
                               f"wait {args.card_settle_ms:.0f}ms before voting", flush=True)
             if card_wait_for_tilt_done:
-                tilting = card_vote_ready_at == 0.0 or processed < card_vote_ready_at
+                tilting = card_vote_ready_at == 0.0 or frame_observed_at < card_vote_ready_at
             else:
-                tilting = processed < tilt_until
+                tilting = frame_observed_at < tilt_until
             # 每帧清空：下面投票那段在检测块外面，读到上一帧的 card_dbg 就会拿同一次
             # 检测投两次票（--card-every-stopped 2 时票数正好翻倍）。
             card_dbg = None
@@ -1678,6 +1690,9 @@ def main():
                            **event)
             udp_publish_ms = (time.perf_counter_ns() - udp_publish_start_ns) / 1_000_000.0
             command_host_time_ns = time.time_ns()
+            if capture_metadata:
+                capture_metadata['camera_return_to_publish_ms'] = (
+                    time.monotonic()-capture_metadata['camera_capture_returned_s'])*1000
             read_to_publish_ms = (time.perf_counter_ns() - read_return_ns) / 1_000_000.0
             recording_submit_ms = None
             if command_video is not None:
@@ -1710,6 +1725,7 @@ def main():
                 line_log.write(
                     telemetry_debug, frame=frames, host_time_ns=command_host_time_ns,
                     process_monotonic_s=processed, confidence=confidence,
+                    camera_async=args.camera_async, **capture_metadata,
                     loop_period_ms=loop_period_ms, camera_read_ms=camera_read_ms,
                     line_process_ms=line_process_ms, qr_decode_ms=qr_decode_ms,
                     shape_update_ms=shape_update_ms, decision_ms=decision_ms,
@@ -1855,7 +1871,10 @@ def main():
                 policy_launcher.close()
             if attitude is not None:
                 attitude.close()
-            if cap is not None:
+            if camera_reader is not None:
+                if not camera_reader.close():
+                    print('[camera] capture read still blocked; worker will release on return', flush=True)
+            elif cap is not None:
                 cap.release()
             if not args.headless:
                 cv2.destroyAllWindows()

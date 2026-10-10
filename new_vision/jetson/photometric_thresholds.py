@@ -8,6 +8,7 @@ ground ROI as the archived video comparison.
 """
 from dataclasses import dataclass
 import numpy as np
+import cv2
 
 # Equal weight per valid sampled frame, four September 19 raw videos, 43 frames.
 GRAY_REFERENCE = (152.5821277006173, 20.665240198035168)
@@ -48,7 +49,8 @@ class Photometry:
             levels = np.arange(256, dtype=np.float32)
             lut = np.clip(np.rint((levels - self.mean) * self.match_scale
                                   + self.reference_mean), 0, 255).astype(np.uint8)
-            return lut[image]
+            return (cv2.LUT(image, lut).reshape(image.shape) if image.ndim in (2, 3)
+                    else lut[image])
         matched = ((image.astype(np.float32) - self.mean) * self.match_scale
                    + self.reference_mean)
         if np.issubdtype(image.dtype, np.integer):
@@ -83,3 +85,11 @@ def measure(gray, mode="normalize", reference=GRAY_REFERENCE):
     roi = gray[int(.35*height):max(int(.35*height)+1, int(.75*height)),
                int(.25*width):max(int(.25*width)+1, int(.75*width))]
     return Photometry(float(roi.mean()), float(roi.std()), *reference, mode)
+
+
+def max_channel(image):
+    """Exact uint8 BGR channel maximum using compiled, vectorized OpenCV kernels."""
+    if image.dtype == np.uint8 and image.ndim == 3 and image.shape[2] == 3:
+        b, g, r = cv2.split(image)
+        return cv2.max(cv2.max(b, g), r)
+    return np.max(image, axis=2)

@@ -20,12 +20,12 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_video_receives_actual_feedback_instead_of_visual_command(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(actual_feedback=True)
     def test_camera_options_validate_before_hardware(self):
-        with patch('sys.argv',['run_policy_vision.py','--camera-exposure-mode','manual',
+        with patch('sys.argv',['run_policy_vision.py', '--no-camera-async','--camera-exposure-mode','manual',
                                '--camera-exposure-ms','5','--camera-sharpness','3']):
             args=run_policy_vision.parse_args()
         self.assertEqual(args.camera_exposure_ms,5)
         self.assertEqual(args.camera_sharpness,3)
-        with patch('sys.argv',['run_policy_vision.py','--camera-exposure-ms','5']), contextlib.redirect_stderr(io.StringIO()):
+        with patch('sys.argv',['run_policy_vision.py', '--no-camera-async','--camera-exposure-ms','5']), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 run_policy_vision.parse_args()
 
@@ -33,7 +33,7 @@ class HeadingIntegrationTests(unittest.TestCase):
         self.test_default_entrypoint_held_levels_and_auditable_log(camera_settings=True)
 
     def test_filter_and_policy_hold_interfaces_validate_without_hardware(self):
-        argv = ['run_policy_vision.py', '--command-min-hold-s', '.23',
+        argv = ['run_policy_vision.py', '--no-camera-async', '--command-min-hold-s', '.23',
                 '--steering-filter-mode', 'active', '--steering-filter-algorithm', 'ema']
         with patch('sys.argv', argv):
             args = run_policy_vision.parse_args()
@@ -41,30 +41,30 @@ class HeadingIntegrationTests(unittest.TestCase):
         self.assertEqual(args.steering_filter_algorithm, 'ema')
         for extra in (['--command-min-hold-s', 'nan'], ['--steering-filter-beta', '-1'],
                       ['--steering-filter-min-hz', '0'], ['--steering-exit-deg', '3']):
-            with patch('sys.argv', ['run_policy_vision.py', *extra]), contextlib.redirect_stderr(io.StringIO()):
+            with patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', *extra]), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     run_policy_vision.parse_args()
 
     def test_video_arguments_validate_without_hardware(self):
-        with patch('sys.argv', ['run_policy_vision.py', '--no-record-video', '--video-fps', '8', '--video-width', '640']):
+        with patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', '--no-record-video', '--video-fps', '8', '--video-width', '640']):
             args = run_policy_vision.parse_args()
         self.assertFalse(args.record_video)
         self.assertEqual(args.video_fps, 8)
         self.assertEqual(args.video_width, 640)
         for extra in (['--video-fps', 'nan'], ['--video-fps', '0'], ['--video-width', '0']):
-            with patch('sys.argv', ['run_policy_vision.py', *extra]), contextlib.redirect_stderr(io.StringIO()):
+            with patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', *extra]), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     run_policy_vision.parse_args()
 
     def test_heading_rejects_amplitude_that_connector_would_clip(self):
-        with patch("sys.argv", ["run_policy_vision.py", "--max-wz", "1", "--wz-step", ".6"]), contextlib.redirect_stderr(io.StringIO()):
+        with patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--max-wz", "1", "--wz-step", ".6"]), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 run_policy_vision.parse_args()
 
     def test_heading_requires_usable_corridor_and_recovery_caps(self):
         for extra in (("--heading-corridor-cm", "0"), ("--heading-corridor-cm", "nan"),
                       ("--max-wz-right", ".2"), ("--wz-step", ".3")):
-            with self.subTest(extra=extra), patch("sys.argv", ["run_policy_vision.py", *extra]), contextlib.redirect_stderr(io.StringIO()):
+            with self.subTest(extra=extra), patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", *extra]), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     run_policy_vision.parse_args()
 
@@ -144,7 +144,7 @@ class HeadingIntegrationTests(unittest.TestCase):
         camera_report = dict(status='applied' if camera_settings else 'unchanged',settings=[])
         with (
             tempfile.TemporaryDirectory() as tmp,
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--no-shape-detect",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--no-shape-detect",
                                '--steering-filter-mode', filter_mode,
                                '--steering-filter-algorithm', 'one-euro',
                                '--record-video' if record_video else '--no-record-video',

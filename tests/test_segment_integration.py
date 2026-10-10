@@ -45,7 +45,7 @@ class SegmentIntegrationTests(unittest.TestCase):
             real_client = ConnectorClient(port=receiver.getsockname()[1])
             with (
                 tempfile.TemporaryDirectory() as tmp,
-                patch('sys.argv', ['run_policy_vision.py', '--wz-mode', 'segments',
+                patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', '--wz-mode', 'segments',
                     '--headless', '--no-shape-detect', '--attitude-port', '0',
                     '--line-log-dir', tmp]),
                 patch.object(run_policy_vision.signal, 'signal'),
@@ -90,7 +90,7 @@ class SegmentIntegrationTests(unittest.TestCase):
         for extra in (('--max-wz', '1', '--wz-step', '.6'),
                       ('--heading-corridor-cm', '0'), ('--max-wz-right', '.2')):
             with self.subTest(extra=extra), patch('sys.argv',
-                    ['run_policy_vision.py', '--wz-mode', 'segments', *extra]), \
+                    ['run_policy_vision.py', '--no-camera-async', '--wz-mode', 'segments', *extra]), \
                     contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     run_policy_vision.parse_args()
@@ -114,7 +114,7 @@ class SegmentIntegrationTests(unittest.TestCase):
         detector.process.side_effect = lambda *a, **kw: (0, 0, 1., None, detection(bend))
         with (
             tempfile.TemporaryDirectory() as tmp,
-            patch('sys.argv', ['run_policy_vision.py', '--wz-mode', 'segments',
+            patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', '--wz-mode', 'segments',
                 '--hold-still', '--headless', '--no-shape-detect', '--attitude-port', '0',
                 '--line-log-dir', tmp]),
             patch.object(run_policy_vision.signal, 'signal'),

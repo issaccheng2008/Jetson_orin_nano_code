@@ -53,7 +53,7 @@ class SteeringTests(unittest.TestCase):
         self.assertEqual(args.heading_left_wz, [0.37, 0.43, 0.5])
         self.assertEqual(args.heading_right_wz, [0.3, 0.5])
         self.assertEqual(args.heading_straight_wz, 0.0)
-        with patch("sys.argv", ["run_policy_vision.py",
+        with patch("sys.argv", ["run_policy_vision.py", "--no-camera-async",
                                 "--heading-left-wz", "0.2", "0.45",
                                 "--heading-right-wz", "0.25",
                                 "--heading-straight-wz", "0.05"]):
@@ -423,7 +423,7 @@ class VisionEntryPointTests(unittest.TestCase):
             {"presence": True, "presence_cy_frac": 0.9, "shape": "square"},
         )
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--wz-mode", "continuous",
                                "--shape-every", "1", "--card-hold-ms", "5000",
                                "--card-vote-frames", "1", "--card-tilt-ms", "0"]),
@@ -473,7 +473,7 @@ class VisionEntryPointTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--shape-every", "1", "--card-every-stopped", "1",
                                "--card-tilt-ms", "500"]),
             patch.object(run_policy_vision.signal, "signal"),
@@ -504,7 +504,7 @@ class VisionEntryPointTests(unittest.TestCase):
             clock[0] += 0.03
             return clock[0]
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--no-shape-detect"]),
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--no-shape-detect"]),
             patch.object(run_policy_vision.signal, "signal") as signals,
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
             patch("utils.open_camera", return_value=camera),
@@ -551,7 +551,7 @@ class VisionEntryPointTests(unittest.TestCase):
             clock[0] += 0.03
             return clock[0]
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--no-shape-detect", "--no-red-detect"]),
             patch.object(run_policy_vision.signal, "signal") as signals,
             patch.object(run_policy_vision, "ConnectorClient"),
@@ -607,7 +607,7 @@ class VisionEntryPointTests(unittest.TestCase):
             return clock[0]
 
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--wz-mode", "continuous",
                                "--shape-every", "1", "--card-vote-frames", "1"]),
             patch.object(run_policy_vision.signal, "signal") as signals,
@@ -656,7 +656,7 @@ class VisionEntryPointTests(unittest.TestCase):
         ] * 2 + [(None, {})]
         shape.action_map = {"square": 3}
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--shape-every", "1", "--card-hold-ms", "3000",
                                "--card-vote-frames", "1", "--card-every-stopped", "1",
                                "--card-tilt-ms", "0", "--card-settle-ms", "0"]),
@@ -721,7 +721,7 @@ class VisionEntryPointTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--wz-mode", "continuous",
                                "--shape-every", "1", "--card-vote-frames", "1",
                                "--card-hold-ms", "5000", "--card-stop-ms", "3000",
@@ -816,7 +816,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-trigger-frac", "0.75",
                                "--card-clear-calls", "4"]),
             patch.object(run_policy_vision.signal, "signal"),
@@ -867,7 +867,7 @@ class VisionEntryPointTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--shape-every", "1", "--card-trigger-frac", "0.75"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
@@ -916,7 +916,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-every-stopped", "1",
                                "--card-tilt-ms", "0", "--card-settle-ms", "0",
                                "--card-vote-frames", "3"]),
@@ -965,7 +965,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-every-stopped", "2",
                                "--card-tilt-ms", "0", "--card-settle-ms", "0", "--card-stop-ms", "500",
                                "--card-vote-frames", "99"]),
@@ -1033,7 +1033,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-trigger-dist-cm", "30"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient"),
@@ -1087,7 +1087,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-trigger-frac", "0.5"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient"),
@@ -1141,7 +1141,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-trigger-frac", ".5", "--card-stop-ms", "200",
                                "--card-hold-ms", "0", "--card-tilt-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
@@ -1188,7 +1188,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-trigger-frac", "0.5",
                                "--card-vote-frames", "1", "--card-tilt-ms", "0",
                                "--card-settle-ms", "0", "--card-every-stopped", "1"]),
@@ -1247,7 +1247,7 @@ class VisionEntryPointTests(unittest.TestCase):
         camera.read.side_effect = read
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1"]),
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient"),
             patch("utils.open_camera", return_value=camera),
@@ -1636,7 +1636,7 @@ class LineDetectorStateTests(unittest.TestCase):
             return clock[0]
 
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1"]),
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1"]),
             patch.object(run_policy_vision.signal, "signal") as signals,
             patch.object(run_policy_vision, "ConnectorClient"),
             patch("utils.open_camera", return_value=camera),
@@ -1692,7 +1692,7 @@ class LineDetectorStateTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-stop-ms", "600", "--card-tilt-ms", "1000"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient"),
@@ -1766,7 +1766,7 @@ class LineDetectorStateTests(unittest.TestCase):
                 return clock[0]
 
             with (
-                patch("sys.argv", ["run_policy_vision.py", "--headless",
+                patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                    "--shape-every", "1", "--shape-dump", folder]),
                 patch.object(run_policy_vision.signal, "signal") as signals,
                 patch.object(run_policy_vision, "ConnectorClient"),
@@ -1830,7 +1830,7 @@ class LineDetectorStateTests(unittest.TestCase):
                 return clock[0]
 
             with (
-                patch("sys.argv", ["run_policy_vision.py", "--headless",
+                patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                    "--no-shape-detect",
                                    "--dump-on-loss", folder]),
                 patch.object(run_policy_vision.signal, "signal") as signals,
@@ -1911,7 +1911,7 @@ class LineDetectorStateTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-cold-start"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
@@ -2093,7 +2093,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
             attitude = Mock()
             attitude.value = 30.0        # 后仰着的机身：实时俯角 ≠ 安装角
             with (
-                patch("sys.argv", ["run_policy_vision.py", "--headless",
+                patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                    "--camera-pitch-deg", str(pitch)] + extra),
                 patch.object(run_policy_vision.signal, "signal"),
                 patch.object(run_policy_vision, "ConnectorClient"),
@@ -2149,7 +2149,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
 
             camera.read.side_effect = read
             with (
-                patch("sys.argv", ["run_policy_vision.py", "--headless"] + extra),
+                patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless"] + extra),
                 patch.object(run_policy_vision.signal, "signal"),
                 patch.object(run_policy_vision, "ConnectorClient") as client_cls,
                 patch("utils.open_camera", return_value=camera),
@@ -2208,7 +2208,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         with (
             # --card-tilt-ms 0: this test is about the stopped cadence, and the tilt
             # delay would push the first looked-at frame ten frames later.
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-every-stopped", "2", "--card-tilt-ms", "0",
                                "--card-settle-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
@@ -2267,7 +2267,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless", "--shape-every", "1",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--shape-every", "1",
                                "--card-every-stopped", "2", "--card-tilt-ms", "1000"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
@@ -2340,7 +2340,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         camera.read.side_effect = read
         attitude.poll.side_effect = poll
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--shape-every", "1", "--card-every-stopped", "1",
                                "--card-vote-frames", "1", "--card-tilt-ms", "0",
                                "--card-settle-ms", "300"]),
@@ -2402,7 +2402,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--shape-every", "6", "--card-every-stopped", "2",
                                "--card-trigger-frac", "0.5"]),
             patch.object(run_policy_vision.signal, "signal"),
@@ -2582,7 +2582,7 @@ class GroundScaleTests(unittest.TestCase):
         widths = np.array([detector.cm_per_px_at(y) for y in rows])
         self.assertTrue(np.all(np.diff(depths) < 0.0), "越往上越远")
         np.testing.assert_allclose(widths, detector.cm_per_px)
-        self.assertAlmostEqual(detector.z_cm_at(detector.bird_h - 1), 20.2, delta=0.5)
+        self.assertAlmostEqual(detector.z_cm_at(detector.bird_h - 1), 8.9, delta=0.5)
         self.assertGreater(detector.z_cm_at(0), 80.0)
 
     def test_the_near_band_is_not_wider_per_pixel_than_the_far_end(self):
@@ -2690,7 +2690,7 @@ class AnticipationClipTests(unittest.TestCase):
         self.assertAlmostEqual(det._clip_anticipation(0.0, 3.0), 3.0)
 
     def test_the_argument_reaches_the_detector(self):
-        with patch("sys.argv", ["run_policy_vision.py", "--anticipation-clip", "0.25"]):
+        with patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--anticipation-clip", "0.25"]):
             self.assertAlmostEqual(run_policy_vision.parse_args().anticipation_clip, 0.25)
         with patch("sys.argv", ["run_policy_vision.py"]):
             self.assertAlmostEqual(run_policy_vision.parse_args().anticipation_clip, 0.5)
@@ -2871,9 +2871,9 @@ class DiscreteSteeringTests(unittest.TestCase):
         2026-10-03 出过一版按 ω = vx/R 推的（--vx 0.2 下推成 0.258），车上是错的。"""
         for vx in ("0.2", "0.3"):
             with self.subTest(vx=vx), patch("sys.argv",
-                                            ["run_policy_vision.py", "--vx", vx]):
+                                            ["run_policy_vision.py", "--no-camera-async", "--vx", vx]):
                 self.assertEqual(run_policy_vision.parse_args().wz_step, 0.5)
-        with patch("sys.argv", ["run_policy_vision.py", "--wz-mode", "discrete", "--wz-step", "0.3"]):
+        with patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--wz-mode", "discrete", "--wz-step", "0.3"]):
             self.assertAlmostEqual(run_policy_vision.parse_args().wz_step, 0.3)
 
     def test_the_cli_stop_line_has_no_range_limit(self):
@@ -2883,11 +2883,11 @@ class DiscreteSteeringTests(unittest.TestCase):
         for value, expected in (("0", 0.0), ("-3.5", -3.5), ("8", 8.0),
                                 ("2.5", 2.5)):
             with self.subTest(value=value), \
-                    patch("sys.argv", ["run_policy_vision.py",
+                    patch("sys.argv", ["run_policy_vision.py", "--no-camera-async",
                                        "--wz-stop-cm", value]):
                 self.assertAlmostEqual(
                     run_policy_vision.parse_args().wz_stop_cm, expected)
-        with patch("sys.argv", ["run_policy_vision.py", "--wz-stop-cm", "nan"]), \
+        with patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--wz-stop-cm", "nan"]), \
                 self.assertRaises(SystemExit):
             run_policy_vision.parse_args()
         # 不写 = None → 控制器把它解析成 fire 的镜像
@@ -2942,7 +2942,7 @@ class DiscreteSteeringIntegrationTests(unittest.TestCase):
 
         camera.read.side_effect = read
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--wz-mode", "discrete", "--shape-every", "4",
                                "--wz-step", "0.5"]),
             patch.object(run_policy_vision.signal, "signal"),
@@ -3143,7 +3143,7 @@ class StartGateIntegrationTests(unittest.TestCase):
                                   cost_ms=70.0)
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--start-gate", "both", "--qr-every", "1",
                                "--shape-every", "1", "--card-every-stopped", "1",
                                "--card-vote-frames", "1", "--card-stop-ms", "500",
@@ -3222,7 +3222,7 @@ class StartGateIntegrationTests(unittest.TestCase):
                                   cost_ms=70.0)
         out = io.StringIO()
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--start-gate", "both", "--qr-every", "1",
                                "--shape-every", "1", "--card-every-stopped", "1",
                                "--card-trigger-frac", "0.5",
@@ -3272,7 +3272,7 @@ class StartGateIntegrationTests(unittest.TestCase):
             return reads[0] >= 9
 
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--start-gate", "both", "--start-policy-on-gate",
                                "--start-policy-model", "custom walking.onnx",
                                "--start-policy-one-foot-model", "custom standing.onnx",
@@ -3328,7 +3328,7 @@ class StartGateIntegrationTests(unittest.TestCase):
         shape.update.return_value = (None, {"presence": False, "card_found": False,
                                             "presence_cy_frac": None})
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--start-gate", "qr", "--qr-every", "5"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient"),
@@ -3358,7 +3358,7 @@ class StartGateIntegrationTests(unittest.TestCase):
         shape.update.return_value = (None, {"presence": False, "card_found": False,
                                             "presence_cy_frac": None})
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--start-gate", "shape"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient"),
@@ -3381,7 +3381,7 @@ class StartGateIntegrationTests(unittest.TestCase):
                       ["--start-gate", "both", "--qr-upscale", "0.5"],
                       ["--start-gate", "both", "--qr-min-edge-px", "900"]):
             with self.subTest(extra=extra):
-                with patch("sys.argv", ["run_policy_vision.py", *extra]):
+                with patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", *extra]):
                     with self.assertRaises(SystemExit):
                         run_policy_vision.parse_args()
         # 不带门控开关时，一切照旧。

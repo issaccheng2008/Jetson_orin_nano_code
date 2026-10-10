@@ -17,7 +17,7 @@ from copy import deepcopy
 
 from utils import clamp
 from line_preprocess import extract_lane_candidates, sampled_otsu_threshold
-from photometric_thresholds import measure, MAX_CHANNEL_REFERENCE
+from photometric_thresholds import max_channel, measure, MAX_CHANNEL_REFERENCE
 from continuous_lane_heading import HeadingScanConfig, trace_heading
 
 
@@ -1879,7 +1879,7 @@ class LineDetector:
 
         # Match the current camera frame to the archived auto-exposure moments
         # before the unchanged IPM, thresholding, and color-detection pipeline.
-        self._photometry = measure(np.max(bgr, axis=2), self.photometric_mode,
+        self._photometry = measure(max_channel(bgr), self.photometric_mode,
                                    MAX_CHANNEL_REFERENCE)
         bgr = self._photometry.match_image(bgr)
 
@@ -1888,10 +1888,9 @@ class LineDetector:
         # Unobserved ground stays black for display, and has ZERO weight in processing.
         valid = self.ground_valid_mask
         bgr_bird[~valid] = 0
-        # Custom grayscale on birdseye: max of max(R,G,B) and standard grayscale
-        gray_max = np.max(bgr_bird, axis=2)
-        gray_std = cv2.cvtColor(bgr_bird, cv2.COLOR_BGR2GRAY)
-        gray = np.maximum(gray_max, gray_std)
+        # A nonnegative weighted uint8 grayscale cannot exceed max(B,G,R).
+        # Keep the original max-channel semantics without computing it twice.
+        gray = max_channel(bgr_bird)
         img_w = self.bird_w
         img_h = self.bird_h
         img_cx = self.center_x
