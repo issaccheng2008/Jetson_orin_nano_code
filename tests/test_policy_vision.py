@@ -3310,7 +3310,8 @@ class StartGateIntegrationTests(unittest.TestCase):
 
         launcher_cls.assert_called_once_with(
             "custom walking.onnx", "/dev/ttyACM0", 1200.0,
-            policy_python=None, one_foot_model="custom standing.onnx", command_min_hold_s=.23)
+            # Vision median window owns timing; the launched policy must not add another hold.
+            policy_python=None, one_foot_model="custom standing.onnx", command_min_hold_s=0.)
         launcher.start.assert_called_once()
         launcher.close.assert_called_once()
         published = client_cls.return_value.publish.call_args_list

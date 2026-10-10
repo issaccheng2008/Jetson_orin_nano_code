@@ -44,6 +44,26 @@ class ButtonAutostartTests(unittest.TestCase):
             self.assertEqual(args.heading_regions_cm, ((24,26),(28,30)))
             self.assertEqual(args.steering_angle_wz_table[1][2], -.1)
 
+    def test_median_window_and_loss_fallback_config_reach_real_parser(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('STEERING_COMMAND_', 'STEERING_LOSS_FALLBACK_WZ='))) + '\n'
+            for extra, expected in [('', (.5, 'lower', .3)),
+                    ('STEERING_COMMAND_WINDOW_S=0.7\nSTEERING_COMMAND_MEDIAN=upper\nSTEERING_LOSS_FALLBACK_WZ=-0.25\n',
+                     (.7, 'upper', -.25))]:
+                (checkout / 'config/button_start.env').write_text(original + extra)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    args = run_policy_vision.parse_args()
+                self.assertEqual((args.steering_command_window_s, args.steering_command_median,
+                                  args.steering_loss_fallback_wz), expected)
+
     def test_heading_far_distance_default_and_configured_value_reach_cli(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision

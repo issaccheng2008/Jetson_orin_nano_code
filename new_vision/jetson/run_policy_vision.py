@@ -26,6 +26,8 @@ import numpy as np
 from camera_config import load as load_camera
 from policy_bridge import ConnectorClient, SteeringController
 from line_telemetry import LineTelemetry
+from command_video import line_lost
+from steering_command_window import SteeringCommandWindow, effective_policy_hold
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
 CARD_NAMES_ZH = {
@@ -193,8 +195,8 @@ def parse_args():
                         help='Optional JSON array of duration_s/vx/wz steps before first card action; '
                              'overrides startup-first-walk-s; empty uses a single straight step.')
     parser.add_argument('--command-min-hold-s', type=float, default=0.0,
-                        help='Minimum actual walking command duration in launched policy; '
-                             '0 disables, 0.5 restores original duration; vision adds no second hold')
+                        help='Legacy minimum walking command duration in launched policy; '
+                             'used only when steering-command-window-s is 0; median window disables it')
     parser.add_argument("--qr-every", type=int, default=5,
                         help="Decode a QR every N frames while the first valve is "
                              "still waiting. The decoder is CPU-only and costs tens "
@@ -508,7 +510,13 @@ def parse_args():
     add_arguments(parser)
     from steering_recovery import add_arguments as add_recovery_arguments, config_from_args as recovery_from_args
     add_recovery_arguments(parser)
+    from steering_command_window import add_arguments as add_window_arguments
+    add_window_arguments(parser)
     args = parser.parse_args()
+    try:
+        SteeringCommandWindow(args.steering_command_window_s, args.steering_command_median)
+    except ValueError as exc:
+        parser.error(str(exc))
     if not math.isfinite(args.line_adaptive_c):
         parser.error("--line-adaptive-c must be finite")
     from steering_config import validate_heading_regions
@@ -800,6 +808,7 @@ def main():
                                  max_edge_px=args.qr_max_edge_px,
                                  upscale=args.qr_upscale,
                                  max_side=args.qr_max_side)
+    command_window = SteeringCommandWindow(args.steering_command_window_s, args.steering_command_median)
     policy_launcher = startup_button_link = None
     if args.start_policy_on_gate:
         from policy_gate_launcher import PolicyGateLauncher
@@ -808,7 +817,7 @@ def main():
                                              args.start_policy_max_seconds,
                                              policy_python=args.start_policy_python,
                                              one_foot_model=args.start_policy_one_foot_model,
-                                             command_min_hold_s=args.command_min_hold_s,
+                                             command_min_hold_s=effective_policy_hold(args),
                                              **({'recording_directory': recording_directory}
                                                 if recording_directory is not None else {}))
     if args.start_gate == "button":
@@ -904,7 +913,7 @@ def main():
                   f'beta={args.steering_filter_beta:g}; '
                   f'hysteresis={args.steering_hysteresis_deg:g}deg; '
                   f'entry/exit={args.steering_enter_deg:g}/{args.steering_exit_deg:g}deg; '
-                  f'model_min_hold={args.command_min_hold_s:g}s (launched policy only)', flush=True)
+                  f'model_min_hold={effective_policy_hold(args):g}s (launched policy only)', flush=True)
             if args.steering_filter_algorithm == 'robust':
                 print(f'[steering-filter] robust tau={args.steering_filter_robust_tau_s:g}s; '
                       f'window={args.steering_filter_robust_window_s:g}s; '
@@ -914,7 +923,7 @@ def main():
                   f'qualified_segment_fallback={args.steering_segment_fallback}',flush=True)
             if args.steering_loss_mode != 'legacy':
                 print('[steering-loss] 丢线保持前进；无近期转向或沿用到期后，'
-                      '按左转0.3寻找赛道（服从 yaw-sign 和左转幅值上限）。'
+                      f'使用备用 WZ={args.steering_loss_fallback_wz:+g}（服从 yaw-sign 和方向幅值上限）。'
                       '起步闸、图卡停车和人工停止仍优先。', flush=True)
             left_text = "、".join(f"+{v:g}" for v in controller.left_levels)
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
@@ -925,7 +934,8 @@ def main():
             if args.heading_regions_cm is not None:
                 print(f'[heading-regions] {json.dumps(args.heading_regions_cm)} cm; '
                       'eight rows per region; centre settings overridden', flush=True)
-            print(f"[wz] 视觉逐帧选档；模型入口最短保持可调（自动启动值 {args.command_min_hold_s:g}s）；"
+            print(f"[wz] 视觉逐帧选档；窗口 {args.steering_command_window_s:g}s，"
+                  f"中位数 {args.steering_command_median}；自动启动模型保持 {effective_policy_hold(args):g}s；"
                   f"近端观测中心 {args.heading_near_cm if args.heading_near_cm is not None else 25.07:g}cm，"
                   f"远端观测中心 {args.heading_far_cm:g}cm，"
                   f"前视 {args.heading_lookahead_cm:g}cm，目标方位容忍区 "
@@ -1056,7 +1066,7 @@ def main():
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
-                                "steering_filter.py", "steering_recovery.py", "startup_sequence.py", "camera_controls.py",
+                                "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
                                 "line_preprocess.py", "photometric_thresholds.py", "canny_candidates.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
@@ -1065,7 +1075,7 @@ def main():
             print(f"[vision] per-frame log: {line_log.path}", flush=True)
         if recording_directory is not None and args.record_video:
             try:
-                from command_video import CommandVideo, line_lost
+                from command_video import CommandVideo
                 command_video = CommandVideo(recording_directory/'video', fps=args.video_fps,
                                              width=args.video_width, max_wz=args.max_wz)
                 print(f'[video] camera + vision sent commands: {recording_directory / "video"}; '
@@ -1623,6 +1633,18 @@ def main():
                                  segment_shadow_vx=0.0, segment_shadow_wz=0.0,
                                  segment_shadow_reason="external_stop",
                                  segment_gate_reason="external_stop", segment_confirm_frames=0)
+            debug['steering_frame_wz'] = wz
+            if in_card_window or gate_window_open or args.hold_still or startup_first_card_pending:
+                # Stops and explicit startup/card actions own the command now.
+                command_window.reset()
+                debug['steering_window_reason'] = 'external_bypass'
+            else:
+                vx, wz = command_window.update(vx, wz, processed,
+                                                valid=not line_lost(debug, confidence))
+                debug.update(command_window.diagnostics)
+            debug['steering_applied_wz'] = wz
+            if args.wz_mode == 'segments':
+                debug['segment_applied_wz'] = wz
             last_cmd_vx = vx
             # 门控期间按住直立：策略自己的站姿后仰约 20°，而相机 45° 是在直立时
             # 标定的，几何闸只认 38.6~59° —— 不扳直，阀2 会把每一张卡都拒掉，机器人

@@ -348,7 +348,10 @@ class HeadingSteeringController:
             if self._turn_history is not None:
                 pair, reason = self._turn_history.command(
                     self._clock, self._loss_s, self._command,
-                    walking_vx=self.inner.vx, left_wz=min(.3, self._cap(+1))*self.yaw_sign)
+                    walking_vx=self.inner.vx, left_wz=math.copysign(
+                        min(abs(self._turn_history.config.fallback_wz),
+                            self._cap(1 if self._turn_history.config.fallback_wz >= 0 else -1)),
+                        self._turn_history.config.fallback_wz)*self.yaw_sign)
                 if pair == (0., 0.):
                     self._stop(reason)
                 else:
