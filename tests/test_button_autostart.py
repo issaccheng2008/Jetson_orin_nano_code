@@ -212,6 +212,28 @@ class ButtonAutostartTests(unittest.TestCase):
                     self.assertEqual(args[args.index('--steering-loss-max-s')+1], '0.6')
                     self.assertIn('--no-steering-segment-fallback',args)
 
+    def test_lift_pitch_scale_from_nano_config_reaches_policy_python(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot with spaces'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('SHAPE_LIFT_PITCH_SCALE=')) + '\n'
+            code = ('import sys; sys.path.insert(0, sys.argv[1]); '
+                    'import config; print(config.SHAPE_LIFT_PITCH_SCALE)')
+            for setting, expected in (('', '0.9'), ('SHAPE_LIFT_PITCH_SCALE=0.8\n', '0.8'),
+                                      ('SHAPE_LIFT_PITCH_SCALE=1.0\n', '1.0')):
+                with self.subTest(setting=setting):
+                    (checkout / 'config/button_start.env').write_text(original + setting)
+                    result = self.run_bash('-c',
+                        'source scripts/button_autostart_common.sh; load_button_config; '
+                        'exec "$1" -B -c "$2" "$3"', 'test',
+                        Path(sys.executable).as_posix(), code,
+                        (REPO / 'humanoid_jetson_deploy').as_posix(), cwd=checkout)
+                    self.assertEqual(result.strip(), expected)
+
     def run_bash(self, *args, cwd):
         return subprocess.run([BASH, *args], cwd=cwd, text=True,
                               capture_output=True, check=True).stdout

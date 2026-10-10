@@ -17,6 +17,7 @@ load_button_config() {
     PHOTOMETRIC_MODE=legacy
     LOST_HOLD_S=0.2
     WZ_BIAS=0
+    SHAPE_LIFT_PITCH_SCALE=0.9
     COMMAND_MIN_HOLD_S=0
     STEERING_COMMAND_WINDOW_S=0.5
     STEERING_COMMAND_MEDIAN=lower
@@ -75,6 +76,8 @@ load_button_config() {
         printf 'REPO_DIR, both Python paths, and RECORDS_DIR must be absolute paths.\n' >&2
         return 1
     }
+    # Inherited by vision and the Nano policy it launches.
+    export SHAPE_LIFT_PITCH_SCALE
     export PYTHONUNBUFFERED=1
 }
 

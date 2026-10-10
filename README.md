@@ -100,6 +100,17 @@ Add `--one-foot-model humanoid_jetson_deploy/policy-one-foot-standing.onnx` to
 the walking vision command to enable shape actions. Bar crossing remains outside
 this integration.
 
+For vision cards 3/4, set `SHAPE_LIFT_PITCH_SCALE=0.9` in the Nano's
+`config/button_start.env` to scale both legs' leg pitch and ankle pitch target
+angles during the lift phase. The button startup wrapper exports this setting to
+vision and its child policy process; existing configs without it default to 0.9.
+Change this value and restart vision/policy to adjust the amplitude;
+`1.0` uses the original targets. Scaling is applied once to each fresh model
+target before safety limits, after selecting the physical support side. Recovery
+and subsequent walking immediately use unscaled targets; the existing target
+speed and position limits still govern the movement. Other joints and standalone
+one-foot runs are unchanged.
+
 ## Tests
 
 ```bash
