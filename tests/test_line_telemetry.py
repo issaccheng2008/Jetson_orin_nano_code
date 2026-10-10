@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import math
 import sys
 import tempfile
 import unittest
@@ -27,3 +28,14 @@ class LineTelemetryTests(unittest.TestCase):
             try:
                 with self.assertRaises(TypeError): writer.write({}, frame=[1,2])
             finally: writer.close()
+
+    def test_write_cost_is_attached_to_the_following_row(self):
+        with tempfile.TemporaryDirectory() as folder:
+            writer=LineTelemetry(folder)
+            writer.write({}, frame=1)
+            writer.write({}, frame=2)
+            writer.close()
+            rows=[json.loads(line) for line in writer.path.read_text().splitlines()]
+            self.assertIsNone(rows[0]['telemetry_prev_write_ms'])
+            self.assertTrue(math.isfinite(rows[1]['telemetry_prev_write_ms']))
+            self.assertGreaterEqual(rows[1]['telemetry_prev_write_ms'],0.0)
