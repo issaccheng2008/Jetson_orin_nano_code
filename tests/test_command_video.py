@@ -15,6 +15,69 @@ from command_video import CommandVideo, draw_command, line_lost
 
 
 class CommandVideoTests(unittest.TestCase):
+    def test_bird_pair_preserves_colour_mask_and_existing_footer(self):
+        colour = np.full((400,320,3), (30,100,220), np.uint8)
+        mask = np.zeros((400,320), np.uint8)
+        mask[:,100:115] = 255
+        source_colour, source_mask = colour.copy(), mask.copy()
+        writer = Mock()
+        writer.isOpened.return_value = True
+        feedback = dict(velocity=[.2,0.,-.5], enabled=True, send_result='written',
+                        policy_mode='walking49', monotonic_s=1., step=1)
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.cv2.VideoWriter', return_value=writer) as factory:
+            recorder = CommandVideo(Path(tmp), frame_source='bird_pair')
+            recorder.submit((colour,mask), frame_id=1, host_time_ns=1, monotonic_s=1.,
+                            vx=.2, wz=.3, lost=False, executed=feedback)
+            recorder.close()
+            manifest = json.loads((Path(tmp)/'manifest.json').read_text())
+        self.assertIsNone(recorder.error)
+        self.assertEqual(factory.call_args.args[3], (640,510))
+        encoded = writer.write.call_args.args[0]
+        np.testing.assert_array_equal(encoded[:400,:320], source_colour)
+        for channel in range(3):
+            np.testing.assert_array_equal(encoded[:400,320:,channel], source_mask)
+        expected_footer = np.zeros((510,640,3),np.uint8)
+        draw_command(expected_footer,.2,.3,False,.5,0.,executed=feedback)
+        np.testing.assert_array_equal(encoded[400:], expected_footer[400:])
+        np.testing.assert_array_equal(colour,source_colour)
+        np.testing.assert_array_equal(mask,source_mask)
+        self.assertEqual(manifest['frame_source'],'bird_pair')
+
+    def test_bird_pair_resize_keeps_binary_values(self):
+        colour = np.full((400,320,3), (30,100,220), np.uint8)
+        mask = np.zeros((400,320),np.uint8)
+        mask[:,100:115]=255
+        writer = Mock()
+        writer.isOpened.return_value = True
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.cv2.VideoWriter', return_value=writer):
+            recorder=CommandVideo(Path(tmp),width=320,frame_source='bird_pair')
+            recorder.submit((colour,mask),frame_id=1,host_time_ns=1,monotonic_s=1.,vx=.2,wz=0.,lost=False)
+            recorder.close()
+        self.assertIsNone(recorder.error)
+        encoded=writer.write.call_args.args[0]
+        self.assertEqual(encoded.shape,(310,320,3))
+        self.assertEqual(set(np.unique(encoded[:200,160:])),{0,255})
+
+    def test_real_bird_pair_decodes_left_colour_and_right_detector_mask(self):
+        colour = np.full((400,320,3), (30,100,220), np.uint8)
+        mask = np.zeros((400,320), np.uint8)
+        mask[:,100:115]=255
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder=CommandVideo(Path(tmp),frame_source='bird_pair')
+            recorder.submit((colour,mask),frame_id=1,host_time_ns=1,monotonic_s=1.,vx=.2,wz=.3,lost=False)
+            recorder.close()
+            self.assertIsNone(recorder.error)
+            cap=cv2.VideoCapture(str(Path(tmp)/'camera_commands.avi'))
+            try:
+                ok, decoded=cap.read()
+                self.assertTrue(ok)
+                self.assertEqual(decoded.shape,(510,640,3))
+                self.assertLess(np.mean(np.abs(decoded[:400,:316].astype(float)-colour[:,:316])),3.)
+                restored=(cv2.cvtColor(decoded[:400,320:],cv2.COLOR_BGR2GRAY)>=128).astype(np.uint8)*255
+                self.assertGreater(np.mean(restored==mask),.999)
+            finally:
+                cap.release()
+
     def test_binary_video_keeps_entire_detector_mask_and_puts_arrows_below_it(self):
         mask = np.zeros((400, 320), np.uint8)
         mask[40:360, 96:112] = 255

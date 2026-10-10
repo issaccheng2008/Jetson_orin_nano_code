@@ -1,7 +1,7 @@
 """Bounded, asynchronous recording of commands published by vision.
 
 No motor/connector feedback is inferred here. The AVI is a timestamp-resampled
-view of camera frames or detector lane masks; its JSONL index identifies duplicated frames.
+view of camera frames, detector lane masks or paired birdseye views; its JSONL index identifies duplicated frames.
 """
 import json
 import math
@@ -80,8 +80,8 @@ class CommandVideo:
             raise ValueError('video fps must be finite and in [1, 30]')
         if not 64 <= width <= 1920 or queue_size < 1:
             raise ValueError('video width must be in [64, 1920]; queue must be positive')
-        if frame_source not in ('camera', 'binary'):
-            raise ValueError('video source must be camera or binary')
+        if frame_source not in ('camera', 'binary', 'bird_pair'):
+            raise ValueError('video source must be camera, binary or bird_pair')
         self.frame_source = frame_source
         self.directory = Path(directory)
         self.fps, self.width, self.max_wz = fps, width, max_wz
@@ -104,7 +104,9 @@ class CommandVideo:
             return False
         # Copy before enqueue: a display window/detector may modify the camera buffer.
         try:
-            sample = (image.copy(), dict(source_frame=frame_id,
+            private_image = (tuple(part.copy() for part in image)
+                             if self.frame_source == 'bird_pair' else image.copy())
+            sample = (private_image, dict(source_frame=frame_id,
                 command_host_time_ns=host_time_ns, command_monotonic_s=monotonic_s,
                 vx=vx, wz=wz, line_lost=bool(lost), executed_command=(
                     None if executed is None else dict(executed, velocity=list(executed['velocity'])))))
@@ -146,11 +148,13 @@ class CommandVideo:
                 if writer is None:
                     origin = now
                     self._origin_monotonic_s = origin
-                    h, w = raw.shape[:2]
+                    h, w = (raw[0].shape[:2] if self.frame_source == 'bird_pair' else raw.shape[:2])
+                    if self.frame_source == 'bird_pair':
+                        w *= 2
                     out_w = min(self.width, w)//2*2
                     out_h = max(2, round(h*out_w/w)//2*2)
                     image_dimensions = (out_w, out_h)
-                    dimensions = (out_w, out_h + (110 if self.frame_source == 'binary' else 0))
+                    dimensions = (out_w, out_h + (110 if self.frame_source in ('binary', 'bird_pair') else 0))
                     writer = cv2.VideoWriter(str(self.directory/'camera_commands.avi'),
                         cv2.VideoWriter_fourcc(*'MJPG'), self.fps, dimensions)
                     if not writer.isOpened():
@@ -162,15 +166,29 @@ class CommandVideo:
                 while previous is not None and next_tick < tick:
                     self._write(writer, index, previous, next_tick)
                     next_tick += 1
+                if self.frame_source == 'bird_pair':
+                    colour, mask = raw
+                    if (colour.ndim != 3 or colour.shape[2] != 3 or colour.dtype != 'uint8'
+                            or mask.ndim != 2 or mask.dtype != 'uint8'
+                            or colour.shape[:2] != mask.shape):
+                        raise ValueError('bird_pair needs matching BGR birdseye and uint8 lane mask')
+                    # Resize each half independently so binary edges stay binary.
+                    left_w = image_dimensions[0] // 2
+                    right_w = image_dimensions[0] - left_w
+                    height = image_dimensions[1]
+                    left = cv2.resize(colour, (left_w, height), interpolation=cv2.INTER_AREA)
+                    right = cv2.resize(mask, (right_w, height), interpolation=cv2.INTER_NEAREST)
+                    raw = cv2.hconcat((left, cv2.cvtColor(right, cv2.COLOR_GRAY2BGR)))
                 if self.frame_source == 'binary':
                     # This is the detector's final candidate mask, not a new
                     # threshold of the camera image. Preserve it above the HUD.
                     if raw.ndim != 2 or raw.dtype != 'uint8':
                         raise ValueError('binary video needs the detector uint8 lane mask')
                     raw = cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
-                image = cv2.resize(raw, image_dimensions,
-                    interpolation=cv2.INTER_NEAREST if self.frame_source == 'binary' else cv2.INTER_AREA)
-                if self.frame_source == 'binary':
+                image = (raw if self.frame_source == 'bird_pair' else
+                         cv2.resize(raw, image_dimensions,
+                             interpolation=cv2.INTER_NEAREST if self.frame_source == 'binary' else cv2.INTER_AREA))
+                if self.frame_source in ('binary', 'bird_pair'):
                     image = cv2.copyMakeBorder(image, 0, 110, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0))
                 previous = (image, metadata)
                 if next_tick <= tick:
@@ -197,8 +215,11 @@ class CommandVideo:
                 manifest = dict(schema='command_video_v2', codec='MJPG', video='camera_commands.avi',
                     frame_index='frames.jsonl', fps=self.fps, dimensions=dimensions,
                     frame_source=self.frame_source,
-                    detector_debug_key='binary' if self.frame_source == 'binary' else None,
-                    image_source=('detector birdseye final lane candidate mask; white on black; HUD below'
+                    detector_debug_key=('bird_color,binary' if self.frame_source == 'bird_pair'
+                                        else 'binary' if self.frame_source == 'binary' else None),
+                    image_source=('left: original BGR birdseye; right: final lane candidate mask; HUD below'
+                                  if self.frame_source == 'bird_pair' else
+                                  'detector birdseye final lane candidate mask; white on black; HUD below'
                                   if self.frame_source == 'binary' else 'original camera BGR; HUD overlay'),
                     command_source='vision publish -> connector; before connector bias/model hold',
                     executed_command_source='policy feedback after model hold/takeovers and serial send; not measured body motion',

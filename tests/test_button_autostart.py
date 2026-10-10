@@ -162,7 +162,7 @@ class ButtonAutostartTests(unittest.TestCase):
             args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
             self.assertEqual(args[args.index('--startup-sequence')+1], sequence)
 
-    def test_video_source_defaults_old_configs_to_binary_and_camera_can_restore(self):
+    def test_video_source_defaults_old_configs_to_bird_pair_and_can_restore(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision
         with tempfile.TemporaryDirectory() as temporary:
@@ -172,7 +172,7 @@ class ButtonAutostartTests(unittest.TestCase):
             original = '\n'.join(line for line in
                 (REPO / 'config/button_start.env.example').read_text().splitlines()
                 if not line.startswith('VIDEO_SOURCE=')) + '\n'
-            for extra, expected in [('', 'binary'), ('VIDEO_SOURCE=camera\n', 'camera')]:
+            for extra, expected in [('', 'bird_pair'), ('VIDEO_SOURCE=binary\n', 'binary'), ('VIDEO_SOURCE=camera\n', 'camera')]:
                 (checkout / 'config/button_start.env').write_text(original + extra)
                 command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
                 with patch('sys.argv', command[2:]):

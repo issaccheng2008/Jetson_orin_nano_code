@@ -92,6 +92,9 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_shadow_entrypoint_logs_comparison(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(filter_mode='shadow')
 
+    def test_binary_only_recording_can_be_restored(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(video_source='binary')
+
     def test_camera_recording_can_be_restored(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(video_source='camera')
 
@@ -104,7 +107,7 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_signed_table_and_heading_intervals_reach_publication_and_manifest(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(custom_config=True)
 
-    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False, custom_config=False, actual_feedback=False, video_source='binary'):
+    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False, custom_config=False, actual_feedback=False, video_source='bird_pair'):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         lane_mask = np.zeros((400, 320), dtype=np.uint8)
         lane_mask[:, 100:115] = 255
@@ -130,7 +133,7 @@ class HeadingIntegrationTests(unittest.TestCase):
             return 0, 0, .9, _frame.copy(), dict(
                 fused_err_cm=0., base_err_cm=0., near_error_cm=0., near_z_cm=0.,
                 angle_err_deg=0., lost_frames=0, measurement_valid=True,
-                heading_control_valid=True, heading_control_deg=angle, binary=lane_mask)
+                heading_control_valid=True, heading_control_deg=angle, binary=lane_mask, bird_color=frame[:400,:320])
         detector.process.side_effect = process
         camera_extra = ['--camera-exposure-mode','manual','--camera-exposure-ms','5'] if camera_settings else []
         camera_extra += ['--video-source', video_source]
@@ -170,7 +173,12 @@ class HeadingIntegrationTests(unittest.TestCase):
                 self.assertEqual((submission.kwargs['vx'], submission.kwargs['wz']), publication[1:3])
                 self.assertFalse(submission.kwargs['lost'])
                 self.assertEqual(submission.kwargs['executed'], applied if actual_feedback else None)
-                self.assertIs(submission.args[0], lane_mask if video_source == 'binary' else frame)
+                if video_source == 'bird_pair':
+                    self.assertEqual(len(submission.args[0]), 2)
+                    self.assertIs(submission.args[0][1], lane_mask)
+                    self.assertEqual(submission.args[0][0].shape, (400,320,3))
+                else:
+                    self.assertIs(submission.args[0], lane_mask if video_source == 'binary' else frame)
             np.testing.assert_array_equal(lane_mask, mask_before)
             if video_error:
                 video.assert_called_once()

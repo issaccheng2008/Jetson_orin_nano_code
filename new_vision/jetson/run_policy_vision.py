@@ -69,8 +69,8 @@ def parse_args():
                         help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths.')
     parser.add_argument('--record-video', action=argparse.BooleanOptionalAction, default=True,
                         help='Record selected video-source with command arrows inside recording-root; red on line loss.')
-    parser.add_argument('--video-source', choices=('binary', 'camera'), default='binary',
-                        help='Recorded image: final detector birdseye lane mask, or original camera frame')
+    parser.add_argument('--video-source', choices=('bird_pair', 'binary', 'camera'), default='bird_pair',
+                        help='Recorded image: paired BGR birdseye + final binary mask (default), binary only, or original camera')
     parser.add_argument('--video-fps', type=float, default=10.,
                         help='Recorded playback FPS, 1..30; repeats samples by timestamp, not camera processing rate.')
     parser.add_argument('--video-width', type=int, default=960,
@@ -1670,7 +1670,8 @@ def main():
                         actual_command = attitude.executed_command()
                     # Reuse this frame's detector output. Missing binary evidence
                     # disables auxiliary recording rather than substituting raw video.
-                    video_frame = debug['binary'] if args.video_source == 'binary' else frame
+                    video_frame = ((debug['bird_color'], debug['binary']) if args.video_source == 'bird_pair'
+                                   else debug['binary'] if args.video_source == 'binary' else frame)
                     command_video.submit(video_frame, frame_id=frames, host_time_ns=command_host_time_ns,
                         monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence),
                         executed=actual_command)

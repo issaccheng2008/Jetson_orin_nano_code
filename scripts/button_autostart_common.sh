@@ -25,7 +25,7 @@ load_button_config() {
     STARTUP_FIRST_WALK_S=0.5
     STARTUP_SEQUENCE=''
     RECORD_VIDEO=1
-    VIDEO_SOURCE=binary
+    VIDEO_SOURCE=bird_pair
     VIDEO_FPS=10
     VIDEO_WIDTH=960
     CAMERA_EXPOSURE_MODE=keep

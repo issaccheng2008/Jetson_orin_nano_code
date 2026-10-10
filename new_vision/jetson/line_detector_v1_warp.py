@@ -342,6 +342,7 @@ class LineDetector:
 
         # ── Internal state ──
         self._state = self._initial_state()
+        self._scan_diagnostics = {}
 
     def _initial_state(self):
         """Every cross-frame memory, at its as-just-started value."""
@@ -413,6 +414,7 @@ class LineDetector:
         the same curve tracks fine, so a fresh state should behave the same.
         """
         self._state = self._initial_state()
+        self._scan_diagnostics = {}
 
     # ═══════════════════════════════════════════════════════════
     # Birdseye matrix (IPM: pinhole back-projection of ground plane)
@@ -792,7 +794,7 @@ class LineDetector:
     # Run collection
     # ═══════════════════════════════════════════════════════════
 
-    def _collect_track_runs_on_row(self, gray, y, x0, x1, black_th, track_is_dark):
+    def _collect_track_runs_on_row(self, gray, y, x0, x1, black_th, track_is_dark, diagnostics=None):
         row = gray[y, x0:x1 + 1]
         if track_is_dark:
             mask = row <= black_th
@@ -804,10 +806,13 @@ class LineDetector:
         falls = np.where(np.diff(padded.astype(np.int8)) == -1)[0] + x0 - 1
         widths = falls - rises + 1
         valid = (widths >= self.min_line_width) & (widths <= self.max_line_width)
+        if diagnostics is not None:
+            diagnostics['raw_runs'] = diagnostics.get('raw_runs', 0) + len(widths)
+            diagnostics['line_width_rejected_runs'] = diagnostics.get('line_width_rejected_runs', 0) + int((~valid).sum())
         return list(zip(rises[valid].tolist(), falls[valid].tolist()))
 
     def _centroid_pair_center(self, gray_raw, y, hint_center, lane_width_hint,
-                              x0, x1):
+                              x0, x1, diagnostics=None):
         """阈值法配不成对时，直接在鸟瞰灰度上找两条暗凹陷，用质心定中心。
 
         为什么需要它：扫描输入是黑帽响应再被连通域掩膜削过的（面积<300 或高<80
@@ -826,7 +831,11 @@ class LineDetector:
         peak = float(d.max())
         min_contrast = (self._photometry.difference(self.centroid_min_contrast)
                         if self._photometry is not None else self.centroid_min_contrast)
+        if diagnostics is not None:
+            diagnostics['centroid_contrast_min'] = min_contrast
         if peak < min_contrast:
+            if diagnostics is not None:
+                diagnostics['centroid_low_contrast_rows'] = diagnostics.get('centroid_low_contrast_rows', 0) + 1
             return None
 
         thr = max(min_contrast, 0.25 * peak)
@@ -849,6 +858,8 @@ class LineDetector:
                     segs.append(float((seg * xs).sum() / wsum))
             i = j
         if len(segs) < 2:
+            if diagnostics is not None:
+                diagnostics['centroid_insufficient_dips_rows'] = diagnostics.get('centroid_insufficient_dips_rows', 0) + 1
             return None
 
         want = (lane_width_hint if lane_width_hint >= self.min_track_width * 2
@@ -858,6 +869,8 @@ class LineDetector:
             for b in range(a + 1, len(segs)):
                 lane_w = segs[b] - segs[a]
                 if not (self.min_track_width <= lane_w <= self.max_track_width):
+                    if diagnostics is not None:
+                        diagnostics['centroid_width_range_rejects'] = diagnostics.get('centroid_width_range_rejects', 0) + 1
                     continue
                 center = 0.5 * (segs[a] + segs[b])
                 score = abs(lane_w - want) + 0.3 * abs(center - hint_center)
@@ -877,8 +890,10 @@ class LineDetector:
     # Pair selection
     # ═══════════════════════════════════════════════════════════
 
-    def _choose_pair_center_from_runs(self, runs, hint_center, lane_width_hint, x0, x1):
+    def _choose_pair_center_from_runs(self, runs, hint_center, lane_width_hint, x0, x1, diagnostics=None):
         if len(runs) < 2:
+            if diagnostics is not None:
+                diagnostics['pair_insufficient_runs_rows'] = diagnostics.get('pair_insufficient_runs_rows', 0) + 1
             return None
 
         best = None
@@ -886,18 +901,27 @@ class LineDetector:
         for i in range(len(runs)):
             wi = runs[i][1] - runs[i][0] + 1
             if wi < 5:  # too thin to be a real track edge, noise
+                if diagnostics is not None:
+                    diagnostics['pair_thin_edge_skips'] = diagnostics.get('pair_thin_edge_skips', 0) + 1
                 continue
             li = 0.5 * (runs[i][0] + runs[i][1])
             for j in range(i + 1, len(runs)):
                 wj = runs[j][1] - runs[j][0] + 1
                 if wj < 5:
+                    if diagnostics is not None:
+                        diagnostics['pair_thin_edge_skips'] = diagnostics.get('pair_thin_edge_skips', 0) + 1
                     continue
                 rj = 0.5 * (runs[j][0] + runs[j][1])
                 lane_w = rj - li
+                if not self.min_track_width <= lane_w <= self.max_track_width:
+                    if diagnostics is not None:
+                        diagnostics['pair_width_range_rejects'] = diagnostics.get('pair_width_range_rejects', 0) + 1
                 if self.min_track_width <= lane_w <= self.max_track_width:
                     if lane_width_hint > 0:
                         max_width_err = max(48.0, self.lane_width_tol_px * 1.6)
                         if abs(lane_w - lane_width_hint) > max_width_err:
+                            if diagnostics is not None:
+                                diagnostics['pair_width_hint_rejects'] = diagnostics.get('pair_width_hint_rejects', 0) + 1
                             continue
                     center = 0.5 * (li + rj)
                     if x0 <= center <= x1:
@@ -1001,6 +1025,7 @@ class LineDetector:
         center, width = hint_x, lane_width_hint
         win_step = max(1, self.lane_fit_seg // 2)
         y_hi = self.bird_h - 1
+        diagnostic_index = 0
         while True:
             y_lo = max(y_top, y_hi - self.lane_fit_seg)
             if y_lo >= y_hi:
@@ -1014,7 +1039,10 @@ class LineDetector:
             res = self._scan_band_midline(
                 gray, bgr, black_th, track_is_dark, center, width,
                 y_lo / float(self.bird_h), y_hi / float(self.bird_h),
-                self.lane_fit_rows, self.lane_fit_step, gray_raw=gray_raw)
+                self.lane_fit_rows, self.lane_fit_step, gray_raw=gray_raw,
+                diagnostics=self._new_scan_diagnostics(
+                    f'fit_{diagnostic_index}', diagnostic_only=True))
+            diagnostic_index += 1
             if res is not None:
                 yl = res.get("ys_list", [])
                 cl = res.get("centers_list", [])
@@ -1079,15 +1107,76 @@ class LineDetector:
         limit = self.anticipation_clip * abs(near_term)
         return clamp(anticipation, -limit, limit)
 
+    def _new_scan_diagnostics(self, name, *, diagnostic_only=False):
+        """Current-frame scalar evidence, separate from rollback tracking state."""
+        d = dict(attempted=True, diagnostic_only=diagnostic_only,
+                 rows_scanned=0, run_candidate_rows=0, candidate_rows=0,
+                 candidate_pair_rows=0, accepted_rows=0, paired_rows=0, single_rows=0,
+                 centroid_pair_rows=0, no_candidate_rows=0,
+                 raw_runs=0, line_width_rejected_runs=0,
+                 pair_insufficient_runs_rows=0, pair_thin_edge_skips=0,
+                 pair_width_range_rejects=0, pair_width_hint_rejects=0,
+                 centroid_low_contrast_rows=0, centroid_insufficient_dips_rows=0,
+                 centroid_width_range_rejects=0,
+                 line_width_min_px=self.min_line_width, line_width_max_px=self.max_line_width,
+                 pair_edge_min_px=5, track_width_min_px=self.min_track_width,
+                 track_width_max_px=self.max_track_width,
+                 continuity_reject_rows=0, center_jump_reject_rows=0,
+                 red_block_rows=0, black_block_rows=0,
+                 pair_fraction=None, pair_support_ratio=None,
+                 pair_ratio_min=self.bottom_lock_min_pair_ratio,
+                 width_cv=None, width_cv_max=self.lock_width_cv_max, width_cv_pass=None,
+                 fit_rmse_px=None, fit_rmse_max_px=self.observation_rmse_max_px,
+                 fit_residual_pass=None, width_hint_error_px=None,
+                 width_hint_tolerance_px=max(48.0, self.lane_width_tol_px * 1.6),
+                 width_hint_pass=None, confidence=None, confidence_min=None,
+                 observation_quality=None, measurement_quality_min=self.measurement_quality_min,
+                 single_width_age_s=None, single_width_max_age_s=self.single_width_max_age_s,
+                 single_width_frames=None, weighted_score=None,
+                 reject_stage='scan', reject_reason='pending')
+        self._scan_diagnostics[name] = d
+        return d
+
+    @staticmethod
+    def _reject_scan(d, stage, reason):
+        d.update(reject_stage=stage, reject_reason=reason)
+
+    def _diag_for_result(self, result):
+        name = result.get('band_name', 'simple')
+        d = result.get('_scan_diagnostics')
+        if d is None:
+            d = self._scan_diagnostics.get(name)
+        if d is None:
+            d = self._new_scan_diagnostics(name)
+        elif 'attempted' not in d:
+            defaults = self._new_scan_diagnostics(name)
+            for key, value in defaults.items():
+                d.setdefault(key, value)
+        self._scan_diagnostics[name] = d
+        result['_scan_diagnostics'] = d
+        return d
+
+    def _passes_band_confidence(self, result, minimum):
+        d = self._diag_for_result(result)
+        d.update(confidence=float(result['conf']), confidence_min=minimum)
+        accepted = result['conf'] >= minimum
+        if not accepted:
+            self._reject_scan(d, 'confidence', 'confidence')
+        return accepted
+
     def _scan_band_midline(self, gray, bgr, black_th, track_is_dark,
                            hint_x, lane_width_hint,
                            y_start_ratio, y_end_ratio, max_rows, row_step,
-                           gray_raw=None, sample_rows=None):
+                           gray_raw=None, sample_rows=None, diagnostics=None):
         """Scan a band of rows on the birdseye, find midline per row.
 
         gray_raw: 未做黑帽/掩膜处理的鸟瞰灰度，只给质心兜底用。gray 上的线是
         「亮峰压在 0 背景上」且被连通域掩膜削过，质心需要的是「灰底上的暗凹陷」。
         """
+        d = diagnostics if diagnostics is not None else {}
+        d.update(rows_scanned=0, run_candidate_rows=0, candidate_rows=0,
+                 candidate_pair_rows=0, no_candidate_rows=0, centroid_pair_rows=0,
+                 continuity_reject_rows=0, center_jump_reject_rows=0)
         row_step = max(1, row_step)
         img_w = self.bird_w
         img_h = self.bird_h
@@ -1132,16 +1221,17 @@ class LineDetector:
                 continue
 
             runs = self._collect_track_runs_on_row(
-                gray, y, x0, x1, black_th, track_is_dark
+                gray, y, x0, x1, black_th, track_is_dark, diagnostics=d
             )
+            d['run_candidate_rows'] += bool(runs)
             chosen = self._choose_pair_center_from_runs(
-                runs, last_center, last_width, x0, x1
+                runs, last_center, last_width, x0, x1, diagnostics=d
             )
             # 阈值配不成对时先试质心：它实打实量出两条线的位置，
             # 信息量高于下面的单线盲推（后者只测到一条线，另一条按线宽硬挪）。
             if chosen is None and gray_raw is not None:
                 chosen = self._centroid_pair_center(
-                    gray_raw, y, last_center, last_width, x0, x1
+                    gray_raw, y, last_center, last_width, x0, x1, diagnostics=d
                 )
             if chosen is None and len(runs) >= 1:
                 best_run = self._choose_single_run_near_hint(runs, last_center)
@@ -1150,16 +1240,24 @@ class LineDetector:
                         best_run, last_width, x0, x1
                     )
 
+            if chosen is None:
+                d['no_candidate_rows'] += 1
             if chosen is not None:
+                d['candidate_rows'] += 1
+                mode = int(chosen.get("line_mode", 1))
+                d['candidate_pair_rows'] += mode >= 2
+                d['centroid_pair_rows'] += mode == 3
                 center_px = chosen["center_px"]
                 lane_w = chosen["lane_width_px"]
                 # 空间连续性：和上一行的 center 比，跳跃太大说明是噪声
                 if len(centers_px) > 0:
                     jump = abs(center_px - last_center)
                     if jump > max(30.0, lane_w * 1.2):
+                        d['continuity_reject_rows'] += 1
                         rows_done += 1
                         continue
                 if abs(center_px - last_center) > (self.max_center_jump_px * 2.2):
+                    d['center_jump_reject_rows'] += 1
                     rows_done += 1
                     continue
                 x_cm, z_cm = self._px_to_ground_cm(center_px, y)
@@ -1186,7 +1284,18 @@ class LineDetector:
 
             rows_done += 1
 
+        d.update(rows_scanned=rows_done, accepted_rows=len(centers_px),
+                 paired_rows=pair_rows, single_rows=single_rows,
+                 red_block_rows=red_block_rows, black_block_rows=black_block_rows,
+                 pair_fraction=pair_rows / float(max(1, pair_rows + single_rows)),
+                 pair_support_ratio=pair_rows / float(max(1, rows_done)),
+                 min_accepted_rows=3, center_jump_max_px=self.max_center_jump_px * 2.2)
         if len(centers_px) < 3:
+            reason = ('rows_blocked' if rows_done and red_block_rows + black_block_rows == rows_done
+                      else 'no_candidates' if not d['candidate_rows']
+                      else 'center_jump' if not centers_px
+                      else 'insufficient_rows')
+            self._reject_scan(d, 'scan', reason)
             return None
 
         center_px = median(centers_px)
@@ -1207,8 +1316,12 @@ class LineDetector:
         valid_rows = max(1, pair_rows + single_rows)
         pair_ratio = pair_rows / float(valid_rows)
         single_ratio = single_rows / float(valid_rows)
+        d.update(confidence=conf, width_std_px=width_std,
+                 width_std_max_px=self.width_std_max)
+        self._reject_scan(d, 'scan', 'candidate')
 
         return {
+            "_scan_diagnostics": d,
             "center_cm": center_cm,
             "center_px": center_px,
             "dist_cm": dist_cm,
@@ -1244,7 +1357,7 @@ class LineDetector:
             hint_x, lane_width_hint,
             self.bottom_start_ratio, 1.0,
             self.bottom_rows, self.bottom_step,
-            gray_raw=gray_raw,
+            gray_raw=gray_raw, diagnostics=self._new_scan_diagnostics('simple'),
         )
         if base is None:
             return None
@@ -1276,7 +1389,7 @@ class LineDetector:
                 gray, bgr, black_th, track_is_dark,
                 last_center, last_width,
                 ys, ye, rows, step,
-                gray_raw=gray_raw,
+                gray_raw=gray_raw, diagnostics=self._new_scan_diagnostics(name),
                 **({'sample_rows': self._heading_region_rows[0 if name == 'low' else 1]}
                    if self._heading_region_rows is not None else {}),
             )
@@ -1294,9 +1407,11 @@ class LineDetector:
     # Bottom center lock (on birdseye)
     # ═══════════════════════════════════════════════════════════
 
-    def _paired_geometry(self, ys, centers, widths, hint_width):
+    def _paired_geometry(self, ys, centers, widths, hint_width, diagnostics=None):
         """Pair geometry quality, independent of distance from the image centre."""
         if len(ys) < 3 or len(ys) != len(centers) or len(widths) != len(ys):
+            if diagnostics is not None:
+                self._reject_scan(diagnostics, 'geometry', 'insufficient_geometry_rows')
             return False, 0.0, float("inf"), float("inf")
         a, b = line_fit(ys, centers)
         residual = math.sqrt(sum((x - (a * y + b)) ** 2
@@ -1308,16 +1423,30 @@ class LineDetector:
         width_tol = max(48.0, self.lane_width_tol_px * 1.6)
         valid = (width_cv <= self.lock_width_cv_max and
                  residual <= self.observation_rmse_max_px and width_err <= width_tol)
+        if diagnostics is not None:
+            diagnostics.update(width_cv=width_cv, fit_rmse_px=residual,
+                               width_hint_error_px=width_err, width_hint_tolerance_px=width_tol,
+                               width_cv_pass=width_cv <= self.lock_width_cv_max,
+                               fit_residual_pass=residual <= self.observation_rmse_max_px,
+                               width_hint_pass=width_err <= width_tol)
+            if not valid:
+                reason = ('width_cv' if width_cv > self.lock_width_cv_max
+                          else 'fit_residual' if residual > self.observation_rmse_max_px
+                          else 'width_hint')
+                self._reject_scan(diagnostics, 'geometry', reason)
         quality = (math.exp(-0.5 * (width_cv / self.lock_width_cv_max) ** 2) *
                    math.exp(-0.5 * (residual / self.observation_rmse_max_px) ** 2))
         return valid, quality if valid else 0.0, width_cv, residual
 
     def _detect_bottom_center_lock(self, gray, bgr, black_th, track_is_dark):
+        d = self._new_scan_diagnostics('bottom_lock')
         empty = {"valid": False, "quality": 0.0, "pair_ratio": 0.0,
                  "center_px": float(self.center_x), "center_err_px": 0.0,
                  "symmetry_abs_px": 0.0, "centers_list": [], "center_ys": [],
                  "width_cv": 0.0, "fit_rmse_px": 0.0}
         if not self.bottom_lock_enable:
+            d['attempted'] = False
+            self._reject_scan(d, 'not_run', 'disabled')
             return empty
         centers, ys, widths = [], [], []
         rows_done = 0
@@ -1329,21 +1458,38 @@ class LineDetector:
         for y in lock_rows:
             red, black = self._detect_row_blocker(gray, bgr, y, 0, self.bird_w - 1,
                                                    black_th, track_is_dark)
+            d['red_block_rows'] += bool(red)
+            d['black_block_rows'] += bool(black and not red)
             if not red and not black:
                 runs = self._collect_track_runs_on_row(gray, y, 0, self.bird_w - 1,
-                                                       black_th, track_is_dark)
+                                                       black_th, track_is_dark, diagnostics=d)
+                d['run_candidate_rows'] += bool(runs)
                 chosen = self._choose_pair_center_from_runs(
-                    runs, hint_center, hint_width, 0, self.bird_w - 1)
+                    runs, hint_center, hint_width, 0, self.bird_w - 1, diagnostics=d)
+                if chosen is None:
+                    d['no_candidate_rows'] += 1
                 if chosen is not None:
                     centers.append(float(chosen["center_px"]))
                     widths.append(float(chosen["lane_width_px"]))
                     ys.append(y)
             rows_done += 1
+        d.update(rows_scanned=rows_done, candidate_rows=len(centers),
+                 candidate_pair_rows=len(centers), accepted_rows=len(centers),
+                 paired_rows=len(centers), pair_fraction=1. if centers else 0.,
+                 pair_support_ratio=len(centers) / float(max(1, rows_done)))
         if not centers:
+            reason = ('rows_blocked' if rows_done and d['red_block_rows'] + d['black_block_rows'] == rows_done
+                      else 'no_candidates')
+            self._reject_scan(d, 'scan', reason)
             return empty
         ratio = len(centers) / float(rows_done)
-        valid, quality, width_cv, residual = self._paired_geometry(ys, centers, widths, hint_width)
+        valid, quality, width_cv, residual = self._paired_geometry(
+            ys, centers, widths, hint_width, diagnostics=d)
+        if valid and ratio < self.bottom_lock_min_pair_ratio:
+            self._reject_scan(d, 'pairing', 'pair_support_ratio')
         valid = valid and ratio >= self.bottom_lock_min_pair_ratio
+        if valid:
+            self._reject_scan(d, 'accepted', 'accepted')
         center = float(median(centers))
         return {"valid": valid, "quality": ratio * quality if valid else 0.0,
                 "pair_ratio": ratio, "center_px": center,
@@ -1354,20 +1500,26 @@ class LineDetector:
 
     def _qualified_band(self, result):
         """Accept paired geometry, or a single edge supported by recent paired width."""
+        d = self._diag_for_result(result)
         r = dict(result)
         ys = r.get("ys_list", [])
         centers = r.get("centers_list", [])
         modes = r.get("modes_list", [])
         widths = r.get("widths_list", [r["lane_width_px"]] * len(ys))
         if not (len(ys) == len(centers) == len(modes) == len(widths)) or len(ys) < 3:
+            self._reject_scan(d, 'scan', 'insufficient_rows')
             return None
         paired = [i for i, mode in enumerate(modes) if mode >= 2]
+        d.update(accepted_rows=len(ys), paired_rows=len(paired), single_rows=len(ys)-len(paired),
+                 pair_fraction=len(paired)/len(ys),
+                 pair_support_ratio=len(paired)/max(1, int(r.get('scan_rows', len(ys)))))
         if len(paired) / len(ys) >= self.bottom_lock_min_pair_ratio:
             if len(paired) / max(1, int(r.get("scan_rows", len(ys)))) < self.bottom_lock_min_pair_ratio:
+                self._reject_scan(d, 'pairing', 'pair_support_ratio')
                 return None
             py, px, pw = ([values[i] for i in paired] for values in (ys, centers, widths))
             valid, geometry_q, cv, residual = self._paired_geometry(
-                py, px, pw, float(self._state["last_lane_width_px"]))
+                py, px, pw, float(self._state["last_lane_width_px"]), diagnostics=d)
             if not valid:
                 return None
             # Inferred single-edge points never define a paired centre or heading.
@@ -1383,16 +1535,30 @@ class LineDetector:
             supported = (self._state["paired_width_frames"] >= 2 and last_pair is not None and
                          self._observation_clock_s - last_pair <= self.single_width_max_age_s)
             single_side = bool(r.get("left_seen")) != bool(r.get("right_seen"))
+            d.update(single_width_frames=self._state['paired_width_frames'],
+                     single_width_age_s=(self._observation_clock_s-last_pair if last_pair is not None else None))
             if paired or not supported or not single_side:
+                reason = ('pair_fraction' if paired
+                          else 'single_width_history_missing' if self._state['paired_width_frames'] < 2 or last_pair is None
+                          else 'single_width_history_stale' if not supported
+                          else 'single_side_ambiguous')
+                self._reject_scan(d, 'pairing' if paired else 'single_support', reason)
                 return None
             a, b = line_fit(ys, centers)
             residual = math.sqrt(sum((x - a*y - b)**2 for y,x in zip(ys,centers))/len(ys))
+            d.update(fit_rmse_px=residual, fit_residual_pass=residual <= self.observation_rmse_max_px)
             if residual > self.observation_rmse_max_px:
+                self._reject_scan(d, 'geometry', 'fit_residual')
                 return None
             r.update(observation_paired=False,
                      observation_quality=min(self.single_quality_max, float(r["conf"]) * 0.5),
                      observation_rmse_px=residual, observation_width_cv=0.0)
-        return r if r["observation_quality"] >= self.measurement_quality_min else None
+        d['observation_quality'] = r['observation_quality']
+        if r["observation_quality"] >= self.measurement_quality_min:
+            self._reject_scan(d, 'accepted', 'accepted')
+            return r
+        self._reject_scan(d, 'measurement_quality', 'measurement_quality')
+        return None
 
     def trusted_heading_points(self, results, bottom_lock):
         """Return sorted (bird rows, centre columns) from qualified paired evidence.
@@ -1613,6 +1779,11 @@ class LineDetector:
             raise ValueError("process dt must be finite seconds >= 0")
         self._last_process_time = now
         self._observation_clock_s += dt
+        self._scan_diagnostics = {}
+        for name in ('simple', 'low', 'mid', 'bottom_lock'):
+            d = self._new_scan_diagnostics(name)
+            d['attempted'] = False
+            self._reject_scan(d, 'not_run', 'not_run')
         state = self._state
         previous_time = state["last_accepted_tracking_time"]
         prior_age = (self._observation_clock_s - previous_time
@@ -1671,26 +1842,26 @@ class LineDetector:
                 gray_detect, bgr_bird, black_th, track_is_dark,
                 scan_hint_center, scan_hint_width, gray_raw=gray,
             )
-            if res is not None and res["conf"] >= conf_min_dyn:
+            if res is not None and self._passes_band_confidence(res, conf_min_dyn):
                 roi_results.append(res)
             elif self.two_band_mode:
                 roi_results = self._detect_two_band_lanes(
                     gray_detect, bgr_bird, black_th, track_is_dark,
                     scan_hint_center, scan_hint_width, gray_raw=gray,
                 )
-                roi_results = [r for r in roi_results if r["conf"] >= conf_min_dyn]
+                roi_results = [r for r in roi_results if self._passes_band_confidence(r, conf_min_dyn)]
         elif self.two_band_mode:
             roi_results = self._detect_two_band_lanes(
                 gray_detect, bgr_bird, black_th, track_is_dark,
                 scan_hint_center, scan_hint_width, gray_raw=gray,
             )
-            roi_results = [r for r in roi_results if r["conf"] >= conf_min_dyn]
+            roi_results = [r for r in roi_results if self._passes_band_confidence(r, conf_min_dyn)]
         elif self.simple_bottom_mode:
             res = self._bottom_quarter_midline(
                 gray_detect, bgr_bird, black_th, track_is_dark,
                 scan_hint_center, scan_hint_width, gray_raw=gray,
             )
-            if res is not None and res["conf"] >= conf_min_dyn:
+            if res is not None and self._passes_band_confidence(res, conf_min_dyn):
                 roi_results.append(res)
 
         # ── 整条车道拟合（--lane-fit，只出诊断量）──
@@ -1753,12 +1924,20 @@ class LineDetector:
         state["last_bottom_lock_valid"] = bottom_lock_valid
 
         # ── Filter by total weight ──
+        score_total = 0.0
+        lane_reject_reason = 'no_qualified_band'
         if roi_results:
-            score_total = 0.0
             for r in roi_results:
-                score_total += r["weight"] * r["conf"] * self._result_quality_weight(r)
+                score = r["weight"] * r["conf"] * self._result_quality_weight(r)
+                score_total += score
+                self._diag_for_result(r)['weighted_score'] = score
             if score_total <= min_weight_dyn:
+                lane_reject_reason = 'total_weight'
+                for r in roi_results:
+                    self._reject_scan(self._diag_for_result(r), 'total_weight', 'total_weight')
                 roi_results = []
+            else:
+                lane_reject_reason = 'accepted'
 
         # ── Red bar detection ──
         if self.red_detect_enable:
@@ -2029,9 +2208,26 @@ class LineDetector:
 
         # ── Debug info ──
         binary_raw_inv = 255 - binary_clean  # invert for display: black line on white bg
+        scan_debug = {f'scan_{name}_{key}': value
+                      for name, values in self._scan_diagnostics.items()
+                      for key, value in values.items()}
+        reject_details = '|'.join(
+            f"{name}:{d['reject_stage']}:{d['reject_reason']}"
+            for name, d in self._scan_diagnostics.items()
+            if name != 'bottom_lock' and d['attempted'] and not d['diagnostic_only']
+            and d['reject_reason'] != 'accepted')
         debug = {
-            **preprocess_debug,
+            **preprocess_debug, **scan_debug,
+            "lane_total_weight": score_total,
+            "lane_min_weight_active": min_weight_dyn,
+            "lane_conf_min_active": conf_min_dyn,
+            "lane_reject_reason": lane_reject_reason,
+            "lane_reject_details": reject_details,
+            "heading_min_points": self.heading_min_points,
+            "heading_min_span_px": self.heading_min_span_px,
+            "heading_rmse_max_px": self.observation_rmse_max_px,
             "bird": gray,
+            "bird_color": bgr_bird,
             "binary_raw": binary_raw_inv,
             "binary": binary_clean,
             "black_th": black_th,
