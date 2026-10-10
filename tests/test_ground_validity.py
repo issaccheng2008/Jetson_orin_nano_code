@@ -18,7 +18,7 @@ class GroundValidityTests(unittest.TestCase):
         cv2.line(self.gray, (400,380), (355,50), 35, 8)
 
     def test_default_metric_dimensions_and_scale(self):
-        self.assertEqual((self.detector.bird_w,self.detector.bird_h),(623,400))
+        self.assertEqual((self.detector.bird_w,self.detector.bird_h),(623,466))
         self.assertFalse(self.valid[-1,0])
         self.assertFalse(self.valid[-1,-1])
         self.assertTrue(self.valid[-1,self.detector.center_x])

@@ -18,6 +18,21 @@ def bird(d, points):
     return cv2.perspectiveTransform(project(d,points)[None].astype(np.float64),d.M)[0]
 
 class MetricIPMTests(unittest.TestCase):
+    def test_near_extension_preserves_rows_and_reaches_sensor_bottom(self):
+        d = LineDetector()
+        self.assertEqual((d.bird_w, d.bird_h), (623, 466))
+        self.assertAlmostEqual(d.z_cm_at(399), d._to_true_z(20), places=8)
+        self.assertLess(d.z_cm_at(d.bird_h - 1), 9.)
+        pixel = d.M_inv @ np.array([d.center_x, d.bird_h - 1, 1.])
+        self.assertLessEqual(pixel[1] / pixel[2], d.cam_h - 1)
+        self.assertGreater(pixel[1] / pixel[2], d.cam_h - 3)
+        shape = d.ground_valid_mask.shape
+        d.set_heading_regions_cm([[20,22],[24,26]])
+        for pitch in (40, 50):
+            d.set_camera_pitch_deg(pitch)
+            self.assertEqual(d.ground_valid_mask.shape, shape)
+            self.assertAlmostEqual(d.z_cm_at(399), d._to_true_z(20), places=8)
+
     def test_square_ground_scale_near_and_far_and_pitch(self):
         for pitch in (35,45,55):
             d=LineDetector(cam_pitch_deg=pitch)

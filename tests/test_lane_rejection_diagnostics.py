@@ -23,13 +23,13 @@ class LaneRejectionDiagnosticsTests(unittest.TestCase):
         return d
 
     def scan(self, d, rows=8, blocked=None):
-        gray = np.zeros((400, 320), np.uint8)
+        gray = np.zeros((d.bird_h, 320), np.uint8)
         for y in range(350, 350+rows*2, 2):
             gray[y, 87:94] = gray[y, 227:234] = 255
         diag = {}
         with patch.object(d, '_detect_row_blocker', return_value=blocked or (False, False)):
-            result = d._scan_band_midline(gray, np.zeros((400,320,3), np.uint8), 25, False,
-                160., 140., .875, 1., 8, 2, diagnostics=diag)
+            result = d._scan_band_midline(gray, np.zeros((d.bird_h,320,3), np.uint8), 25, False,
+                160., 140., 350.5/d.bird_h, 399.5/d.bird_h, 8, 2, diagnostics=diag)
         return result, diag
 
     def band(self, d, **changes):

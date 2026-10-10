@@ -145,6 +145,19 @@ class LineDetector:
         self._legacy_row_z = [self._ground_from_bird_px(160, y)[1] for y in range(400)]
         self.cm_per_px = self.z_a * 60.0 / (self.bird_h - 1)
         self.z_per_px = self.cm_per_px
+        # Append near ground down to the sensor's bottom-centre ray. Keep the
+        # original scale, top edge and existing row coordinates unchanged.
+        # Size is fixed at construction; pitch updates only rebuild projection
+        # and validity, so recordings and pixel coordinates cannot jump in size.
+        dy_bottom = (self.cam_h - 1 - self.cy_px) / self.fy_px
+        cp, sp = math.cos(self.cam_pitch), math.sin(self.cam_pitch)
+        denominator = sp + dy_bottom * cp
+        if denominator > 1e-6:
+            sensor_near_model = self.cam_height * (cp - dy_bottom * sp) / denominator
+            # Retain forward ground only; never extend behind the camera origin.
+            sensor_near_model = max(0.0, min(20.0, sensor_near_model))
+            self.bird_h = max(400, 1 + int(math.floor(
+                self.z_a * (80.0 - sensor_near_model) / self.cm_per_px)))
         self._asp = 1.0
         width_cm = 2 * 80 * np.tan(np.radians(self.cam_vfov_deg / 2)) * self.cam_w / self.cam_h * .7
         self.bird_w = 2 * int(math.ceil(width_cm / (2 * self.cm_per_px))) + 1
@@ -506,7 +519,7 @@ class LineDetector:
 
     def _migrate_row(self, old_y):
         z = float(np.interp(old_y, np.arange(400), self._legacy_row_z))
-        return int(round(clamp((self._to_true_z(80) - z) / self.cm_per_px, 0, 399)))
+        return int(round(clamp((self._to_true_z(80) - z) / self.cm_per_px, 0, self.bird_h - 1)))
 
     def _build_valid_ground_mask(self):
         source = np.full((self.cam_h, self.cam_w), 255, np.uint8)
@@ -783,7 +796,7 @@ class LineDetector:
 
     def _detect_start_line(self, gray, black_th, track_is_dark):
         """Find horizontal black start-line position in birdseye. Returns y or None."""
-        y0 = int(self.bird_h * 0.5)
+        y0 = 200  # Original metric far boundary; extend only the near end.
         y1 = self.bird_h - 1
         best_y, best_score = None, 0.0
         step = max(1, (y1 - y0) // 20)
