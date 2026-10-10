@@ -12,8 +12,7 @@ load_button_config() {
     # User-owned configuration is trusted shell syntax, not a systemd EnvironmentFile.
     # Older installed configs lack this setting; preserve their heading behavior.
     WZ_MODE=heading
-    LINE_PREPROCESS=legacy
-    LINE_ADAPTIVE_C=-12
+    LINE_PREPROCESS=contrast
     SHAPE_PREPROCESS=selective
     PHOTOMETRIC_MODE=normalize
     LOST_HOLD_S=0.2

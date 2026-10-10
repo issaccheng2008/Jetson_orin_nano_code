@@ -464,21 +464,18 @@ def parse_args():
                              "P1 uses a quality-gated geometric preview and no "
                              "longer clips preview by the near-error magnitude.")
     parser.add_argument("--line-preprocess", choices=("contrast", "legacy", "canny"),
-                        default=os.getenv("LINE_PREPROCESS", "legacy"),
+                        default=os.getenv("LINE_PREPROCESS", "contrast"),
                         help="Lane candidate extraction: contrast uses limited local "
                              "equalization and preserves thin/oblique fragments; "
                              "legacy restores the previous binary preprocessing; "
                              "canny selects experimental filled dark-stroke evidence")
-    parser.add_argument("--line-adaptive-c", type=float, default=-12.0,
-                        help="Reference C for the legacy lane adaptive threshold; "
-                             "normalize maps it by ground std/reference std")
     parser.add_argument("--shape-preprocess", choices=("selective", "canny"),
                         default=os.getenv("SHAPE_PREPROCESS", "selective"),
                         help="Card ink candidates; canny is an explicit experimental alternative")
     parser.add_argument("--photometric-mode", choices=("normalize", "legacy"),
                         default=os.getenv("PHOTOMETRIC_MODE", "normalize"),
                         help="Reference mean/std normalization for card brightness gates "
-                             "and legacy lane adaptive C/centroid contrast; legacy uses fixed gates")
+                             "and raw-gray lane centroid contrast; legacy uses fixed gates")
     parser.add_argument("--lane-fit", action="store_true",
                         help="EXPERIMENTAL, and it changes nothing on its own: also "
                              "scan one tall band (20~70 cm instead of the two "
@@ -519,8 +516,6 @@ def parse_args():
         SteeringCommandWindow(args.steering_command_window_s, args.steering_command_median)
     except ValueError as exc:
         parser.error(str(exc))
-    if not math.isfinite(args.line_adaptive_c):
-        parser.error("--line-adaptive-c must be finite")
     from steering_config import validate_heading_regions
     try:
         args.heading_regions_cm = validate_heading_regions(args.heading_regions_cm)
@@ -873,7 +868,6 @@ def main():
             else:
                 detector.set_heading_distances(args.heading_near_cm, args.heading_far_cm)
         detector.preprocess_mode = args.line_preprocess
-        detector.adaptive_c = args.line_adaptive_c
         detector.photometric_mode = args.photometric_mode
         print(f"[line-preprocess] {detector.preprocess_mode}; "
               "candidate mask only; geometry quality checks retained", flush=True)

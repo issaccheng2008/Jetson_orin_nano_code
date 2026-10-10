@@ -33,8 +33,7 @@ def sampled_otsu_threshold(gray):
     return best_t
 
 
-def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_max=80,
-                            photometry=None, adaptive_c=-12):
+def extract_lane_candidates(gray, mode="contrast", th_offset=-12, th_min=25, th_max=80):
     """Return masked black-hat response, mask, threshold and scalar diagnostics.
 
     All geometric sampling continues in the original coordinates. Equalization
@@ -53,14 +52,8 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
               if mode == "contrast" else gray)
     response = cv2.morphologyEx(source, cv2.MORPH_BLACKHAT,
                                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31)))
-    # For I' = a*I+b, blackhat and (I-local_mean) both scale by a;
-    # b cancels. Reference z-score normalization therefore maps C to C*a,
-    # where a = std_current/std_reference (not the variance ratio).
-    # CLAHE changes contrast nonlinearly, so this mapping is for legacy only.
-    effective_c = (photometry.difference(adaptive_c)
-                   if mode == "legacy" and photometry is not None else float(adaptive_c))
     adaptive = cv2.adaptiveThreshold(response, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                    cv2.THRESH_BINARY, 31, effective_c) > 0
+                                    cv2.THRESH_BINARY, 31, -12) > 0
     threshold = (float(np.median(response[adaptive])) if np.count_nonzero(adaptive) > 100
                  else sampled_otsu_threshold(response)) + th_offset
     threshold = float(np.clip(threshold, th_min, th_max))
@@ -88,8 +81,6 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
     response[mask == 0] = 0
     diagnostics = {
         "preprocess_mode": mode,
-        "preprocess_adaptive_c_reference": float(adaptive_c),
-        "preprocess_adaptive_c_effective": float(effective_c),
         "preprocess_gray_mean": float(gray.mean()),
         "preprocess_gray_std": float(gray.std()),
         "preprocess_threshold_pixels": threshold_pixels,
