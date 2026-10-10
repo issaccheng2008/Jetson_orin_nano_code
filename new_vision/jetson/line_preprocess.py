@@ -97,13 +97,16 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
         mask[~valid] = 0
     threshold_pixels = int(np.count_nonzero(mask))
     k5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k5)
+    operations = [(cv2.MORPH_CLOSE, k5)]
     if mode == "legacy":
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k5)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k5)
+        operations.append((cv2.MORPH_OPEN, k5))
+    operations.append((cv2.MORPH_CLOSE, k5))
     if mode == "legacy":
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,
-                                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+        operations.append((cv2.MORPH_OPEN,
+                           cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))))
+    for operation, kernel in operations:
+        mask = (masked_morphology(mask, operation, kernel, valid) if masked
+                else cv2.morphologyEx(mask, operation, kernel))
     morph_pixels = int(np.count_nonzero(mask))
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     retained = np.zeros(count, np.uint8)
