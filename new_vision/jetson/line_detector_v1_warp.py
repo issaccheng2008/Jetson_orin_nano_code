@@ -1,8 +1,8 @@
 """V1 = V0's band-scanning detection heuristics + IPM birdseye warp.
 
 Key differences from V0:
-  - Warps BGR to 320x400 birdseye at start of process(), then all processing on birdseye
-  - Per-row ground LUT — cm_per_px and z both vary with the row (see _build_ground_lut)
+  - Warps BGR to an equal-scale metric birdseye before lane processing
+  - Ground LUT has constant cm/pixel; scan regions migrate from legacy ground distances
   - Band definitions adapted for 400px birdseye (down 266-398, mid 132-264, up 0-130)
   - No PID/steer/lost controller code — pure vision pipeline
   - Optional nested config for P1 observation/fusion; camera parameters remain explicit
@@ -126,26 +126,34 @@ class LineDetector:
                 z_calib = (1.0, 0.0)
         self.z_a, self.z_b = float(z_calib[0]), float(z_calib[1])
 
-        # ── Birdseye ──
+        # Ground-plane orthographic raster: equal cm/pixel on both axes.
+        # Keep the legacy physical width and depth, not its distorted aspect.
+        if not math.isfinite(self.z_a) or self.z_a <= 0 or not math.isfinite(self.z_b):
+            raise ValueError("Ground distance calibration must have a positive finite slope")
         self.bird_h = 400
         self.bird_w = 320
-        self.center_x = self.bird_w // 2  # 160
-
-        # Build IPM matrix (same as V2/V3)
-        self._ipm_lookahead = (10.0, 80.0)   # set_camera_pitch_deg 也要用它重建
-        self.M = self._build_birdseye_matrix(lookahead=self._ipm_lookahead)
+        self.center_x = 160
+        self._ipm_lookahead = (20.0, 80.0)
+        self.fy_px = self.cam_h / (2.0 * np.tan(np.radians(self.cam_vfov_deg / 2)))
+        self.fx_px = self.fy_px
+        self.cx_px, self.cy_px = self.cam_w / 2.0, self.cam_h / 2.0
+        # Only used to migrate old pixel thresholds/regions into physical units.
+        legacy_M = self._build_legacy_birdseye_matrix(self._ipm_lookahead)
+        self.M_inv = np.linalg.inv(legacy_M)
+        old_near_scale = (self._ground_from_bird_px(161, 375)[0]
+                          - self._ground_from_bird_px(160, 375)[0])
+        self._legacy_row_z = [self._ground_from_bird_px(160, y)[1] for y in range(400)]
+        self.cm_per_px = self.z_a * 60.0 / (self.bird_h - 1)
+        self.z_per_px = self.cm_per_px
+        self._asp = 1.0
+        width_cm = 2 * 80 * np.tan(np.radians(self.cam_vfov_deg / 2)) * self.cam_w / self.cam_h * .7
+        self.bird_w = 2 * int(math.ceil(width_cm / (2 * self.cm_per_px))) + 1
+        self.center_x = (self.bird_w - 1) // 2
+        self._legacy_x_scale = old_near_scale / self.cm_per_px
+        self.M = self._build_birdseye_matrix(self._ipm_lookahead)
         self.M_inv = np.linalg.inv(self.M)
-        self.cm_per_px = self._compute_cm_per_px()
-        self.z_per_px = (80.0 - 20.0) / float(self.bird_h - 1)  # vertical cm per px
-        self._asp = self.cm_per_px / self.z_per_px  # pixel aspect ratio (~1.84)
-
-        # Pinhole intrinsics (16:9, square pixels) — exact red-bar distance
-        vfov_rad = np.radians(self.cam_vfov_deg)
-        hfov_rad = 2.0 * np.arctan(np.tan(vfov_rad / 2.0) * self.cam_w / self.cam_h)
-        self.fx_px = self.cam_w / (2.0 * np.tan(hfov_rad / 2.0))
-        self.fy_px = self.cam_h / (2.0 * np.tan(vfov_rad / 2.0))
-        self.cx_px = self.cam_w / 2.0
-        self.cy_px = self.cam_h / 2.0
+        self._build_valid_ground_mask()
+        self.NEAR_BAND_ROW = self._migrate_row(375)
 
         # ── 车道宽锚（横向比例尺的绝对值）──
         self.lane_width_true_cm = (
@@ -336,6 +344,8 @@ class LineDetector:
         self._observation_clock_s = 0.0
         self._last_process_time = None
 
+        self._migrate_metric_sampling()
+
         # ── Internal state ──
         self._state = self._initial_state()
 
@@ -416,7 +426,7 @@ class LineDetector:
     # Birdseye matrix (IPM: pinhole back-projection of ground plane)
     # ═══════════════════════════════════════════════════════════
 
-    def _build_birdseye_matrix(self, lookahead):
+    def _build_legacy_birdseye_matrix(self, lookahead):
         """IPM (Inverse Perspective Mapping):
         1. Define ground-plane rectangle in physical coords
         2. Project to image via pinhole model -> trapezoid src
@@ -465,14 +475,59 @@ class LineDetector:
         ])
         return cv2.getPerspectiveTransform(src, dst)
 
-    def _compute_cm_per_px(self):
-        """Horizontal cm per pixel (同 _build_birdseye_matrix 的 W 公式)"""
-        hfov_rad = 2 * np.arctan(
-            np.tan(np.radians(self.cam_vfov_deg / 2)) * self.cam_w / self.cam_h)
-        far = 80.0
-        ground_w_far = 2.0 * far * np.tan(hfov_rad / 2.0)
-        W = ground_w_far * 0.7
-        return W / self.bird_w
+    def _build_birdseye_matrix(self, lookahead):
+        """Unclipped ground projection, then ONE metric scale for x and z.
+
+        Source points outside the sensor are valid mathematical coordinates;
+        moving them onto the image boundary changes the ground homography.
+        """
+        cp, sp = math.cos(self.cam_pitch), math.sin(self.cam_pitch)
+        h, fx, fy = self.cam_height, self.fx_px, self.fy_px
+        cx, cy = self.cx_px, self.cy_px
+        ground_to_camera = np.array([
+            [fx, cx * cp, cx * h * sp],
+            [0, cy * cp - fy * sp, h * (fy * cp + cy * sp)],
+            [0, cp, h * sp]], dtype=np.float64)
+        scale = 1.0 / self.cm_per_px
+        ground_to_raster = np.array([
+            [scale, 0, self.center_x],
+            [0, -self.z_a * scale, self.z_a * lookahead[1] * scale],
+            [0, 0, 1]], dtype=np.float64)
+        return ground_to_raster @ np.linalg.inv(ground_to_camera)
+
+    def _migrate_row(self, old_y):
+        z = float(np.interp(old_y, np.arange(400), self._legacy_row_z))
+        return int(round(clamp((self._to_true_z(80) - z) / self.cm_per_px, 0, 399)))
+
+    def _build_valid_ground_mask(self):
+        source = np.full((self.cam_h, self.cam_w), 255, np.uint8)
+        mask = cv2.warpPerspective(source, self.M, (self.bird_w, self.bird_h),
+                                   flags=cv2.INTER_NEAREST)
+        # Suppress interpolation rims; do not interpret unobserved ground as black line.
+        self.ground_valid_mask = cv2.erode(mask, np.ones((5, 5), np.uint8)) > 0
+
+    def _migrate_metric_sampling(self):
+        for name in ('band_low_y0', 'band_low_y1', 'band_mid_y0', 'band_mid_y1'):
+            setattr(self, name, self._migrate_row(getattr(self, name)))
+        self.bottom_start_ratio = self._migrate_row(350) / self.bird_h
+        self.bottom_lock_start_ratio = self.bottom_start_ratio
+        # Preserve lateral centimeter gates, including the recently relaxed jump.
+        for name in ('min_track_width', 'max_track_width', 'width_std_max',
+                     'min_line_width', 'max_line_width', 'lane_width_init_px',
+                     'lane_width_tol_px', 'max_center_jump_px', 'bottom_lock_sym_tol_px',
+                     'curve_switch_px', 'curve_force_sym_tol_px', 'left_curve_outward_px',
+                     'robust_diff_rms_trigger_px', 'observation_rmse_max_px'):
+            setattr(self, name, getattr(self, name) * self._legacy_x_scale)
+        from dataclasses import replace
+        c = self.heading_scan
+        self.heading_scan = replace(c, bottom_y=self._migrate_row(c.bottom_y),
+            top_y=self._migrate_row(c.top_y), fit_top_y=self._migrate_row(c.fit_top_y),
+            step_px=max(1, round(abs(self._migrate_row(350)-self._migrate_row(350+c.step_px)))),
+            min_line_width_px=max(1, round(c.min_line_width_px*self._legacy_x_scale)),
+            min_lane_width_px=c.min_lane_width_px*self._legacy_x_scale,
+            max_lane_width_px=c.max_lane_width_px*self._legacy_x_scale,
+            initial_width_px=c.initial_width_px*self._legacy_x_scale,
+            search_radius_px=c.search_radius_px*self._legacy_x_scale)
 
     def _to_true_z(self, z_model):
         """相机模型读数 → 地面真值 cm（系数在 cameras.json 的 distance_calib）。"""
@@ -524,18 +579,15 @@ class LineDetector:
         self.cam_pitch = new
         self.M = self._build_birdseye_matrix(lookahead=self._ipm_lookahead)
         self.M_inv = np.linalg.inv(self.M)
+        self._build_valid_ground_mask()
         self._build_ground_lut()
         self._rebuild_err_scale()
 
     def _build_ground_lut(self):
-        """逐行的地面距离和横向比例尺。
+        """Inverse-projection LUT, checked against the metric raster in tests.
 
-        原来两样都是一个常数：z = 20 + Δy·0.1504（假设透视是线性的），
-        x = Δx·0.330（只在图最远端对齐）。实际量出来：
-          · z 在 z=55cm 处报 66.3，偏 +11.3cm；直线假设撑不住透视。
-          · 横向在近端 0.219 cm/px、远端 0.331，差 1.5 倍。err_scale_cm 用 0.330
-            等于把低带的误差放大 51%，PID 的实际增益也就跟着大 51%。
-        两样都能从同一个 M 反算出来 —— 不需要再标定，标定错了也只是整体缩放。
+        The corrected raster has constant x/z scale. Camera pose/calibration
+        errors can still distort physical ground; this LUT cannot fix them.
         """
         ys = np.arange(self.bird_h, dtype=np.float64)
 
@@ -1558,6 +1610,10 @@ class LineDetector:
 
         # ── Step 1: Warp to birdseye (single warp, derive gray on birdseye) ──
         bgr_bird = cv2.warpPerspective(bgr, self.M, (self.bird_w, self.bird_h))
+        # Neutral padding prevents the missing sensor area becoming a dark edge.
+        valid = self.ground_valid_mask
+        fill = np.median(bgr_bird[valid], axis=0) if np.any(valid) else np.array([255]*3)
+        bgr_bird[~valid] = fill
         # Custom grayscale on birdseye: max of max(R,G,B) and standard grayscale
         gray_max = np.max(bgr_bird, axis=2)
         gray_std = cv2.cvtColor(bgr_bird, cv2.COLOR_BGR2GRAY)
@@ -1568,6 +1624,10 @@ class LineDetector:
         gray_detect, binary_clean, black_th, preprocess_debug = extract_lane_candidates(
             gray, self.preprocess_mode, self.th_offset, self.th_min, self.th_max,
             photometry=self._photometry, adaptive_c=self.adaptive_c)
+        gray_detect[~valid] = 0
+        binary_clean[~valid] = 0
+        preprocess_debug["ipm_metric_cm_per_px"] = self.cm_per_px
+        preprocess_debug["ipm_valid_fraction"] = float(np.mean(valid))
         preprocess_debug.update(self._photometry.diagnostics())
         preprocess_debug["centroid_min_contrast_effective"] = self._photometry.difference(
             self.centroid_min_contrast)
@@ -2169,17 +2229,17 @@ class LineDetector:
                               (255, 0, 255), 2)
 
         # Center crosshair
-        cv2.line(vis, (self.center_x, 0), (self.center_x, self.bird_h - 1),
+        cv2.line(vis, (int(self.center_x), 0), (self.center_x, self.bird_h - 1),
                  (128, 128, 128), 1)
         cv2.line(vis, (0, self.bird_h // 2), (self.bird_w - 1, self.bird_h // 2),
                  (128, 128, 128), 1)
 
         # Lateral deviation indicator
         dev_x = int(self.center_x + dev_px)
-        cv2.line(vis, (self.center_x, self.bird_h - 20),
+        cv2.line(vis, (int(self.center_x), self.bird_h - 20),
                  (self.center_x, self.bird_h - 5), (255, 255, 255), 2)
         cv2.circle(vis, (dev_x, self.bird_h - 12), 5, (0, 255, 0), -1)
-        cv2.line(vis, (self.center_x, self.bird_h - 12),
+        cv2.line(vis, (int(self.center_x), self.bird_h - 12),
                  (dev_x, self.bird_h - 12), (0, 255, 0), 2)
 
         # Heading indicator

@@ -1,0 +1,418 @@
+[
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/三1.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 12.260684103954704,
+    "near_cm": -9.291282332386212,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/三2.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 14.344312009860634,
+    "near_cm": -5.547133632222074,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/三3.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 13.296147010217242,
+    "near_cm": -7.47411634316183,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/三4.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 15.611625212087064,
+    "near_cm": -8.641587035958448,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/五1.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 25.909324961128327,
+    "near_cm": -3.3465476499798443,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/五2.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 26.705327463300783,
+    "near_cm": -2.649627967084321,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/五3.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 21.657608892602063,
+    "near_cm": -3.6786193670739467,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/五4.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.977669388619216,
+    "near_cm": -6.2166128398867855,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/五5.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.80264844698705,
+    "near_cm": -5.67489164208328,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/五6.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.758286804832995,
+    "near_cm": -5.547699012789096,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/十1.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.946835488965426,
+    "near_cm": -11.617237565443713,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/十2.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 16.270693779686574,
+    "near_cm": -9.600971561588686,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/十3.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 22.70670269170998,
+    "near_cm": -12.425276055189736,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/圆1.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.530001776198457,
+    "near_cm": -4.338866377393369,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/圆2.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.482468208354703,
+    "near_cm": -4.353594963732885,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/圆3.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.501439048456966,
+    "near_cm": -4.382046549852787,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/圆4.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.531718501288825,
+    "near_cm": -4.370062055523891,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/圆5.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.531718501288825,
+    "near_cm": -4.370062055523891,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/圆6.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.531718501288825,
+    "near_cm": -4.382016894344677,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/正1.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.457973942986143,
+    "near_cm": -4.338867024799235,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/正2.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.457973942986143,
+    "near_cm": -4.338863054406352,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/正3.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.5308199260814,
+    "near_cm": -4.338863054406352,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/正4.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.5308199260814,
+    "near_cm": -4.338870400274265,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/正5.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.394966911267083,
+    "near_cm": -4.382078117827248,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/正6.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": false,
+    "heading_valid": false,
+    "heading": 0.0,
+    "near_cm": 0.0,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/正7.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.532536716089908,
+    "near_cm": -4.38200675528424,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/正8.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.532536716089908,
+    "near_cm": -4.3820276802074165,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/背景.png",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.457196898032404,
+    "near_cm": -4.41093239209356,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/菱1.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.442486173054334,
+    "near_cm": -4.378683174988661,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/菱2.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.5308199260814,
+    "near_cm": -4.3541696518694195,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/菱3.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.425050179675,
+    "near_cm": -3.8702589423004703,
+    "valid_fraction": 0.9184390048154093
+  },
+  {
+    "file": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/菱4.jpg",
+    "bird_size": [
+      623,
+      400
+    ],
+    "cm_per_px": 0.17027518796992483,
+    "valid": true,
+    "heading_valid": true,
+    "heading": 18.557978054547622,
+    "near_cm": -4.0133383671242395,
+    "valid_fraction": 0.9184390048154093
+  }
+]

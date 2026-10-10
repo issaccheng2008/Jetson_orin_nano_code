@@ -97,6 +97,7 @@ class GroundHeadingTests(unittest.TestCase):
     def test_shared_point_dedup_and_legacy_heading_are_unchanged(self):
         d=self.detector();old=self.detector(frozen.LineDetector)
         d.bottom_lock_enable=old.bottom_lock_enable=True
+        old._asp=d._asp  # Compare point selection at the same metric pixel aspect.
         rows=list(range(300,324,2))
         r=dict(observation_paired=True,ys_list=rows,centers_list=[150+.4*y for y in rows])
         ignored=dict(observation_paired=False,ys_list=rows,centers_list=[0]*len(rows))
@@ -109,29 +110,25 @@ class GroundHeadingTests(unittest.TestCase):
             self.assertEqual(d._fit_trusted_heading([r,ignored],lock),
                              old._fit_trusted_heading([r,ignored],lock))
 
-    def test_process_preserves_lateral_output_and_does_not_replay_heading_on_loss(self):
+    def test_metric_process_has_lateral_output_and_does_not_replay_heading_on_loss(self):
         d=self.detector();old=self.detector(frozen.LineDetector)
-        # This frozen-source comparison checks geometry compatibility under the
-        # same extraction. Contrast extraction has separate image regressions.
+        # Metric-raster integration: fresh lateral and heading observations,
+        # followed by loss. Old pixel coordinates intentionally no longer apply.
         d.preprocess_mode='legacy'
         d.photometric_mode='legacy'
-        for item in [d,old]:
-            item.M=np.eye(3)
-            item.startup_force_simple_bottom=False
-        frame=np.full((400,320,3),255,np.uint8)
+        d.M=np.eye(3)
+        d.ground_valid_mask[:]=True
+        d.startup_force_simple_bottom=False
+        frame=np.full((d.bird_h,d.bird_w,3),255,np.uint8)
         ys=np.arange(160,400)
-        center=160+.3*(ys-357)
+        center=d.center_x+.3*(ys-(d.band_low_y0+7))
         for side in [-70,70]:
             points=np.column_stack((center+side,ys)).astype(np.int32)
             cv2.polylines(frame,[points],False,(0,0,0),7)
         for _ in range(3):
-            before=old.process(frame,dt=.1)
             after=d.process(frame,dt=.1)
-            self.assertEqual(before[0],after[0])
-            self.assertEqual(before[2],after[2])
-            for key in ('base_err_cm','near_error_cm','fused_err_cm',
-                        'measurement_valid','bottom_lock_valid'):
-                self.assertEqual(before[-1][key],after[-1][key],key)
+            self.assertTrue(after[-1]['measurement_valid'])
+            self.assertTrue(np.isfinite(after[-1]['fused_err_cm']))
             self.assertAlmostEqual(after[1],-after[-1]['heading_right_deg'])
         self.assertTrue(after[-1]['heading_control_valid'])
         self.assertEqual(after[-1]['heading_control_source'],'ground_x_z')

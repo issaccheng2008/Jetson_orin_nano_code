@@ -140,19 +140,20 @@ class ContinuousHeadingTests(unittest.TestCase):
         d.bottom_lock_enable = False
         d.red_detect_enable = False
         d.photometric_mode = 'legacy'
-        frame = np.full((400,320,3),255,np.uint8)
+        frame = np.full((d.bird_h,d.bird_w,3),255,np.uint8)
+        d.ground_valid_mask[:]=True
         for y in range(400):
             z=d.z_cm_at(y)
             x_cm=math.tan(math.radians(12))*(z-d.z_cm_at(330))
             centre=d.center_x+x_cm/d.cm_per_px_at(y)
             half=35/d.cm_per_px_at(y)/2
             for x in (int(round(centre-half)),int(round(centre+half))):
-                if 4 <= x < 316:
+                if 4 <= x < d.bird_w-4:
                     frame[y,x-4:x+5]=0
         output = d.process(frame,dt=.1)
         self.assertEqual(len(output),5)
         dev,heading,confidence,vis,debug=output
-        self.assertEqual(vis.shape,(400,320,3))
+        self.assertEqual(vis.shape,(d.bird_h,d.bird_w,3))
         self.assertTrue(debug['measurement_valid'],debug['heading_control_reject_reason'])
         self.assertTrue(debug['heading_control_valid'])
         self.assertAlmostEqual(heading,debug['angle_err_deg'])

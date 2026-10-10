@@ -66,11 +66,11 @@ class GeometryP1Tests(unittest.TestCase):
     def test_large_offset_is_not_bad_bottom_geometry(self):
         d = self.detector()
         d.bottom_lock_enable = True
-        gray=np.zeros((400,320),np.uint8)
-        bgr=np.zeros((400,320,3),np.uint8)
+        gray=np.zeros((d.bird_h,d.bird_w),np.uint8)
+        bgr=np.zeros((d.bird_h,d.bird_w,3),np.uint8)
         # A clear 140px paired lane shifted +50px is trustworthy despite old 24px gate.
-        gray[:,137:144]=255
-        gray[:,277:284]=255
+        gray[:,d.center_x-23:d.center_x-16]=255
+        gray[:,d.center_x+117:d.center_x+124]=255
         lock=d._detect_bottom_center_lock(gray,bgr,25,False)
         self.assertTrue(lock['valid'])
         self.assertGreater(lock['center_err_px'],24)
@@ -78,7 +78,7 @@ class GeometryP1Tests(unittest.TestCase):
 
     def test_missing_rows_inconsistent_width_and_fit_residual_are_rejected(self):
         d=self.detector(); d.bottom_lock_enable=True
-        gray=np.zeros((400,320),np.uint8); bgr=np.zeros((400,320,3),np.uint8)
+        gray=np.zeros((d.bird_h,d.bird_w),np.uint8); bgr=np.zeros((d.bird_h,d.bird_w,3),np.uint8)
         gray[350:352,87:94]=255; gray[350:352,227:234]=255
         lock=d._detect_bottom_center_lock(gray,bgr,25,False)
         self.assertFalse(lock['valid']); self.assertEqual(lock['quality'],0)
@@ -115,7 +115,7 @@ class GeometryP1Tests(unittest.TestCase):
         self.assertFalse(dbg['measurement_valid'])
         self.assertFalse(dbg['heading_valid'])
         self.assertFalse(dbg['preview_valid'])
-        self.assertEqual(d._state['last_lane_center_x'],160)
+        self.assertEqual(d._state['last_lane_center_x'],d.center_x)
 
     def test_preview_is_independent_of_zero_near_and_has_explicit_sign_and_bound(self):
         d=self.detector()
@@ -232,9 +232,10 @@ class GeometryP1Tests(unittest.TestCase):
     def test_actual_bird_geometry_retains_straight_and_preview_direction(self):
         for slope in [0,.45,-.45]:
             d=self.detector(); d.M=np.eye(3)
-            frame=np.full((400,320,3),255,np.uint8)
+            frame=np.full((d.bird_h,d.bird_w,3),255,np.uint8)
+            d.ground_valid_mask[:]=True
             ys=np.arange(180,400)
-            centers=160+slope*(ys-357)
+            centers=d.center_x+slope*(ys-(d.band_low_y0+7))
             for side in [-70,70]:
                 pts=np.column_stack((centers+side,ys)).astype(np.int32)
                 cv2.polylines(frame,[pts],False,(0,0,0),7)
