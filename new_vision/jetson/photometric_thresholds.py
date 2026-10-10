@@ -1,9 +1,10 @@
-"""Reference z-score thresholds without clipping or rewriting the source image.
+"""Match frame brightness moments to archived auto-exposure images.
 
-I_ref = mean_ref + std_ref * (I - mean) / std.
-Thus an intensity threshold becomes mean + std/std_ref*(T_ref-mean_ref),
-while differences, blackhat responses and adaptive C use std/std_ref only.
-Statistics use the same central ground ROI as the archived video comparison.
+The image mapping is I_ref = mean_ref + std_ref * (I - mean) / std. Callers
+apply it once to the input image, before the existing vision pipeline. Optional
+``normalize`` threshold helpers remain for compatibility; ``legacy`` keeps the
+old fixed thresholds after image matching. Statistics use the same central
+ground ROI as the archived video comparison.
 """
 from dataclasses import dataclass
 import numpy as np
@@ -27,6 +28,34 @@ class Photometry:
         return (max(self.std, STD_FLOOR) / self.reference_std
                 if self.mode == "normalize" else 1.0)
 
+    @property
+    def match_scale(self):
+        """Contrast gain for mapping the input image into the reference domain."""
+        return self.reference_std / self.std if self.std > 1e-6 else 0.0
+
+    def match_image(self, image):
+        """Return a mean/std-matched copy, preserving shape and numeric dtype.
+
+        For color images the same affine mapping is applied to every channel;
+        the line detector measures statistics on max-channel grayscale, so its
+        max-channel moments receive the same mapping before IPM and color checks.
+        Integer images are rounded and clipped to their dtype's valid range.
+        """
+        image = np.asarray(image)
+        if not image.size or not np.issubdtype(image.dtype, np.number):
+            raise ValueError("photometric matching needs a nonempty numeric image")
+        if image.dtype == np.uint8:
+            levels = np.arange(256, dtype=np.float32)
+            lut = np.clip(np.rint((levels - self.mean) * self.match_scale
+                                  + self.reference_mean), 0, 255).astype(np.uint8)
+            return lut[image]
+        matched = ((image.astype(np.float32) - self.mean) * self.match_scale
+                   + self.reference_mean)
+        if np.issubdtype(image.dtype, np.integer):
+            limits = np.iinfo(image.dtype)
+            matched = np.clip(np.rint(matched), limits.min, limits.max)
+        return matched.astype(image.dtype, copy=False)
+
     def intensity(self, reference_threshold):
         if self.mode == "legacy":
             return float(reference_threshold)
@@ -40,7 +69,8 @@ class Photometry:
                     photometric_std=self.std, photometric_std_used=max(self.std, STD_FLOOR),
                     photometric_reference_mean=self.reference_mean,
                     photometric_reference_std=self.reference_std,
-                    photometric_contrast_scale=self.scale)
+                    photometric_contrast_scale=self.scale,
+                    photometric_match_scale=self.match_scale)
 
 
 def measure(gray, mode="normalize", reference=GRAY_REFERENCE):

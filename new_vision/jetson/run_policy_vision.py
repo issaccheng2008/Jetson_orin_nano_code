@@ -457,9 +457,10 @@ def parse_args():
                         default=os.getenv("SHAPE_PREPROCESS", "selective"),
                         help="Card ink candidates; canny is an explicit experimental alternative")
     parser.add_argument("--photometric-mode", choices=("normalize", "legacy"),
-                        default=os.getenv("PHOTOMETRIC_MODE", "normalize"),
-                        help="Reference mean/std normalization for card brightness gates "
-                             "and legacy lane adaptive C/centroid contrast; legacy uses fixed gates")
+                        default=os.getenv("PHOTOMETRIC_MODE", "legacy"),
+                        help="Input frames are always mean/std matched to the archived "
+                             "auto-exposure reference; legacy keeps fixed gates, while "
+                             "normalize additionally scales photometric thresholds")
     parser.add_argument("--lane-fit", action="store_true",
                         help="EXPERIMENTAL, and it changes nothing on its own: also "
                              "scan one tall band (20~70 cm instead of the two "
@@ -1287,16 +1288,10 @@ def main():
                 # Seeing a card only slows the robot down. Stopping waits until the card
                 # is close, on the same card_reach card_reach_line the action gate uses.
                 #
-                # A trigger has to be earned again by seeing the card well short of the
-                # line. An unconfirmed far cue can establish the approach before
-                # enough presence hits accumulate. The stopping gate below still
-                # requires confirmed presence and a current confirmed position.
-                # A card already past the line cannot earn a new approach.
-                arm_reach = (card_reach if card_reach is not None else
-                             card_dbg.get("cue_candidate_cy_frac"))
-                if (not startup_first_card_lock and arm_reach is not None
-                        and arm_reach < (card_reach_line if card_reach is not None
-                                         else card_trigger_frac)):
+                # A trigger has to be earned again by seeing a confirmed card well
+                # short of the line. Unconfirmed cues never arm a new approach.
+                if (not startup_first_card_lock and card_reach is not None
+                        and card_reach < card_reach_line):
                     card_armed = True
                 # The first card can disappear from a few frames while the robot is
                 # stopped for its action, then reappear close up. Count its departure

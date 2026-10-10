@@ -162,7 +162,7 @@ class LineDetector:
         # ── Threshold params ──
         self.preprocess_mode = "legacy"
         self.adaptive_c = -12.0
-        self.photometric_mode = "normalize"
+        self.photometric_mode = "legacy"
         self._photometry = None
         self.th_offset = -12  # 反光把线打成亮斑时放宽，让不够黑的也进得来
         self.th_min = 25
@@ -1550,17 +1550,18 @@ class LineDetector:
                      if previous_time is not None else float("inf"))
         state["startup_frames"] += 1
 
+        # Match the current camera frame to the archived auto-exposure moments
+        # before the unchanged IPM, thresholding, and color-detection pipeline.
+        self._photometry = measure(np.max(bgr, axis=2), self.photometric_mode,
+                                   MAX_CHANNEL_REFERENCE)
+        bgr = self._photometry.match_image(bgr)
+
         # ── Step 1: Warp to birdseye (single warp, derive gray on birdseye) ──
         bgr_bird = cv2.warpPerspective(bgr, self.M, (self.bird_w, self.bird_h))
         # Custom grayscale on birdseye: max of max(R,G,B) and standard grayscale
         gray_max = np.max(bgr_bird, axis=2)
         gray_std = cv2.cvtColor(bgr_bird, cv2.COLOR_BGR2GRAY)
         gray = np.maximum(gray_max, gray_std)
-        # Match this detector's max-channel grayscale reference; do not include
-        # warped black padding or the source HUD in the exposure statistics.
-        self._photometry = measure(np.max(bgr, axis=2), self.photometric_mode,
-                                   MAX_CHANNEL_REFERENCE)
-
         img_w = self.bird_w
         img_h = self.bird_h
         img_cx = self.center_x

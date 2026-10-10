@@ -49,6 +49,7 @@ class PhotometricTests(unittest.TestCase):
         for gain in (1., .6, .4):
             image = (gray.astype(np.float32)*gain).astype(np.uint8)
             detector = ShapeDetector()
+            detector.photometric_mode = 'normalize'
             box, score = detector._presence_cue(image)
             self.assertIsNotNone(box)
             cues.append(score)
@@ -70,6 +71,7 @@ class PhotometricTests(unittest.TestCase):
         frame = np.full((540, 960), 180, np.uint8)
         cv2.rectangle(frame, (250, 200), (600, 400), 20, 20)
         detector = ShapeDetector()
+        detector.photometric_mode = 'normalize'
         _, dbg = detector.update(frame)
         self.assertGreater(dbg['photometric_contrast_scale'], 1)
         self.assertEqual(dbg['shape_adaptive_c'], detector.cfg['adaptive_c'])
