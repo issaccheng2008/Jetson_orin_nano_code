@@ -38,7 +38,20 @@ class GeometryP1Tests(unittest.TestCase):
 
     def process(self, d, bands, dt=0.1, lock=None):
         frame = np.full((720, 1280, 3), 255, np.uint8)
-        with patch.object(d, '_detect_two_band_lanes', return_value=bands):
+        # These tests isolate the existing band/near-error contracts. Their
+        # all-white frame cannot supply the new independent row heading, so
+        # provide a qualified row fit only when the band fixture has real pairs.
+        paired = any(r.get('pair_ratio', 0) > .5 for r in bands)
+        near = bands[0]['center_px'] if bands else d.center_x
+        far = bands[-1]['center_px'] if bands else near
+        row_fit = dict(valid=paired, heading_right_deg=(far-near)*.15 if paired else 0.,
+                       confidence=.8 if paired else 0., residual_cm=0.,
+                       observed_rows=8 if paired else 0, inferred_rows=0,
+                       paired_rows=8 if paired else 0, span_cm=10. if paired else 0.,
+                       fit=(0.,0.,25.) if paired else None, rows=[],
+                       reason='accepted' if paired else 'insufficient_observations')
+        with patch.object(d, '_detect_two_band_lanes', return_value=bands), \
+             patch('line_detector_v1_warp.trace_heading', return_value=row_fit):
             if lock is None:
                 return d.process(frame, dt=dt)[-1]
             with patch.object(d, '_detect_bottom_center_lock', return_value=lock):
@@ -136,7 +149,7 @@ class GeometryP1Tests(unittest.TestCase):
         self.assertFalse(self.process(d,[single])['measurement_valid'])
         self.process(d,[self.band(d)]); self.process(d,[self.band(d)])
         dbg=self.process(d,[single])
-        self.assertTrue(dbg['measurement_valid'])
+        self.assertFalse(dbg['measurement_valid'])
         self.assertLessEqual(dbg['measurement_quality'],.35)
         self.assertFalse(dbg['heading_valid']); self.assertFalse(dbg['preview_valid'])
         self.assertFalse(self.process(d,[single],dt=1.01)['measurement_valid'])

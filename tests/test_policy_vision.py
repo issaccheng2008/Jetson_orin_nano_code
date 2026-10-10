@@ -1724,11 +1724,15 @@ class LineDetectorStateTests(unittest.TestCase):
         detector = ld.LineDetector(1280, 720)
         detector.bottom_lock_enable = False
         detector.robust_enable = False
-        band = SingleLineTrackingTests()._band(detector, [100, 240])
-        band.update(band_name="low", weight=1.)
-        frame = np.full((720, 1280, 3), 255, np.uint8)
-        with patch.object(detector, "_detect_two_band_lanes", return_value=[band]), \
-             patch.object(ld, "confidence_weighted_ema", side_effect=AssertionError("legacy EMA")), \
+        detector.startup_force_simple_bottom = False
+        detector.red_detect_enable = False
+        detector.photometric_mode = 'legacy'
+        detector.M = np.eye(3)
+        detector.M_inv = np.eye(3)
+        frame = np.full((400, 320, 3), 255, np.uint8)
+        frame[:, 96:105] = 0
+        frame[:, 236:245] = 0
+        with patch.object(ld, "confidence_weighted_ema", side_effect=AssertionError("legacy EMA")), \
              patch.object(ld, "time_constant_ema", wraps=ld.time_constant_ema) as update:
             first = detector.process(frame, dt=.1)[-1]
             second = detector.process(frame, dt=.07)[-1]
