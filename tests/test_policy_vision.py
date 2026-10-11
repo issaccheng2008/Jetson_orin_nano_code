@@ -1793,7 +1793,7 @@ class LineDetectorStateTests(unittest.TestCase):
         def read():
             reads[0] += 1
             clock[0] = reads[0] * 0.1
-            if reads[0] > 10:
+            if reads[0] > 30:
                 run_policy_vision.signal.signal.call_args.args[1](None, None)
                 return False, None
             return True, frame
@@ -1813,8 +1813,10 @@ class LineDetectorStateTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         self.assertEqual(inputs[0], (1, 0))
-        self.assertTrue(all(value == 1 for index, value in inputs if 2 <= index <= 8))
-        self.assertEqual(dict(inputs)[9], 2)
+        self.assertTrue(all(value == 1 for index, value in inputs if 2 <= index <= 23))
+        # Blind tilt 1.0 s + settle 0.1 s + the full vote second closes at
+        # t=2.3 s. The first resumed frame must use the pre-stop seed.
+        self.assertEqual(dict(inputs)[24], 2)
         detector.reset_state.assert_not_called()
 
     def test_a_low_confidence_frame_barely_moves_the_error(self):
