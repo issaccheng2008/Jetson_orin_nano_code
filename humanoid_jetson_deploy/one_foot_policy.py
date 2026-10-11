@@ -11,19 +11,15 @@ import config
 from policy_runner import HumanoidPolicy
 
 
-def apply_lift_pitch_scale(target: np.ndarray, active: bool) -> np.ndarray:
-    """Scale physical hip/ankle pitch targets only during a vision card lift."""
+def apply_lift_target_scale(target: np.ndarray, active: bool) -> np.ndarray:
+    """Scale all physical joint targets only during a vision card lift."""
     if not active:
         return target
     scale = float(config.SHAPE_LIFT_PITCH_SCALE)
     if not math.isfinite(scale) or scale < 0.0:
         raise ValueError("SHAPE_LIFT_PITCH_SCALE must be finite and non-negative")
     result = np.asarray(target, dtype=np.float32).copy()
-    indices = [config.JOINT_NAMES.index(name) for name in (
-        "r_leg_pitch_joint", "r_ankle_pitch_joint",
-        "l_leg_pitch_joint", "l_ankle_pitch_joint",
-    )]
-    result[indices] *= scale
+    result *= scale
     return result
 
 

@@ -24,7 +24,7 @@ from imu_filter import (
     validate_stationary_imu_sample,
 )
 from policy_runner import HumanoidPolicy
-from one_foot_policy import OneFootCommand, OneFootPolicy, apply_lift_pitch_scale
+from one_foot_policy import OneFootCommand, OneFootPolicy, apply_lift_target_scale
 from shape_actions import ShapeActionController, UPPER_CARDS
 from position_monitor import LivePositionPlot, PositionCsvLogger
 from protocol import (
@@ -887,7 +887,7 @@ def main() -> int:
                     diagnostic_lift = command_values["lift_command"]
                 else:
                     diagnostic_velocity = velocity_command.copy()
-            q_policy_target = apply_lift_pitch_scale(
+            q_policy_target = apply_lift_target_scale(
                 q_policy_target,
                 not args.fixed_policy and args.policy == "walking"
                 and card_policy is not None and step_policy is card_policy

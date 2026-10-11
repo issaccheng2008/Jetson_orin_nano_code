@@ -61,7 +61,7 @@ ACTION_SCALE = 0.25
 ACCEL_OBS_SCALE = 0.1
 
 # Nano 的 config/button_start.env 设置该倍率，启动脚本导出给策略进程。
-# 图卡 3/4 抬腿时只缩放两腿 leg pitch / ankle pitch；结束恢复原始目标。
+# 图卡 3/4 抬腿时，两腿全部 12 个电机目标角度使用共同倍率；结束恢复原始目标。
 # 旧配置未填写时默认 0.9；1.0 为原始幅度，仍经过目标安全限幅。
 SHAPE_LIFT_PITCH_SCALE = float(os.environ.get("SHAPE_LIFT_PITCH_SCALE", "0.9"))
 
