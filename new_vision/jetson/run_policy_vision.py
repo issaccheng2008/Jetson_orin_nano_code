@@ -38,6 +38,8 @@ CARD_NAMES_ZH = {
 # 赛道中线半径（m），文档 §3。只用来在启动横幅里打一行参考："跟住一个弯需要
 # 多少角速度"（ω = vx / R）。**脉冲幅度不按它推** —— 0.4/0.5 是实车量出来的好值。
 LANE_RADIUS_M = 0.776
+CARD_STOP_RETRIGGER_GAP_S = 3.0
+CARD_VOTE_WINDOW_S = 1.0
 
 # 固定曝光→自动曝光标定结果（fit_photometric_mapping.py 的导出目录）。
 _DEFAULT_LUT_DIR = os.path.normpath(os.path.join(
@@ -267,9 +269,9 @@ def parse_args():
                              "walking resumes")
     parser.add_argument("--card-stop-ms", type=float,
                         default=float(os.getenv("CARD_STOP_MS", "3000")),
-                        help="Stand still at most this long waiting for the shape to "
-                             "settle, counted from the moment the box came close enough. "
-                             "Bounds the wait when no shape is ever identified. "
+                        help="Maximum wait for the current STM32 re-pose DONE, counted "
+                             "from the proximity stop. After DONE plus --card-settle-ms, "
+                             "a separate fixed one-second vote window begins. "
                              "0 disables stopping")
     parser.add_argument("--card-trigger-frac", type=float, default=None,
                         help="Explicit override: box centroid height in the frame "
@@ -309,16 +311,23 @@ def parse_args():
                              "the lane is beats restarting from the image middle. Turn "
                              "it on to break a lock that had already gone wrong")
     parser.add_argument("--card-vote-frames", type=int,
-                        default=max(1, int(os.getenv("CARD_VOTE_FRAMES", "20"))),
+                        default=max(1, int(os.getenv("CARD_VOTE_FRAMES", "6"))),
                         help="Stopped, count every per-frame classification and let "
-                             "the plurality decide the card. One frame is never "
-                             "trustworthy - blurred, mid-gait, half out of frame - but "
-                             "which shape wins out of 20 is. The result goes out as "
+                             "the plurality decide the card. Recent normal stops "
+                             "had at most 13 detector calls in the entire window, "
+                             "so the old default of 20 could never decide early. "
+                             "The result goes out as "
                              "soon as this many votes are in, and every stop gets an "
-                             "answer: if --card-stop-ms runs out first the plurality "
-                             "so far is used anyway. Needs the classifier to actually "
-                             "get that many looks - it runs at ~10 Hz, so this wants "
-                             "roughly 2s between --card-tilt-ms and --card-stop-ms")
+                             "answer: when the one-second vote window runs out, the "
+                             "plurality so far is used anyway. Two successive frames "
+                             "where grayscale and binary readers agree also decide "
+                             "early. Needs enough looks after re-pose DONE and settle")
+    parser.add_argument("--shape-proposal-mode", choices=("all", "staged"),
+                        default="all",
+                        help="Stopped-card box proposals. 'staged' tries component "
+                             "and ring candidates first, then falls back to line/corner "
+                             "proposals if no box verifies. Experimental; walking "
+                             "presence always uses all proposals for stop reliability")
     parser.add_argument("--card-clear-calls", type=int,
                         default=max(1, int(os.getenv("CARD_CLEAR_CALLS", "4"))),
                         help="Consecutive detection calls with no card before the flag "
@@ -483,7 +492,7 @@ def parse_args():
     parser.add_argument("--line-adaptive-c", type=float, default=-12.0,
                         help="Reference C for the legacy lane adaptive threshold; "
                              "threshold mode adapts it by ground std/reference std")
-    parser.add_argument("--shape-preprocess", choices=("selective", "canny"),
+    parser.add_argument("--shape-preprocess", choices=("selective", "canny", "local_dark"),
                         default=os.getenv("SHAPE_PREPROCESS", "selective"),
                         help="Card ink candidates; canny is an explicit experimental alternative")
     parser.add_argument("--photometric-mode", choices=("raw", "threshold", "match", "normalize", "legacy", "lut"),
@@ -612,6 +621,8 @@ def parse_args():
         parser.error("card-clear-calls must be at least 1")
     if args.card_stable_frames < 1:
         parser.error("card-stable-frames must be at least 1")
+    if args.card_vote_frames < 1:
+        parser.error("card-vote-frames must be at least 1")
     if args.card_every_stopped < 1:
         parser.error("card-every-stopped must be at least 1")
     if args.shape_every < 1:
@@ -1052,15 +1063,23 @@ def main():
         card_tilt_event_before_stop = 0
         card_tilt_pending_id = 0
         card_vote_ready_at = 0.0
+        card_agreement_shape = None
+        card_agreement_streak = 0
         card_flag = False        # a card is in view on this approach
         card_absent = 0          # consecutive detection calls without one
         card_triggered = False   # this card has already been acted on
         card_armed = True        # and it has since been seen far enough to trigger
         card_action_triggered = False
+        # The next physical card may stop only after the previous read/action
+        # window has ended and another three seconds have elapsed.
+        next_card_stop_allowed_at = 0.0
         card_dbg = {}
         # 这次停车的形状票：{形状名: 票数}。停车触发时清空，见下面。
         card_votes = {}
         card_vote_total = 0
+        card_vote_attempts = 0
+        card_vote_abstentions = 0
+        card_vote_empty_reported = False
         lateral_warned = None    # None until the lateral bound first trips
         card_window_open = False
         # 门控的"上一帧"状态。闸门关着时 window_open 为真，于是窗口关闭那套交接
@@ -1319,7 +1338,8 @@ def main():
             # mid-tilt is a frame of a body in motion, and feeding those to the
             # classifier is how a card gets read as the wrong shape. The card is
             # stationary and the window is seconds long, so the wait is free.
-            if card_wait_for_tilt_done and card_vote_ready_at == 0.0:
+            if (card_wait_for_tilt_done and card_vote_ready_at == 0.0
+                    and processed < stop_until and not card_action_triggered):
                 tilt_event_id = getattr(attitude, "card_tilt_event_id", 0)
                 if (type(tilt_event_id) is int
                         and tilt_event_id > card_tilt_event_before_stop):
@@ -1327,8 +1347,13 @@ def main():
                         card_tilt_pending_id = tilt_event_id
                     elif tilt_event_id == card_tilt_pending_id:
                         card_vote_ready_at = processed + args.card_settle_ms / 1000.0
+                        stop_until = card_vote_ready_at + CARD_VOTE_WINDOW_S
+                        next_card_stop_allowed_at = max(
+                            next_card_stop_allowed_at,
+                            stop_until + CARD_STOP_RETRIGGER_GAP_S)
                         print(f"[shape] STM32 re-pose DONE event={tilt_event_id}; "
-                              f"wait {args.card_settle_ms:.0f}ms before voting", flush=True)
+                              f"wait {args.card_settle_ms:.0f}ms, then vote for at most "
+                              f"{CARD_VOTE_WINDOW_S:.1f}s", flush=True)
             if card_wait_for_tilt_done:
                 tilting = card_vote_ready_at == 0.0 or frame_observed_at < card_vote_ready_at
             else:
@@ -1336,6 +1361,8 @@ def main():
             # 每帧清空：下面投票那段在检测块外面，读到上一帧的 card_dbg 就会拿同一次
             # 检测投两次票（--card-every-stopped 2 时票数正好翻倍）。
             card_dbg = None
+            card_detection_mode = None
+            card_vote_decision = None
             # ── 阀1：二维码 ──
             # 只在还没扫到时跑，而且每 --qr-every 帧才解一次：detectAndDecode 是纯
             # CPU 的，1280x720 raw 十几毫秒、再放大一倍几十毫秒，逐帧跑会把主循环
@@ -1359,9 +1386,16 @@ def main():
                         print(f"[start-gate] ⚠️ 扫到 payload={reading.payload!r}，"
                               f"不是 {start_gate.expected_qr!r}，忽略", flush=True)
             if shape is not None and not tilting and (frames % shape_period == 0):
+                classify_card = bool(
+                    (gate_window_open and start_gate is not None
+                     and start_gate.require_shape and not start_gate.shape_passed)
+                    or (processed < stop_until and not card_action_triggered))
+                card_detection_mode = "classify" if classify_card else "presence"
                 shape_update_start_ns = time.perf_counter_ns()
                 action, card_dbg = shape.update(
-                    frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)))
+                    frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
+                    classify=classify_card, issue_action=False,
+                    proposal_mode=(args.shape_proposal_mode if classify_card else "all"))
                 shape_update_ms = (time.perf_counter_ns() - shape_update_start_ns) / 1_000_000.0
                 # "多近了"这一个量，动作闸和停车闸共用。有真框就量框宽（对机身俯仰
                 # 不敏感），没框才退回 cy。理由见下面停车那段。
@@ -1399,7 +1433,13 @@ def main():
                     card_flag = True
                 else:
                     card_absent += 1
-                    if card_absent >= args.card_clear_calls and not startup_first_card_pending:
+                    # A few blurred frames during the stopped vote cannot mean
+                    # that this physical card has left. Re-arm only after its
+                    # stop/action windows are over and walking has resumed.
+                    if (card_absent >= args.card_clear_calls
+                            and not startup_first_card_pending
+                            and processed >= stop_until and processed >= card_until
+                            and last_cmd_vx > 0.0):
                         card_flag = False
                         card_triggered = False
                         card_action_triggered = False
@@ -1408,6 +1448,10 @@ def main():
                         # 兜底分支就会拿着上一批旧票再投一次 —— 实机是刚起步又停下。
                         card_votes = {}
                         card_vote_total = 0
+                        card_vote_attempts = 0
+                        card_vote_abstentions = 0
+                        card_agreement_shape = None
+                        card_agreement_streak = 0
                 # Seeing a card only slows the robot down. Stopping waits until the card
                 # is close, on the same card_reach card_reach_line the action gate uses.
                 #
@@ -1442,6 +1486,7 @@ def main():
                 if (card_flag and not card_triggered and card_armed
                         and not startup_first_card_pending
                         and not startup_first_card_lock
+                        and processed >= next_card_stop_allowed_at
                         and card_reach is not None
                         and card_reach >= card_reach_line):
                     # The trigger itself was detected only after line processing;
@@ -1449,10 +1494,18 @@ def main():
                     detector.restore_tracking_state(tracking_before_frame)
                     card_triggered = True
                     card_armed = False
-                    stop_until = processed + args.card_stop_ms / 1000.0
                     tilt_until = processed + (args.card_tilt_ms + args.card_settle_ms) / 1000.0
                     card_wait_for_tilt_done = (
                         getattr(attitude, "card_tilt_status_seen", False) is True)
+                    # With current attitude feedback, --card-stop-ms is only a
+                    # safety timeout for missing DONE. Legacy feedback uses the
+                    # blind tilt timer, followed by the same one-second vote.
+                    stop_until = (processed + args.card_stop_ms / 1000.0
+                                  if card_wait_for_tilt_done else
+                                  tilt_until + CARD_VOTE_WINDOW_S)
+                    next_card_stop_allowed_at = max(
+                        next_card_stop_allowed_at,
+                        stop_until + CARD_STOP_RETRIGGER_GAP_S)
                     card_tilt_event_before_stop = (
                         attitude.card_tilt_event_id if card_wait_for_tilt_done else 0)
                     card_tilt_pending_id = 0
@@ -1460,6 +1513,11 @@ def main():
                     tilting = True  # the trigger frame may identify a shape, but gets no vote
                     card_votes = {}
                     card_vote_total = 0
+                    card_vote_attempts = 0
+                    card_vote_abstentions = 0
+                    card_agreement_shape = None
+                    card_agreement_streak = 0
+                    card_vote_empty_reported = False
                     # 和下面"识别到图卡"那条配成一对：这两个时刻是整趟里唯一需要
                     # 肉眼确认的，中间重摆那一秒多什么都不会打印，所以它们要能
                     # 从刷屏里一眼捞出来。
@@ -1470,13 +1528,15 @@ def main():
                         how = (f"没框，退回 cy {card_reach:.2f} / 阈值 "
                                f"{card_reach_line:.2f}")
                     print("\n" + "=" * 68, flush=True)
-                    print(f"  ●●●  停车读卡 —— stand still {args.card_stop_ms:.0f}ms"
+                    print(f"  ●●●  停车读卡 —— stand still; 等姿态稳定，最多投票 "
+                          f"{CARD_VOTE_WINDOW_S:.1f}s"
                           f"    {how}"
                           f"    cy={fmt(card_dbg.get('presence_cy_frac'), '.2f')}",
                           flush=True)
                     print(f"        等 STM32 重摆完成后静置 {args.card_settle_ms:.0f}ms 再投票"
                           if card_wait_for_tilt_done else
-                          f"        兼容模式：盲等 {args.card_tilt_ms + args.card_settle_ms:.0f}ms 再投票",
+                          f"        兼容模式：盲等 {args.card_tilt_ms + args.card_settle_ms:.0f}ms "
+                          f"再投票 {CARD_VOTE_WINDOW_S:.1f}s",
                           flush=True)
                     print("=" * 68 + "\n", flush=True)
                 # Why a card that is plainly in view did not become an action: the
@@ -1504,9 +1564,10 @@ def main():
                         f"g{card_dbg.get('quad_geom', '?')}"
                         f"v{len(card_dbg.get('scores') or [])} "
                         f"rej={' '.join(f'{k}:{n}' for k, n in rej) or '-'} "
-                        f"armed={int(bool(getattr(shape, 'armed', True)))} "
-                        f"cand={getattr(shape, 'candidate', None)}"
-                        f"x{getattr(shape, 'candidate_count', 0)}", flush=True)
+                        f"armed={int(bool(card_armed))} "
+                        f"mode={card_detection_mode} "
+                        f"source={card_dbg.get('shape_proposal_source') or '-'}",
+                        flush=True)
             # ── 阀2：认出第一张图卡的形状 ──
             # 放在停车触发之后是故意的：释放那一帧仍然算在门控里（card_armed 这一帧
             # 刚被按住），下一帧起 card_armed 才是真的可以开火 —— 避免"开门与开火
@@ -1574,6 +1635,9 @@ def main():
                 card_action = startup_first_card
                 card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
                 card_until = processed + card_action_stop_s(card_action, args.card_hold_ms)
+                next_card_stop_allowed_at = max(
+                    next_card_stop_allowed_at,
+                    card_until + CARD_STOP_RETRIGGER_GAP_S)
                 recognized_this_frame = True
                 print(f"[start-gate] 首卡启动序列结束；停车并发送已锁存的 "
                       f"action={card_action} event={card_event_id}", flush=True)
@@ -1588,28 +1652,64 @@ def main():
             # 三处只要有一处没跟上就会拿着残留的票再定一次案。判过的卡连票都不该
             # 收，就不需要依赖那三处同步。
             if (processed < stop_until and not tilting and not card_action_triggered
-                    and card_dbg and card_dbg.get("shape")):
-                _name = card_dbg["shape"]
-                card_votes[_name] = card_votes.get(_name, 0) + 1
-                card_vote_total += 1
+                    and card_dbg is not None):
+                card_vote_attempts += 1
+                if card_dbg.get("shape"):
+                    _name = card_dbg["shape"]
+                    card_votes[_name] = card_votes.get(_name, 0) + 1
+                    card_vote_total += 1
+                    if (card_dbg.get("shape_local_candidate") == _name
+                            and card_dbg.get("shape_legacy_candidate") == _name):
+                        card_agreement_streak = (
+                            card_agreement_streak + 1
+                            if card_agreement_shape == _name else 1)
+                        card_agreement_shape = _name
+                    else:
+                        card_agreement_shape = None
+                        card_agreement_streak = 0
+                else:
+                    card_vote_abstentions += 1
+                    card_agreement_shape = None
+                    card_agreement_streak = 0
 
-            # 票够了就出；停车的预算（--card-stop-ms）用完还没够，也按手上的多数
+            # 票够了就出；DONE+settle 后的 1 秒窗口用完还没够，也按手上的多数
             # 票出 —— **每次停车必须给出一个**。出完 card_until 会把窗口接上，
             # 机器人继续停着等动作。一票都没有才什么都不出（那次确实没看到卡）。
             # 并列时按名字排序取第一个，结果可复现。
+            ordered_votes = sorted(card_votes.values(), reverse=True)
+            vote_margin = (ordered_votes[0] - ordered_votes[1]
+                           if len(ordered_votes) > 1 else
+                           ordered_votes[0] if ordered_votes else 0)
+            vote_target_met = bool(
+                card_vote_total >= args.card_vote_frames and ordered_votes
+                and ordered_votes[0] * 2 > card_vote_total)
+            vote_agreement_met = bool(
+                card_agreement_streak >= 2 and card_agreement_shape is not None
+                and card_votes.get(card_agreement_shape, 0) * 2 > card_vote_total)
             if (card_votes and not card_action_triggered and card_event_id == 0
                     and not startup_first_card_pending
-                    and (card_vote_total >= args.card_vote_frames
+                    and (vote_agreement_met or vote_target_met
                          or processed >= stop_until)):
-                winner = max(sorted(card_votes), key=card_votes.get)
+                vote_reason = ("two_path_two_frames" if vote_agreement_met else
+                               "target" if vote_target_met else "timeout")
+                winner = (card_agreement_shape if vote_agreement_met else
+                          max(sorted(card_votes), key=card_votes.get))
                 card_action = shape_numbers[winner]
                 card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
                 card_until = processed + card_action_stop_s(card_action, args.card_hold_ms)
+                next_card_stop_allowed_at = max(
+                    next_card_stop_allowed_at,
+                    card_until + CARD_STOP_RETRIGGER_GAP_S)
                 card_action_triggered = True
                 recognized_this_frame = True
                 tally = " ".join(f"{n}:{card_votes[n]}" for n in
                                  sorted(card_votes, key=card_votes.get, reverse=True))
                 votes_cast = card_vote_total
+                card_vote_decision = dict(reason=vote_reason, winner=winner,
+                                          total=votes_cast, counts=dict(card_votes),
+                                          attempts=card_vote_attempts,
+                                          abstentions=card_vote_abstentions,
+                                          margin=vote_margin)
                 # 出完就清票：同一批票只能定一次案。
                 card_votes = {}
                 card_vote_total = 0
@@ -1618,10 +1718,17 @@ def main():
                       f"{CARD_NAMES_ZH.get(winner, '?')}（{winner}）  "
                       f"qr={card_action}", flush=True)
                 print(f"        票 {votes_cast} 张 / 要求 {args.card_vote_frames}"
-                      f"    {tally}"
+                      f"    弃票 {card_vote_abstentions} / {card_vote_attempts} 次检测"
+                      f"    票差 {vote_margin}    原因 {vote_reason}    {tally}"
                       f"    保持 {card_action_stop_s(card_action, args.card_hold_ms):.1f} s",
                       flush=True)
                 print("=" * 68 + "\n", flush=True)
+            if (processed >= stop_until and stop_until > 0 and not card_votes
+                    and not card_action_triggered and not card_vote_empty_reported):
+                card_vote_empty_reported = True
+                print(f"[shape] 停车投票结束：{card_vote_attempts} 次检测、"
+                      f"{card_vote_abstentions} 次无类别，0 张有效票；未发送图卡类别",
+                      flush=True)
 
             if card_action != -1 and processed >= card_until:
                 card_action = -1
@@ -1765,6 +1872,29 @@ def main():
                     loop_period_ms=loop_period_ms, camera_read_ms=camera_read_ms,
                     line_process_ms=line_process_ms, qr_decode_ms=qr_decode_ms,
                     shape_update_ms=shape_update_ms, decision_ms=decision_ms,
+                    card_detection_mode=card_detection_mode,
+                    card_vote_total=card_vote_total,
+                    card_vote_attempts=card_vote_attempts,
+                    card_vote_abstentions=card_vote_abstentions,
+                    card_vote_agreement_streak=card_agreement_streak,
+                    card_vote_window_remaining_s=(max(0., stop_until-processed)
+                                                  if card_vote_ready_at or
+                                                  (stop_until > 0 and not card_wait_for_tilt_done)
+                                                  else None),
+                    card_vote_target=args.card_vote_frames,
+                    card_vote_ready=bool(processed < stop_until and not tilting),
+                    card_vote_reason=(card_vote_decision or {}).get("reason"),
+                    card_vote_winner=(card_vote_decision or {}).get("winner"),
+                    card_vote_count=(card_vote_decision or {}).get("total"),
+                    card_vote_margin=(card_vote_decision or {}).get("margin"),
+                    card_vote_decision_attempts=(card_vote_decision or {}).get("attempts"),
+                    card_vote_decision_abstentions=(card_vote_decision or {}).get("abstentions"),
+                    card_vote_counts=(json.dumps(card_vote_decision["counts"],
+                                                 ensure_ascii=False, sort_keys=True)
+                                      if card_vote_decision else None),
+                    card_stop_retrigger_gap_s=CARD_STOP_RETRIGGER_GAP_S,
+                    card_stop_retrigger_remaining_s=max(
+                        0.0, next_card_stop_allowed_at - processed),
                     udp_publish_ms=udp_publish_ms, read_to_publish_ms=read_to_publish_ms,
                     recording_submit_ms=recording_submit_ms,
                     vx=vx, wz=wz, mode=args.wz_mode,

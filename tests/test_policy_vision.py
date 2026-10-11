@@ -937,6 +937,114 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertEqual(qr[3], 3)
         self.assertIn("square", out.getvalue())
 
+    def test_next_card_stop_waits_three_seconds_after_previous_action_window(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        clock, reads = [0.0], [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] = round(reads[0] * 0.1, 3)
+            if reads[0] > 75:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        def card(*_a, **_k):
+            index = reads[0]
+            if index <= 32 or index >= 37:
+                cy = 0.2 if index == 37 else 0.9
+                return None, {"presence": True, "card_found": True,
+                              "presence_cy_frac": cy, "shape": "square"}
+            return None, {"presence": False, "card_found": False,
+                          "presence_cy_frac": None, "shape": None}
+
+        camera.read.side_effect = read
+        shape.update.side_effect = card
+        sent = []
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
+                               "--shape-every", "1", "--card-every-stopped", "1",
+                               "--card-tilt-ms", "0", "--card-settle-ms", "0",
+                               "--card-vote-frames", "1", "--card-stop-ms", "300"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            client_cls.return_value.publish.side_effect = (
+                lambda *a, **k: sent.append((clock[0], k.get("card_tilt", False))))
+            self.assertEqual(run_policy_vision.main(), 0)
+        edges = [t for (t, flag), previous in zip(sent, [False] +
+                 [flag for _, flag in sent[:-1]]) if flag and not previous]
+        self.assertEqual(len(edges), 2)
+        # First vote at t=0.2; its action window runs for at least 3 s.
+        # The next card is close from t=3.8 but cannot stop before t=6.2.
+        self.assertGreaterEqual(edges[1], 6.2 - 1e-9)
+
+    def test_empty_vote_still_blocks_a_new_stop_for_three_seconds(self):
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        camera = Mock()
+        camera.isOpened.return_value = True
+        camera.get.side_effect = [1280, 720]
+        detector = Mock()
+        detector.process.return_value = (0, 0, 0.9, None, detection())
+        shape = Mock()
+        shape.action_map = {"square": 3}
+        clock, reads = [0.0], [0]
+
+        def read():
+            reads[0] += 1
+            clock[0] = round(reads[0] * 0.1, 3)
+            if reads[0] > 60:
+                run_policy_vision.signal.signal.call_args.args[1](None, None)
+                return False, frame
+            return True, frame
+
+        def card(*_a, **_k):
+            index = reads[0]
+            if index == 1 or index >= 21:
+                return None, {"presence": True, "card_found": True,
+                              "presence_cy_frac": 0.2 if index == 21 else 0.9,
+                              "shape": None}
+            return None, {"presence": False, "card_found": False,
+                          "presence_cy_frac": None, "shape": None}
+
+        camera.read.side_effect = read
+        shape.update.side_effect = card
+        sent = []
+        with (
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
+                               "--shape-every", "1", "--card-every-stopped", "1",
+                               "--card-tilt-ms", "0", "--card-settle-ms", "0",
+                               "--card-stop-ms", "300"]),
+            patch.object(run_policy_vision.signal, "signal"),
+            patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+            patch("utils.open_camera", return_value=camera),
+            patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch("shape_detector.ShapeDetector", return_value=shape),
+            patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            client_cls.return_value.publish.side_effect = (
+                lambda *a, **k: sent.append((clock[0], k.get("card_tilt", False))))
+            self.assertEqual(run_policy_vision.main(), 0)
+        edges = [t for (t, flag), previous in zip(sent, [False] +
+                 [flag for _, flag in sent[:-1]]) if flag and not previous]
+        self.assertEqual(len(edges), 2)
+        # Blind-tilt compatibility waits 0 ms here, then owns a full one-second
+        # voting window. The next stop is barred for three more seconds.
+        self.assertGreaterEqual(edges[1], 4.1 - 1e-9)
+
     def test_one_detection_casts_one_vote(self):
         """票数必须等于检测次数。检测隔帧跑（--card-every-stopped 2），
         而投票那段在检测块外面 —— card_dbg 不清空就会拿上一帧的结果再投一次，
@@ -949,15 +1057,16 @@ class VisionEntryPointTests(unittest.TestCase):
         detector.process.return_value = (0, 0, 0.9, None, detection())
         shape = Mock()
         shape.action_map = {"square": 3}
-        shape.update.return_value = (
-            None, {"presence": True, "presence_cy_frac": 0.95, "shape": "square"})
+        shape.update.side_effect = lambda *_a, **_k: (
+            None, {"presence": True, "presence_cy_frac": 0.95,
+                   "shape": "square" if reads[0] in (2, 4) else None})
         clock = [0.0]
         reads = [0]
 
         def read():
             reads[0] += 1
             clock[0] += 0.1
-            if reads[0] > 9:
+            if reads[0] > 14:
                 run_policy_vision.signal.signal.call_args.args[1](None, None)
                 return False, frame
             return True, frame
@@ -980,9 +1089,8 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
 
-        # 触发在第 1 帧（t=0.1），窗口 500ms 到 t=0.6 关。窗口内检测只跑
-        # 第 1 帧仅触发不投票，第 2/4 帧共两票。
-        # 不清 card_dbg 会在第 3/5 帧重复计票。
+        # 触发在第 1 帧，兼容路径立即开始完整 1 秒投票。第 2/4 帧
+        # 有类别，其余检测弃票。隔帧不能重用上一检测结果再投一次。
         self.assertIn("票 2 张", out.getvalue())
 
     def test_the_box_width_decides_the_stop_when_there_is_a_box(self):
@@ -2221,11 +2329,11 @@ class ShapeDetectorReportingTests(unittest.TestCase):
             contextlib.redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(run_policy_vision.main(), 0)
-        # Read 3 triggers the stop; from read 4 the detector runs every second frame.
+        # Read 3 triggers the stop; while the one-second vote window is open,
+        # detection runs every second frame. Afterwards walking cadence resumes.
         inside = [i for i in seen if i > 3]
-        self.assertEqual(inside[:10], [4, 6, 8, 10, 12, 14, 16, 18, 20, 22])
-        # And once the window closes it is back to --shape-every 1, every frame.
-        self.assertLess(shape.update.call_count, reads[0] * 0.75)
+        self.assertEqual(inside[:5], [4, 6, 8, 10, 12])
+        self.assertEqual(inside[5:10], [13, 14, 15, 16, 17])
 
     def test_the_card_is_not_looked_at_while_the_body_is_being_re_posed(self):
         """--card-tilt-ms holds off every look at the card at the start of the stop.
@@ -2363,6 +2471,100 @@ class ShapeDetectorReportingTests(unittest.TestCase):
                   if "event_id" in call.kwargs]
         self.assertTrue(events)
         self.assertGreaterEqual(events[0], 15)
+
+    def test_stopped_vote_window_and_two_reader_agreement(self):
+        """A new action needs DONE, 0.1 s settling, then at most 1 s of votes."""
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+
+        def replay(candidates):
+            camera = Mock()
+            camera.isOpened.return_value = True
+            camera.get.side_effect = [1280, 720]
+            detector = Mock()
+            detector.process.return_value = (0, 0, 0.8, None, detection())
+            clock, reads, events = [0.0], [0], []
+            shape = Mock()
+            shape.action_map = {"square": 3, "triangle": 1}
+
+            def update(*_args, **_kwargs):
+                n = reads[0]
+                local, legacy = candidates.get(n, (None, None))
+                return None, {"presence": n >= 2,
+                              "presence_cy_frac": 0.9 if n >= 2 else None,
+                              "shape": local or legacy,
+                              "shape_local_candidate": local,
+                              "shape_legacy_candidate": legacy}
+
+            def read():
+                reads[0] += 1
+                clock[0] = reads[0] * 0.1
+                if reads[0] > 23:
+                    run_policy_vision.signal.signal.call_args.args[1](None, None)
+                    return False, frame
+                return True, frame
+
+            attitude = Mock(value=45.0, card_tilt_status_seen=True,
+                            card_tilt_event_id=0, card_tilt_done=False)
+
+            def poll():
+                if reads[0] >= 3:
+                    attitude.card_tilt_event_id = 1
+                    attitude.card_tilt_done = reads[0] >= 6
+
+            def publish(*_args, **kwargs):
+                if "event_id" in kwargs:
+                    events.append((reads[0], kwargs["event_id"]))
+
+            camera.read.side_effect = read
+            shape.update.side_effect = update
+            attitude.poll.side_effect = poll
+            output = io.StringIO()
+            with (
+                patch("sys.argv", ["run_policy_vision.py", "--no-camera-async",
+                                   "--headless", "--shape-every", "1",
+                                   "--card-every-stopped", "1",
+                                   "--card-vote-frames", "99",
+                                   "--card-settle-ms", "100",
+                                   "--card-stop-ms", "3000"]),
+                patch.object(run_policy_vision.signal, "signal"),
+                patch.object(run_policy_vision, "ConnectorClient") as client_cls,
+                patch("utils.open_camera", return_value=camera),
+                patch("line_detector_v1_warp.LineDetector", return_value=detector),
+                patch("shape_detector.ShapeDetector", return_value=shape),
+                patch("attitude_input.AttitudeInput", return_value=attitude),
+                patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
+                contextlib.redirect_stdout(output),
+            ):
+                client_cls.return_value.publish.side_effect = publish
+                self.assertEqual(run_policy_vision.main(), 0)
+            return events, output.getvalue()
+
+        # The first accepted vote is after DONE at 0.6 s and settling to 0.7 s.
+        agreed, log = replay({7: ("square", "square"),
+                              8: ("square", "square")})
+        self.assertEqual(len({event_id for _, event_id in agreed}), 1)
+        self.assertGreaterEqual(agreed[0][0], 8)
+        self.assertLess(agreed[0][0], 17)
+        self.assertIn("two_path_two_frames", log)
+
+        # A mismatch breaks the streak. One reader alone can still win, but only
+        # at the one-second deadline when the high vote target has not been met.
+        disagreed, log = replay({7: ("square", "square"),
+                                 8: ("square", "triangle"),
+                                 9: ("square", "square")})
+        self.assertEqual(len({event_id for _, event_id in disagreed}), 1)
+        self.assertGreaterEqual(disagreed[0][0], 16)
+        self.assertIn("timeout", log)
+
+        # A new pair of consecutive agreeing frames can close the vote again.
+        recovered, log = replay({7: ("square", "square"),
+                                 8: ("square", "triangle"),
+                                 9: ("square", "square"),
+                                 10: ("square", "square")})
+        self.assertEqual(len({event_id for _, event_id in recovered}), 1)
+        self.assertGreaterEqual(recovered[0][0], 10)
+        self.assertLess(recovered[0][0], 16)
+        self.assertIn("two_path_two_frames", log)
 
     def test_a_card_in_view_speeds_the_detection_up_before_the_stop(self):
         """The stop fires on the first cy at or above the trigger line, so
@@ -3197,7 +3399,8 @@ class StartGateIntegrationTests(unittest.TestCase):
     def test_first_card_reappearing_near_does_not_stop_again(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         clock = [0.0]
-        camera, reads = self._camera(frame, clock, 65)
+        # Continue beyond the first action's three-second retrigger gap.
+        camera, reads = self._camera(frame, clock, 95)
         detector = Mock()
         detector.process.return_value = (0, 0, 0.9, None, detection())
         shape = Mock()

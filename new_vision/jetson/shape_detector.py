@@ -62,7 +62,7 @@ def _drop_nested(quads):
     return keep
 
 
-def _card_ink(gray):
+def _card_ink(gray, backend=None):
     """"白纸 + 黑框"的卡在原始灰度上直接 Otsu 就能切开，不需要压巡线。
 
     巡线是开放曲线，不闭合，没有孔 —— 所以"有孔"这件事本身就是卡框的选择性来源。
@@ -70,8 +70,9 @@ def _card_ink(gray):
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
     _t, ink = cv2.threshold(blur, 0, 255,
                             cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    return cv2.morphologyEx(ink, cv2.MORPH_CLOSE,
-                            cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    return (backend.morphology(ink, [(cv2.MORPH_CLOSE, kernel)])
+            if backend is not None else cv2.morphologyEx(ink, cv2.MORPH_CLOSE, kernel))
 
 
 def _triggers_at(z_cm):
@@ -130,6 +131,7 @@ class ShapeDetector:
         self.cooldown_ms = cooldown_ms
         self.roi_ratio = roi_ratio
         self.debug = debug
+        self.vision_backend = None  # Explicitly assigned by --vision-device.
         self.preprocess_mode = "selective"
         self.photometric_mode = "legacy"
         self._photometry = None
@@ -377,7 +379,8 @@ class ShapeDetector:
     # 主入口
     # ═══════════════════════════════════════════════════════════
 
-    def update(self, bgr_or_gray, lane_offset_cm=None):
+    def update(self, bgr_or_gray, lane_offset_cm=None, *,
+               classify=True, issue_action=True, proposal_mode="all"):
         """返回 (action_number, debug_dict) 或 (None, None)。
 
         输入归一化：任意分辨率 → resize到960×540（参数标定基准，
@@ -386,9 +389,13 @@ class ShapeDetector:
         lane_offset_cm: 机身相对赛道中心的横向偏差（cm，正值=赛道中心在
         画面右侧）。用于把图卡位置约束在赛道两条边线内；不传则按画面中央算。
         """
+        update_started = time.perf_counter()
+        stage_started = update_started
         self.lane_offset_cm = lane_offset_cm
         if len(bgr_or_gray.shape) == 3:
-            gray = cv2.cvtColor(bgr_or_gray, cv2.COLOR_BGR2GRAY)
+            gray = (self.vision_backend.gray(bgr_or_gray)
+                    if self.vision_backend is not None
+                    else cv2.cvtColor(bgr_or_gray, cv2.COLOR_BGR2GRAY))
         else:
             gray = bgr_or_gray
         h0, w0 = gray.shape[:2]
@@ -420,7 +427,8 @@ class ShapeDetector:
         s = min(WORK_W / w0, WORK_H / rh)
         nw = max(1, int(round(w0 * s)))
         nh = max(1, int(round(rh * s)))
-        roi_s = cv2.resize(roi, (nw, nh))
+        roi_s = (self.vision_backend.resize(roi, (nw, nh))
+                 if self.vision_backend is not None else cv2.resize(roi, (nw, nh)))
         if (nw, nh) == (WORK_W, WORK_H):
             gray = roi_s
         else:
@@ -430,6 +438,11 @@ class ShapeDetector:
         self._scale_x = w0 / nw
         self._scale_y = rh / nh
 
+        if not classify and issue_action:
+            raise ValueError("classification is required to issue an action")
+        if proposal_mode not in ("all", "staged"):
+            raise ValueError("proposal_mode must be all or staged")
+
         # S1 线宽选择性二值化（线=白255）
         if self.preprocess_mode == "canny":
             from canny_candidates import card_canny
@@ -438,24 +451,43 @@ class ShapeDetector:
                 for key, value in canny_debug.items() if np.isscalar(value)})
         elif self.preprocess_mode == "selective":
             binary = self._binary_selective(gray)
+        elif self.preprocess_mode == "local_dark":
+            from local_darkness import card_candidates
+            binary, local_debug = card_candidates(gray)
+            self._photometric_debug.update({"shape_" + k: v for k, v in local_debug.items()})
         else:
-            raise ValueError("shape preprocessing must be selective or canny")
+            raise ValueError("shape preprocessing must be selective, canny or local_dark")
         dt = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
         # 卡框是一条闭合细环，而上面那条链是为压 2cm 巡线调的，卡框在它里面是碎的。
         # ring 通道用它自己那张原始灰度 Otsu 墨迹图，后续的闭合度/线宽/环内含量
         # 也在同一张图上量 —— 拿一套阈值去量一张被锯碎的图，是在惩罚正确的框。
-        ink = binary.copy() if self.preprocess_mode == "canny" else _card_ink(gray)
+        ink = (binary.copy() if self.preprocess_mode in ("canny", "local_dark")
+               else _card_ink(gray, self.vision_backend))
+        preprocess_ms = (time.perf_counter() - stage_started) * 1000.0
+        stage_started = time.perf_counter()
 
         # S2 候选生成。候选带一个"来自 ring 通道"的标记：那一路的框是原始灰度上
         # 的环轮廓，本身就是框线外缘，既不该被 _refine_quad 滑到框线上，也不该在
         # 线宽选择性二值图上受检。在 6card 上把 refine 全局关掉是 21/31（更差），
         # 只有 ring 这一路该跳过它。
-        hsegs, lsegs = self._detect_segments(binary)
-        quads = [(q, False) for q in self._hough_quads(binary, hsegs)]
-        quads += [(q, False) for q in self._lsd_quads(binary, lsegs)]
-        quads += [(q, False) for q in self._corner_quads(binary, hsegs + lsegs)]
-        quads += [(q, False) for q in self._cc_quads(binary)]
-        quads += [(q, True) for q in self._ring_quads(ink)]
+        staged = proposal_mode == "staged" and classify
+        if staged:
+            # The stopped-card experiment starts with the cheap independent
+            # components and ring channels. The complete line/corner set remains
+            # available when those cannot produce a verified card box.
+            quads = [(q, False, "cc") for q in self._cc_quads(binary)]
+            quads += [(q, True, "ring") for q in self._ring_quads(ink)]
+        else:
+            hsegs, lsegs = self._detect_segments(binary)
+            quads = [(q, False, "hough") for q in self._hough_quads(binary, hsegs)]
+            quads += [(q, False, "lsd") for q in self._lsd_quads(binary, lsegs)]
+            quads += [(q, False, "corner") for q in self._corner_quads(binary, hsegs + lsegs)]
+            quads += [(q, False, "cc") for q in self._cc_quads(binary)]
+            quads += [(q, True, "ring") for q in self._ring_quads(ink)]
+        proposal_counts = {source: sum(item[2] == source for item in quads)
+                           for source in ("hough", "lsd", "corner", "cc", "ring")}
+        proposals_ms = (time.perf_counter() - stage_started) * 1000.0
+        stage_started = time.perf_counter()
 
         # S3 验证 + 评分
         # 性能：候选可能数百个（视频帧纹理），先轻量几何预筛（纯数值，
@@ -468,42 +500,57 @@ class ShapeDetector:
         # the geometry gate is too tight, and an empty scores list with candidates
         # means the verification thresholds rejected everything.
         quad_total, quad_geom = len(quads), 0
-        for q, from_ring in quads:
-            if not self._geom_ok(q, from_ring):
-                continue
-            quad_geom += 1
-            if from_ring:
-                # 这个框就是那条环轮廓本身，"边上有没有墨"是已经知道的事。
-                # 实测它反而在拒好框：五3 的四边命中 [0.53 1.00 0.47 1.00]、
-                # 正5 [1.00 0.93 1.00 0.47]，两条边过不了 0.65 —— 而这两张卡
-                # 单独 warp 出来判得完全正确。选择性由这条通道自己的闸（最外层、
-                # 有孔、能收成 4 角、面积区间）加 _geom_ok 的地面方形判据承担。
-                v = (1.0, 1.0)
-            else:
-                r = self._refine_quad(binary, q)
-                # refine 偶尔会把本来合格的框推坏（远处小卡的角点通道），此时退回原框
-                q = r if self._geom_ok(r) else q
-                v = self._verify_quad(binary, dt, q)
-            if v is not None:
-                score, closure = v
-                scores.append((round(score, 3), closure))
-                # 帧间跟踪：与上一帧候选IoU高的加分
-                if self.last_quad is not None:
-                    iou = self._poly_iou(q, self.last_quad)
-                    if iou > self.cfg["track_iou"]:
-                        score += 0.3
-                if score > best_score:
-                    best, best_score = q, score
-        if best is not None:
-            self.last_quad = best
-        else:
-            self.last_quad = None
+        def select_best(candidates):
+            local_best, local_score, local_scores = None, 0.0, []
+            local_geom = 0
+            local_source = None
+            for q, from_ring, source in candidates:
+                if not self._geom_ok(q, from_ring):
+                    continue
+                local_geom += 1
+                if from_ring:
+                    # Ring proposals already follow an intact ink border.
+                    v = (1.0, 1.0)
+                else:
+                    r = self._refine_quad(binary, q)
+                    q = r if self._geom_ok(r) else q
+                    v = self._verify_quad(binary, dt, q)
+                if v is not None:
+                    score, closure = v
+                    local_scores.append((round(score, 3), closure))
+                    if self.last_quad is not None:
+                        iou = self._poly_iou(q, self.last_quad)
+                        if iou > self.cfg["track_iou"]:
+                            score += 0.3
+                    if score > local_score:
+                        local_best, local_score = q, score
+                        local_source = source
+            return local_best, local_score, local_scores, local_geom, local_source
 
+        best, best_score, scores, quad_geom, best_source = select_best(quads)
+        proposal_fallback = staged and best is None
+        if proposal_fallback:
+            hsegs, lsegs = self._detect_segments(binary)
+            extra = [(q, False, "hough") for q in self._hough_quads(binary, hsegs)]
+            extra += [(q, False, "lsd") for q in self._lsd_quads(binary, lsegs)]
+            extra += [(q, False, "corner") for q in self._corner_quads(binary, hsegs + lsegs)]
+            for source in ("hough", "lsd", "corner"):
+                proposal_counts[source] = sum(item[2] == source for item in extra)
+            # The cheap candidates have already been checked. If the complete
+            # proposal set still has no verified box, retain the cue fallback.
+            quad_total += len(extra)
+            best, best_score, scores, extra_geom, best_source = select_best(extra)
+            quad_geom += extra_geom
         shape = None
+        verification_ms = (time.perf_counter() - stage_started) * 1000.0
         dbg = {"card_found": best is not None, "roi_y0": self._roi_y0,
                "roi_ratio": self.roi_ratio, "scores": scores[:8],
                "quad_total": quad_total, "quad_geom": quad_geom,
                "geom_rejects": self._geom_rejects,
+               "shape_proposal_mode": "staged" if staged else "all",
+               "shape_proposal_fallback": bool(proposal_fallback),
+               "shape_proposal_source": best_source,
+               "shape_proposal_counts": proposal_counts,
                "binary": binary, "gray": gray,
                # The ring channel's own binary. Worth a window of its own: it is the
                # one image where the card's frame is intact, and the one the newest
@@ -512,39 +559,76 @@ class ShapeDetector:
                "presence_box": None, "presence_box_work": None,
                "presence_cue": 0.0, "presence_cy_frac": None}
         dbg.update(self._photometric_debug)
+        dbg.update(shape_preprocess_ms=preprocess_ms, shape_proposals_ms=proposals_ms,
+                   shape_verification_ms=verification_ms, shape_classify_ms=0.0,
+                   shape_presence_ms=0.0, shape_camera_pitch_deg=self.cfg["cam_pitch_deg"])
+        dbg.update({"shape_candidates_" + source: count
+                    for source, count in proposal_counts.items()})
 
         if best is not None:
-            self._cue_hist.append(1)   # 找框成功 = 强存在证据，时间窗记命中
-            # 分类的 warp 用 binary|ink 的并集。binary 是为"压掉 2cm 巡线"调的，
-            # 同一套阈值会把卡上 0.5cm 的细笔画锯断 —— 星形轮廓的环断了一处，
-            # findContours 就从断口钻进环内绕一圈，面积塌掉而凸包不变，solidity
-            # 从 0.65 掉到 0.35，正好落进十字那一档（<0.36）。2026-10-02 实车：
-            # 同一张静止的五角星在 0.278~0.685 之间逐帧跳，被投成了十字。
-            # 并上 ink（ring 通道本来就在用的原始灰度 Otsu 墨迹图，上面已经算过）
-            # 把断口补回来，同时不动 binary 已经认对的那部分。
-            # 实测：6card 31 张实拍 27/31 零跨类错，和只用 binary 一模一样
-            # （只用 ink 会掉到 24/31 并多出 3 个跨类错）；出问题那趟的 21 帧
-            # dump 里五角星 15/16 判对（binary 只有 11/16），十字 5/5。
-            warp = self._warp_card(cv2.bitwise_or(binary, ink), best)
-            dbg["warp"] = warp
-            # Read the enclosed symbol from the rectified grayscale card first.
-            # The existing binary classifier remains a fallback for incomplete ink.
-            from card_appearance import card_appearance
-            appearance = card_appearance(gray, best)
-            dbg.update({"shape_" + key: value
-                        for key, value in appearance.diagnostics().items()})
-            dbg["appearance_gray"] = appearance.gray
-            dbg["appearance_binary"] = appearance.binary
-            shape = (self._classify_contour(appearance.symbol)
-                     if appearance.symbol is not None else None)
-            dbg["shape_classification_path"] = (
-                "local_gray" if shape is not None else "legacy")
-            if shape is None:
-                shape = self._classify(warp, dbg)
+            if classify:
+                stage_started = time.perf_counter()
+                # 分类的 warp 用 binary|ink 的并集。binary 是为"压掉 2cm 巡线"调的，
+                # 同一套阈值会把卡上 0.5cm 的细笔画锯断 —— 星形轮廓的环断了一处，
+                # findContours 就从断口钻进环内绕一圈，面积塌掉而凸包不变，solidity
+                # 从 0.65 掉到 0.35，正好落进十字那一档（<0.36）。2026-10-02 实车：
+                # 同一张静止的五角星在 0.278~0.685 之间逐帧跳，被投成了十字。
+                # 并上 ink（ring 通道本来就在用的原始灰度 Otsu 墨迹图，上面已经算过）
+                # 把断口补回来，同时不动 binary 已经认对的那部分。
+                # 实测：6card 31 张实拍 27/31 零跨类错，和只用 binary 一模一样
+                # （只用 ink 会掉到 24/31 并多出 3 个跨类错）；出问题那趟的 21 帧
+                # dump 里五角星 15/16 判对（binary 只有 11/16），十字 5/5。
+                def classify_box(quad):
+                    warp = self._warp_card(cv2.bitwise_or(binary, ink), quad)
+                    dbg["warp"] = warp
+                    # Rectify original gray before extracting the inner mark.
+                    from card_appearance import card_appearance
+                    appearance = card_appearance(gray, quad)
+                    dbg.update({"shape_" + key: value
+                                for key, value in appearance.diagnostics().items()})
+                    dbg["appearance_gray"] = appearance.gray
+                    dbg["appearance_binary"] = appearance.binary
+                    local_result = (self._classify_contour(appearance.symbol)
+                                    if appearance.symbol is not None else None)
+                    # Keep the old binary reader's independent answer for the
+                    # stopped vote. Agreement on one verified box across two new
+                    # frames can close the vote early; it never replaces the
+                    # grayscale-first result on a disagreement.
+                    legacy_result = self._classify(warp, dbg)
+                    dbg["shape_local_candidate"] = local_result
+                    dbg["shape_legacy_candidate"] = legacy_result
+                    dbg["shape_classification_path"] = (
+                        "local_gray" if local_result is not None else "legacy")
+                    result = local_result if local_result is not None else legacy_result
+                    dbg["shape_rules"] = result
+                    return result
+
+                shape = classify_box(best)
+                if staged and shape is None and not proposal_fallback:
+                    hsegs, lsegs = self._detect_segments(binary)
+                    extra = [(q, False, "hough") for q in self._hough_quads(binary, hsegs)]
+                    extra += [(q, False, "lsd") for q in self._lsd_quads(binary, lsegs)]
+                    extra += [(q, False, "corner") for q in self._corner_quads(binary, hsegs + lsegs)]
+                    for source in ("hough", "lsd", "corner"):
+                        proposal_counts[source] = sum(item[2] == source for item in extra)
+                    # Re-score the complete set with the previous frame's track
+                    # prior. This is equivalent to the all-channel selection.
+                    best, best_score, scores, quad_geom, best_source = select_best(quads + extra)
+                    quad_total = len(quads) + len(extra)
+                    proposal_fallback = True
+                    dbg.update(quad_total=quad_total, quad_geom=quad_geom,
+                               scores=scores[:8],
+                               shape_proposal_fallback=True,
+                               shape_proposal_source=best_source,
+                               shape_proposal_counts=proposal_counts)
+                    dbg.update({"shape_candidates_" + source: count
+                                for source, count in proposal_counts.items()})
+                    if best is not None:
+                        shape = classify_box(best)
+                dbg["shape_classify_ms"] = (time.perf_counter() - stage_started) * 1000.0
             else:
-                dbg["shape_rules"] = shape
-                dbg["hu_best"] = self.last_hu[0] if self.last_hu else None
-                dbg["hu_dist"] = self.last_hu[1] if self.last_hu else None
+                dbg["shape_classification_path"] = "deferred_until_stop"
+            self._cue_hist.append(1)   # 找框成功 = 强存在证据，时间窗记命中
             # quad映射回原图分辨率（找框在960×540上做，含 ROI 偏移）
             q_orig = best.astype(np.float32) * np.array(
                 [self._scale_x, self._scale_y], np.float32)
@@ -577,47 +661,19 @@ class ShapeDetector:
             shape = None
             # 找框全线为 0，才退到"细环 + 亮纸面"的存在信号兜底（省几毫秒，
             # 也避免两条通道给出不一致的框）。命中进时间窗，累积够了才认。
-            box, cue_score = self._presence_cue(gray)
-            self._photometric_debug.update(cue_evaluated=True, cue_score_reference=cue_score)
-            dbg.update(self._photometric_debug)
-            # 结构命中还要过出口分数闸才算"看到卡"。不过闸的也进不了时间窗
-            # （_cue_hist），所以地板那种低分位永远不会攒出 presence。
-            hit = box is not None and cue_score >= self.cfg["cue_score_min"]
-            self._cue_hist.append(1 if hit else 0)
-            if hit:
-                bx, by, bw, bh_ = box
-                qw = np.array([[bx, by], [bx + bw, by], [bx + bw, by + bh_],
-                               [bx, by + bh_]], np.float32)
-                q_orig = qw * np.array([self._scale_x, self._scale_y],
-                                       np.float32)
-                q_orig[:, 1] += self._roi_y0
-                self._cue_box = (qw.astype(np.int32), q_orig.astype(np.int32),
-                                 cue_score)
-            # Gate one - the stop decision, while the robot is still walking - is the
-            # cue, not the box: the shake on the move breaks the card's border into
-            # two or three strokes and no quad ever closes, so a box-only gate never
-            # fires. Gate two, after the stop, is the quad and the classifier.
-            dbg["presence"] = bool(self._cue_confirmed())
-            # hit, not just presence: presence is a window over the last calls, and
-            # _cue_box is whatever the last hit left there. Reading the box out of a
-            # miss frame reported a position up to three calls old - which is how a
-            # stationary robot's cy walked 0.51 -> 0.78. The caller gates on cy, so
-            # only a hit may supply one. presence itself stays windowed, or a single
-            # missed call would drop the card while walking.
-            if box is not None:
-                # 分数任何一次结构命中都写（含没过分数闸的）。它只是诊断，但出口
-                # 门槛就是从这一列拟合的：只在过关时写会把「没命中」和「命中但
-                # 分低」混成同一个 0 —— 拿 `[shape]` 行的 cue= 列拟合会漏掉一半
-                # 样本，拟合出来的数偏小。
-                dbg["presence_cue"] = cue_score
-            if hit and dbg["presence"] and self._cue_box is not None:
-                # 框和 cy 仍然只在确认命中时给：调用方拿 cy 当停车闸，
-                # 累积确认期间框不闪也是这个道理。
-                dbg["presence_box_work"], dbg["presence_box"] = self._cue_box[:2]
-                ys = self._cue_box[0][:, 1]
-                dbg["presence_cy_frac"] = float(ys.min() + ys.max()) * 0.5 / WORK_H
-                dbg["cue_cy_frac"] = dbg["presence_cy_frac"]
+            stage_started = time.perf_counter()
+            self._observe_presence_cue(gray, dbg)
+            dbg["shape_presence_ms"] = (time.perf_counter() - stage_started) * 1000.0
 
+        self.last_quad = best
+        if self.vision_backend is not None:
+            dbg.update(self.vision_backend.diagnostics())
+        dbg["shape_total_ms"] = (time.perf_counter() - update_started) * 1000.0
+        if not issue_action:
+            # run_policy_vision owns the per-card stop and vote lifecycle.
+            # Preserve the legacy return/action latch for run_robot/run_real_car.
+            dbg["shape"] = shape
+            return None, dbg
         if shape is None:
             # 这一帧没检出图卡（框没进门槛，或抖动导致漏检）。不清零候选计数
             # —— 中间漏一两帧不该推翻已有的连续证据。连续 4 次都检不出，
@@ -639,6 +695,62 @@ class ShapeDetector:
     # 存在信号兜底（不要求闭合四边形）
     # ═══════════════════════════════════════════════════════════
 
+    def _observe_presence_cue(self, gray, dbg):
+        """Add current-frame cue evidence to the shared presence history."""
+        box, cue_score = self._presence_cue(gray)
+        dbg["cue_presence_path"] = "closed_ring"
+        # Preserve successful old cues and their position. Only repair a
+        # missed/low-score border, requiring support from original ink and
+        # a separate interior marking; this path never supplies a class.
+        if box is None or cue_score < self.cfg["cue_score_min"]:
+            from card_presence import find_broken_border_presence
+            repair_box, repair_score, repair_debug = find_broken_border_presence(
+                gray, self._photometry, self.cfg, backend=self.vision_backend)
+            dbg.update(repair_debug)
+            if repair_box is not None:
+                box, cue_score = repair_box, repair_score
+                dbg["cue_presence_path"] = "broken_border"
+                self._photometric_debug["cue_score_raw"] = repair_score * self._photometry.scale
+        self._photometric_debug.update(cue_evaluated=True, cue_score_reference=cue_score)
+        dbg.update(self._photometric_debug)
+        # 结构命中还要过出口分数闸才算"看到卡"。不过闸的也进不了时间窗
+        # （_cue_hist），所以地板那种低分位永远不会攒出 presence。
+        hit = box is not None and cue_score >= self.cfg["cue_score_min"]
+        self._cue_hist.append(1 if hit else 0)
+        if hit:
+            bx, by, bw, bh_ = box
+            qw = np.array([[bx, by], [bx + bw, by], [bx + bw, by + bh_],
+                           [bx, by + bh_]], np.float32)
+            q_orig = qw * np.array([self._scale_x, self._scale_y],
+                                   np.float32)
+            q_orig[:, 1] += self._roi_y0
+            self._cue_box = (qw.astype(np.int32), q_orig.astype(np.int32),
+                             cue_score)
+        # Gate one - the stop decision, while the robot is still walking - is the
+        # cue, not the box: the shake on the move breaks the card's border into
+        # two or three strokes and no quad ever closes, so a box-only gate never
+        # fires. Gate two, after the stop, is the quad and the classifier.
+        dbg["presence"] = bool(self._cue_confirmed())
+        # hit, not just presence: presence is a window over the last calls, and
+        # _cue_box is whatever the last hit left there. Reading the box out of a
+        # miss frame reported a position up to three calls old - which is how a
+        # stationary robot's cy walked 0.51 -> 0.78. The caller gates on cy, so
+        # only a hit may supply one. presence itself stays windowed, or a single
+        # missed call would drop the card while walking.
+        if box is not None:
+            # 分数任何一次结构命中都写（含没过分数闸的）。它只是诊断，但出口
+            # 门槛就是从这一列拟合的：只在过关时写会把「没命中」和「命中但
+            # 分低」混成同一个 0 —— 拿 `[shape]` 行的 cue= 列拟合会漏掉一半
+            # 样本，拟合出来的数偏小。
+            dbg["presence_cue"] = cue_score
+        if hit and dbg["presence"] and self._cue_box is not None:
+            # 框和 cy 仍然只在确认命中时给：调用方拿 cy 当停车闸，
+            # 累积确认期间框不闪也是这个道理。
+            dbg["presence_box_work"], dbg["presence_box"] = self._cue_box[:2]
+            ys = self._cue_box[0][:, 1]
+            dbg["presence_cy_frac"] = float(ys.min() + ys.max()) * 0.5 / WORK_H
+            dbg["cue_cy_frac"] = dbg["presence_cy_frac"]
+
     def _presence_cue(self, gray):
         """模糊图卡的"存在"兜底信号：一圈细暗边框围出的亮纸面。
 
@@ -653,13 +765,15 @@ class ShapeDetector:
         """
         c = self.cfg
         photo = self._photometry or measure(gray, self.photometric_mode)
-        bh = cv2.morphologyEx(
-            gray, cv2.MORPH_BLACKHAT,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_bh_kernel"],) * 2))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_bh_kernel"],) * 2)
+        bh = (self.vision_backend.morphology(gray, [(cv2.MORPH_BLACKHAT, kernel)])
+              if self.vision_backend is not None
+              else cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel))
         ink = (bh > photo.difference(c["cue_ink_thresh"])).astype(np.uint8) * 255
-        m = cv2.morphologyEx(
-            ink, cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_close"],) * 2))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_close"],) * 2)
+        m = (self.vision_backend.morphology(ink, [(cv2.MORPH_CLOSE, kernel)])
+             if self.vision_backend is not None
+             else cv2.morphologyEx(ink, cv2.MORPH_CLOSE, kernel))
         y_lo = WORK_H * c["presence_top_frac"]
         em = c["cue_edge_margin"]
         cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL,
@@ -734,7 +848,9 @@ class ShapeDetector:
         kbh = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                         (self.cfg["bh_kernel"],
                                          self.cfg["bh_kernel"]))
-        gd = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kbh)
+        gd = (self.vision_backend.morphology(gray, [(cv2.MORPH_BLACKHAT, kbh)])
+              if self.vision_backend is not None
+              else cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kbh))
 
         photo = self._photometry or measure(gray, self.photometric_mode)
         # Compensate reduced contrast, but do not increase the old rejection
@@ -747,13 +863,15 @@ class ShapeDetector:
 
         # close(3×3)（YOLO方案形态学）
         k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, k3)
-
-        # 各向异性闭：1×5竖桥接远距竖边断点，5×1横补角
+        # Keep the three closes resident on CUDA between one upload/download.
         kv = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 5))
         kh = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1))
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kv)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kh)
+        operations = [(cv2.MORPH_CLOSE, k3), (cv2.MORPH_CLOSE, kv), (cv2.MORPH_CLOSE, kh)]
+        if self.vision_backend is not None:
+            binary = self.vision_backend.morphology(binary, operations)
+        else:
+            for operation, kernel in operations:
+                binary = cv2.morphologyEx(binary, operation, kernel)
 
         binary = self._stroke_width_filter(binary)
         return self._elongation_filter(binary)
