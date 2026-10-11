@@ -1877,11 +1877,10 @@ class LineDetector:
                      if previous_time is not None else float("inf"))
         state["startup_frames"] += 1
 
-        # Match the current camera frame to the archived auto-exposure moments
-        # before the unchanged IPM, thresholding, and color-detection pipeline.
+        # Measure on the original camera frame. Keep its BGR values for the
+        # color/blocker paths; photometric matching is only for lane luminance.
         self._photometry = measure(max_channel(bgr), self.photometric_mode,
                                    MAX_CHANNEL_REFERENCE)
-        bgr = self._photometry.match_image(bgr)
 
         # ── Step 1: Warp to birdseye (single warp, derive gray on birdseye) ──
         bgr_bird = cv2.warpPerspective(bgr, self.M, (self.bird_w, self.bird_h))
@@ -1890,7 +1889,7 @@ class LineDetector:
         bgr_bird[~valid] = 0
         # A nonnegative weighted uint8 grayscale cannot exceed max(B,G,R).
         # Keep the original max-channel semantics without computing it twice.
-        gray = max_channel(bgr_bird)
+        gray = self._photometry.apply(max_channel(bgr_bird))
         img_w = self.bird_w
         img_h = self.bird_h
         img_cx = self.center_x
@@ -1902,6 +1901,7 @@ class LineDetector:
         preprocess_debug["ipm_metric_cm_per_px"] = self.cm_per_px
         preprocess_debug["ipm_valid_fraction"] = float(np.mean(valid))
         preprocess_debug.update(self._photometry.diagnostics())
+        preprocess_debug["photometric_match_applied"] = self._photometry.match_allowed
         preprocess_debug["centroid_min_contrast_effective"] = self._photometry.difference(
             self.centroid_min_contrast)
 

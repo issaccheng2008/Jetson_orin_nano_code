@@ -1,11 +1,14 @@
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'new_vision/jetson'))
-from photometric_thresholds import Photometry, measure, GRAY_REFERENCE, STD_FLOOR
+from photometric_thresholds import (Photometry, clear_lut_mapping, load_lut_mapping,
+                                    measure, resolve_mode, GRAY_REFERENCE, STD_FLOOR)
 from shape_detector import ShapeDetector
 
 
@@ -29,7 +32,9 @@ class PhotometricTests(unittest.TestCase):
     def test_flat_image_floor_and_legacy(self):
         blank = np.zeros((540, 960), np.uint8)
         p = measure(blank)
-        self.assertAlmostEqual(p.scale, STD_FLOOR/GRAY_REFERENCE[1])
+        self.assertEqual(p.scale, 1.0)
+        self.assertEqual(p.intensity(100), 100.0)
+        self.assertEqual(p.diagnostics()["photometric_threshold_reject_reason"], "low_contrast")
         legacy = measure(blank, 'legacy')
         self.assertEqual(legacy.intensity(100), 100)
         self.assertEqual(legacy.difference(-16), -16)
@@ -75,6 +80,99 @@ class PhotometricTests(unittest.TestCase):
         _, dbg = detector.update(frame)
         self.assertGreater(dbg['photometric_contrast_scale'], 1)
         self.assertEqual(dbg['shape_adaptive_c'], detector.cfg['adaptive_c'])
+
+
+class LutModeTests(unittest.TestCase):
+    """lut = the calibrated fixed->auto mapping; it replaces, it never stacks."""
+
+    def setUp(self):
+        clear_lut_mapping()
+        self.addCleanup(clear_lut_mapping)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        levels = np.arange(256, dtype=np.uint8)
+        self.lut_gray = (255 - levels).astype(np.uint8)
+        self.lut_bgr = np.stack([
+            levels,
+            np.clip(levels.astype(np.int32) + 30, 0, 255).astype(np.uint8),
+            np.clip(levels.astype(np.int32) - 30, 0, 255).astype(np.uint8),
+        ])
+        np.save(Path(self.tmp.name) / 'lut_bgr.npy', self.lut_bgr, allow_pickle=False)
+        np.save(Path(self.tmp.name) / 'lut_gray.npy', self.lut_gray, allow_pickle=False)
+        (Path(self.tmp.name) / 'mapping.json').write_text(
+            json.dumps({'schema_version': 1}), encoding='utf-8')
+
+    def _photo(self, mode='lut'):
+        return Photometry(64.0, 20.0, *GRAY_REFERENCE, mode)
+
+    def test_lut_mode_applies_only_the_calibrated_mapping(self):
+        load_lut_mapping(self.tmp.name)
+        gray = np.tile(np.arange(256, dtype=np.uint8), (90, 240))[:540, :960]
+        photo = self._photo()
+        np.testing.assert_array_equal(photo.apply(gray), self.lut_gray[gray])
+        self.assertFalse(photo.match_allowed)
+        self.assertEqual(photo.scale, 1.0)
+        self.assertEqual(photo.difference(16), 16.0)
+        self.assertEqual(photo.intensity(100), 100.0)
+        debug = photo.diagnostics()
+        self.assertTrue(debug['photometric_lut_applied'])
+        self.assertFalse(debug['photometric_match_applied'])
+        self.assertEqual(debug['photometric_lut_source'], self.tmp.name)
+
+    def test_lut_mode_maps_bgr_per_channel_and_preserves_contract(self):
+        load_lut_mapping(self.tmp.name)
+        image = np.zeros((4, 5, 3), np.uint8)
+        image[:, :, 0] = 10
+        image[:, :, 1] = 200
+        image[:, :, 2] = 40
+        mapped = self._photo().apply(image)
+        self.assertEqual(mapped.shape, image.shape)
+        self.assertEqual(mapped.dtype, np.uint8)
+        np.testing.assert_array_equal(mapped[:, :, 0], self.lut_bgr[0, 10])
+        np.testing.assert_array_equal(mapped[:, :, 1], self.lut_bgr[1, 200])
+        np.testing.assert_array_equal(mapped[:, :, 2], self.lut_bgr[2, 40])
+
+    def test_lut_mode_without_a_loaded_mapping_fails_loud(self):
+        gray = np.full((540, 960), 128, np.uint8)
+        with self.assertRaises(RuntimeError):
+            self._photo().apply(gray)
+
+    def test_lut_loader_rejects_wrong_shapes_and_missing_files(self):
+        np.save(Path(self.tmp.name) / 'lut_gray.npy', np.zeros((255,), np.uint8),
+                allow_pickle=False)
+        with self.assertRaises(ValueError):
+            load_lut_mapping(self.tmp.name)
+        clear_lut_mapping()
+        with self.assertRaises(OSError):
+            load_lut_mapping(Path(self.tmp.name) / 'missing')
+
+    def test_resolve_mode_accepts_lut_and_rejects_unknown(self):
+        self.assertEqual(resolve_mode('lut'), 'lut')
+        with self.assertRaises(ValueError):
+            resolve_mode('bogus')
+
+    def test_cli_defaults_to_lut_and_keeps_legacy_selectable(self):
+        from unittest.mock import patch
+        import run_policy_vision
+        with patch('sys.argv', ['run_policy_vision.py']):
+            args = run_policy_vision.parse_args()
+        self.assertEqual(resolve_mode(args.photometric_mode), 'lut')
+        lut_dir = Path(args.photometric_lut_dir)
+        self.assertEqual(lut_dir.name, 'photometric_mapping')
+        self.assertEqual(lut_dir.parent.name, 'config')
+        with patch('sys.argv', ['run_policy_vision.py', '--photometric-mode', 'legacy']):
+            self.assertEqual(resolve_mode(run_policy_vision.parse_args().photometric_mode),
+                             'match')
+
+    def test_deployed_mapping_loads_and_is_monotonic(self):
+        deployed = (Path(__file__).resolve().parents[1] / 'new_vision' / 'config'
+                    / 'photometric_mapping')
+        if not deployed.is_dir():
+            self.skipTest('deployed photometric mapping not present')
+        mapping = load_lut_mapping(deployed)
+        for channel in mapping['lut_bgr']:
+            self.assertTrue(np.all(np.diff(channel.astype(np.int32)) >= 0))
+        self.assertTrue(np.all(np.diff(mapping['lut_gray'].astype(np.int32)) >= 0))
 
 
 if __name__ == '__main__':

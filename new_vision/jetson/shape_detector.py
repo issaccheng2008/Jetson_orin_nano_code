@@ -396,9 +396,9 @@ class ShapeDetector:
         self._photometry = measure(gray, self.photometric_mode)
         # Apply the archived auto-exposure brightness/contrast before the
         # existing crop, resize, threshold, and card-presence logic.
-        gray = self._photometry.match_image(gray)
+        gray = self._photometry.apply(gray)
         self._photometric_debug = self._photometry.diagnostics()
-        self._photometric_debug["photometric_match_applied"] = True
+        self._photometric_debug["photometric_match_applied"] = self._photometry.match_allowed
         self._photometric_debug.update(
             cue_ink_threshold=self._photometry.difference(self.cfg["cue_ink_thresh"]),
             cue_core_gray_threshold=self._photometry.intensity(self.cfg["cue_core_gray_min"]),

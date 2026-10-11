@@ -39,6 +39,10 @@ CARD_NAMES_ZH = {
 # 多少角速度"（ω = vx / R）。**脉冲幅度不按它推** —— 0.4/0.5 是实车量出来的好值。
 LANE_RADIUS_M = 0.776
 
+# 固定曝光→自动曝光标定结果（fit_photometric_mapping.py 的导出目录）。
+_DEFAULT_LUT_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "config", "photometric_mapping"))
+
 
 def card_action_stop_s(action, hold_ms):
     """Keep vision stopped through the three-second action and leg handover."""
@@ -477,11 +481,16 @@ def parse_args():
     parser.add_argument("--shape-preprocess", choices=("selective", "canny"),
                         default=os.getenv("SHAPE_PREPROCESS", "selective"),
                         help="Card ink candidates; canny is an explicit experimental alternative")
-    parser.add_argument("--photometric-mode", choices=("normalize", "legacy"),
-                        default=os.getenv("PHOTOMETRIC_MODE", "legacy"),
-                        help="Input frames are always mean/std matched to the archived "
-                             "auto-exposure reference; legacy keeps fixed gates, while "
-                             "normalize additionally scales photometric thresholds")
+    parser.add_argument("--photometric-mode", choices=("raw", "threshold", "match", "normalize", "legacy", "lut"),
+                        default=os.getenv("PHOTOMETRIC_MODE", "lut"),
+                        help="Mutually exclusive image mapping: raw passthrough, threshold-only, "
+                             "guarded per-frame match (legacy), or the calibrated fixed->auto LUT "
+                             "(lut, the production default; never stacks with the match or with "
+                             "statistics-based threshold compensation)")
+    parser.add_argument("--photometric-lut-dir",
+                        default=os.getenv("PHOTOMETRIC_LUT_DIR", _DEFAULT_LUT_DIR),
+                        help="Fitted fixed->auto mapping directory (lut_bgr.npy/lut_gray.npy/mapping.json "
+                             "from fit_photometric_mapping.py); required by --photometric-mode lut")
     parser.add_argument("--lane-fit", action="store_true",
                         help="EXPERIMENTAL, and it changes nothing on its own: also "
                              "scan one tall band (20~70 cm instead of the two "
@@ -788,6 +797,15 @@ def main():
                          else trigger_frac_at_dist(args.card_trigger_dist_cm))
     card_trigger_width = trigger_width_at_dist(args.card_trigger_dist_cm)
 
+    from photometric_thresholds import load_lut_mapping, resolve_mode
+    if resolve_mode(args.photometric_mode) == "lut":
+        try:
+            load_lut_mapping(args.photometric_lut_dir)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"photometric mode lut cannot load "
+                             f"{args.photometric_lut_dir}: {exc}")
+        print(f"[photometric] lut fixed->auto mapping: {args.photometric_lut_dir} "
+              "(fixed camera settings must match the calibration)", flush=True)
     shape = shape_names = None
     if not args.no_shape_detect:
         from shape_detector import ShapeDetector
@@ -796,7 +814,8 @@ def main():
                               cooldown_ms=3200, debug=False)
         shape.preprocess_mode = args.shape_preprocess
         shape.photometric_mode = args.photometric_mode
-        print(f"[shape-preprocess] {args.shape_preprocess}; photometric={args.photometric_mode}", flush=True)
+        print(f"[shape-preprocess] {args.shape_preprocess}; photometric={args.photometric_mode} "
+              f"effective={resolve_mode(args.photometric_mode)}", flush=True)
         shape_names = {number: name for name, number in shape.action_map.items()}
         shape_numbers = dict(shape.action_map)
 
@@ -880,6 +899,7 @@ def main():
         detector.adaptive_c = args.line_adaptive_c
         detector.photometric_mode = args.photometric_mode
         print(f"[line-preprocess] {detector.preprocess_mode}; "
+              f"photometric-effective={resolve_mode(args.photometric_mode)}; "
               "candidate mask only; geometry quality checks retained", flush=True)
         if args.no_red_detect:
             detector.red_detect_enable = False
