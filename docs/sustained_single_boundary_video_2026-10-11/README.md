@@ -6,7 +6,7 @@
 
 ```bash
 python scripts/replay_sustained_boundary_video.py \
-  'D:/用户/Lenovo/桌面/Robocup/camera_commands.avi' \
+  '/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands.avi' \
   docs/sustained_single_boundary_video_2026-10-11 \
   --bird-height 358
 ```
