@@ -48,8 +48,8 @@ _DEFAULT_LUT_DIR = os.path.normpath(os.path.join(
 
 
 def card_action_stop_s(action, hold_ms):
-    """Keep vision stopped through the three-second action and leg handover."""
-    return max(3.0, hold_ms / 1000.0) + (0.3 if action in (3, 4) else 0.0)
+    """Allow untilt plus the 5.3-second STM32 leg action before walking."""
+    return max(6.0 if action in (3, 4) else 3.0, hold_ms / 1000.0)
 
 
 def _new_dump_run(path, run_id, metadata):
@@ -199,7 +199,7 @@ def parse_args():
                         help="Walking ONNX model for the automatically started policy")
     parser.add_argument("--start-policy-one-foot-model",
                         default="humanoid_jetson_deploy/policy-one-foot-standing_old.onnx",
-                        help="One-foot ONNX model for vision cards 3/4 in the automatically started policy")
+                        help="Legacy ignored option; vision leg cards run on STM32")
     parser.add_argument("--start-policy-python", default=None,
                         help="Python executable for the walking policy; defaults to "
                              "the repository .venv/bin/python when available")
@@ -266,7 +266,7 @@ def parse_args():
     parser.add_argument("--card-hold-ms", type=float,
                         default=float(os.getenv("CARD_HOLD_MS", "3000")),
                         help="Minimum stop after an arm/head card event (default 3000 ms). "
-                             "Leg cards also wait 300 ms after the one-foot model before "
+                             "Leg cards run on STM32 and return to standing before "
                              "walking resumes")
     parser.add_argument("--card-stop-ms", type=float,
                         default=float(os.getenv("CARD_STOP_MS", "3000")),

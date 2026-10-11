@@ -16,7 +16,7 @@ esac
 command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --camera "$CAMERA" --headless --start-gate button --start-policy-on-gate
     --start-policy-python "$POLICY_PYTHON" --start-policy-port "$STM32_PORT"
-    --start-policy-model "$WALKING_MODEL" --start-policy-one-foot-model "$ONE_FOOT_MODEL"
+    --start-policy-model "$WALKING_MODEL"
     --start-policy-max-seconds "$POLICY_MAX_SECONDS"
     --command-min-hold-s "$COMMAND_MIN_HOLD_S"
     --steering-command-window-s "$STEERING_COMMAND_WINDOW_S"

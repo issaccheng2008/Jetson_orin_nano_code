@@ -177,13 +177,8 @@ def pack_startup_control(packet: StartupControlPacket) -> bytes:
                        STARTUP_CONTROL_PAYLOAD.pack(packet.flags))
 
 
-# action_id values that may go on the wire.
-# 3/4 (square / diamond) are NOT here: those cards are walked by the Nano's own
-# one-foot policy and never reach the STM32. 7/8 are the card re-pose
-# (LEAN / RESTORE) - pose events rather than shape actions, but they travel on
-# the same request, and leaving them out here is what made every card_tilt send
-# raise "invalid upper-body action request" before it ever hit the wire.
-SENDABLE_ACTION_IDS = (1, 2, 5, 6, ACTION_CARD_TILT, ACTION_CARD_RESTORE)
+# All six cards and the card-posture events use the same request/status protocol.
+SENDABLE_ACTION_IDS = (1, 2, 3, 4, 5, 6, ACTION_CARD_TILT, ACTION_CARD_RESTORE)
 
 
 def pack_action_request(packet: ActionRequestPacket) -> bytes:

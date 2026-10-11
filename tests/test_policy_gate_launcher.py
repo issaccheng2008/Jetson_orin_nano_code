@@ -69,8 +69,7 @@ class PolicyGateLauncherTests(unittest.TestCase):
                 self.assertIn("--enable-motors", command)
                 self.assertEqual(command[command.index("--model") + 1],
                                  "humanoid_jetson_deploy/policy_49_max.onnx")
-                self.assertEqual(command[command.index("--one-foot-model") + 1],
-                                 "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx")
+                self.assertNotIn("--one-foot-model", command)
                 self.assertEqual(command[command.index("--max-seconds") + 1], "1200")
                 self.assertEqual(command[command.index("--udp-command-port") + 1], "5005")
                 self.assertEqual(command[command.index("--startup-ready-file") + 1],
@@ -84,7 +83,7 @@ class PolicyGateLauncherTests(unittest.TestCase):
                 policy.terminate.assert_called_once()
                 self.assertFalse(launcher.ready_file.exists())
 
-    def test_custom_one_foot_model_is_checked_and_sent_to_child(self):
+    def test_custom_legacy_one_foot_model_is_not_sent(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "walk.onnx").touch()
@@ -99,10 +98,10 @@ class PolicyGateLauncherTests(unittest.TestCase):
                 launcher.start()
                 command = popen.call_args_list[0].args[0]
                 self.assertEqual(command[command.index("--model") + 1], "walk.onnx")
-                self.assertEqual(command[command.index("--one-foot-model") + 1], "custom foot.onnx")
+                self.assertNotIn("--one-foot-model", command)
                 launcher.close()
 
-    def test_missing_selected_one_foot_model_prevents_child_start(self):
+    def test_missing_legacy_one_foot_model_does_not_block_start(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "walk.onnx").touch()
@@ -111,9 +110,9 @@ class PolicyGateLauncherTests(unittest.TestCase):
                 launcher = policy_gate_launcher.PolicyGateLauncher(
                     "walk.onnx", "/dev/ttyACM0", 1200,
                     one_foot_model="missing.onnx")
-                with self.assertRaisesRegex(RuntimeError, "missing.onnx"):
-                    launcher.start()
-                popen.assert_not_called()
+                launcher.start()
+                self.assertNotIn("--one-foot-model", popen.call_args_list[0].args[0])
+                launcher.close()
 
     def test_policy_failure_reports_recent_child_error(self):
         with tempfile.TemporaryDirectory() as folder:

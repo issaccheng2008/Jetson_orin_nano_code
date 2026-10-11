@@ -412,7 +412,7 @@ class VisionEntryPointTests(unittest.TestCase):
         def read():
             reads[0] += 1
             clock[0] += 0.1
-            if reads[0] > 60:
+            if reads[0] > 80:
                 run_policy_vision.signal.signal.call_args.args[1](None, None)
                 return False, None
             return True, frame
@@ -714,7 +714,7 @@ class VisionEntryPointTests(unittest.TestCase):
             reads[0] += 1
             clock[0] += 0.1                      # 10 Hz vision
             seen["card"] = 1 < reads[0] < 4      # present on frames 2 and 3 only
-            if reads[0] > 60:                    # 6 s of mocked time; stop the loop
+            if reads[0] > 80:                    # Allow the full STM32 leg action.
                 run_policy_vision.signal.signal.call_args.args[1](None, None)
                 return False, frame
             return True, frame
@@ -745,12 +745,12 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertEqual(published[1].args[:2], (0.0, 0.0))
         self.assertEqual(published[1].args[2], -1)
         self.assertEqual(published[2].args[2], 3)
-        # A leg card adds 300 ms for the switch back to the walking model.
+        # Six seconds covers untilt plus the 5.3-second STM32 action.
         # Asserted as a window rather than an exact index: the mocked clock
         # accumulates 0.1 fifty-odd times and lands either side of the boundary.
         resumed = next(i for i, call in enumerate(published)
                        if i > 1 and call.args[0] > 0.0)
-        self.assertIn(resumed, (55, 56, 57))
+        self.assertIn(resumed, (62, 63, 64))
         self.assertEqual(published[resumed - 1].args[:2], (0.0, 0.0))
         self.assertEqual(published[resumed - 1].kwargs["event_action"], 3)
         self.assertEqual(published[resumed].args[2], -1)      # released with the resume
@@ -951,15 +951,15 @@ class VisionEntryPointTests(unittest.TestCase):
         def read():
             reads[0] += 1
             clock[0] = round(reads[0] * 0.1, 3)
-            if reads[0] > 75:
+            if reads[0] > 105:
                 run_policy_vision.signal.signal.call_args.args[1](None, None)
                 return False, frame
             return True, frame
 
         def card(*_a, **_k):
             index = reads[0]
-            if index <= 32 or index >= 37:
-                cy = 0.2 if index == 37 else 0.9
+            if index <= 62 or index >= 67:
+                cy = 0.2 if index == 67 else 0.9
                 return None, {"presence": True, "card_found": True,
                               "presence_cy_frac": cy, "shape": "square"}
             return None, {"presence": False, "card_found": False,
@@ -987,9 +987,9 @@ class VisionEntryPointTests(unittest.TestCase):
         edges = [t for (t, flag), previous in zip(sent, [False] +
                  [flag for _, flag in sent[:-1]]) if flag and not previous]
         self.assertEqual(len(edges), 2)
-        # First vote at t=0.2; its action window runs for at least 3 s.
-        # The next card is close from t=3.8 but cannot stop before t=6.2.
-        self.assertGreaterEqual(edges[1], 6.2 - 1e-9)
+        # First vote at t=0.2; the STM32 leg action window ends at t=6.2.
+        # The next card is close from t=6.8, but the 3 s gap ends at t=9.2.
+        self.assertGreaterEqual(edges[1], 9.2 - 1e-9)
 
     def test_empty_vote_still_blocks_a_new_stop_for_three_seconds(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -3184,8 +3184,8 @@ class StartGateTests(unittest.TestCase):
 
     def test_card_action_stop_budget(self):
         self.assertEqual(run_policy_vision.card_action_stop_s(1, 500), 3.0)
-        self.assertEqual(run_policy_vision.card_action_stop_s(3, 500), 3.3)
-        self.assertEqual(run_policy_vision.card_action_stop_s(4, 5000), 5.3)
+        self.assertEqual(run_policy_vision.card_action_stop_s(3, 500), 6.0)
+        self.assertEqual(run_policy_vision.card_action_stop_s(4, 5000), 6.0)
 
     def test_latching_survives_frames_that_report_nothing(self):
         from start_gate import StartGate

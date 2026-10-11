@@ -65,9 +65,8 @@ class PolicyGateLauncher:
         if self.started:
             return
         model = REPO_ROOT / self.model
-        one_foot = REPO_ROOT / self.one_foot_model
-        if not model.is_file() or not one_foot.is_file():
-            raise RuntimeError(f"policy model missing: {model if not model.is_file() else one_foot}")
+        if not model.is_file():
+            raise RuntimeError(f"policy model missing: {model}")
         records = self.recording_directory or REPO_ROOT / "records"
         records.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -78,7 +77,6 @@ class PolicyGateLauncher:
         command = [
             self.policy_python, "-u", "humanoid_jetson_deploy/main.py",
             "--policy", "walking", "--model", self.model,
-            "--one-foot-model", self.one_foot_model,
             "--port", self.port, "--command-source", "vision",
             "--udp-command-port", "5005",
             "--command-min-hold-s", f"{self.command_min_hold_s:g}",

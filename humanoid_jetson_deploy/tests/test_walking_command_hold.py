@@ -135,8 +135,8 @@ class WalkingCommandHoldTests(unittest.TestCase):
             shape, foot = Mock(), Mock()
             shape.phase = "idle"
             shape.action_id = 3
-            shape.advance.side_effect = [SimpleNamespace(busy=i == onefoot_at, send_upper=False,
-                policy="one-foot" if i == onefoot_at else "walking", support_foot="right",
+            shape.advance.side_effect = [SimpleNamespace(busy=i == onefoot_at, send_upper=i == onefoot_at, event_id=1,
+                policy="walking", support_foot="right",
                 lift_command=1., action_id=3) for i in range(len(times))]
             foot.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(46), 0.)
             with patch.object(main, "parse_args", return_value=args), patch.object(main.signal, "signal"), \
@@ -197,10 +197,10 @@ class WalkingCommandHoldTests(unittest.TestCase):
         self.assertEqual(rows[1]["command_hold_reason"], "upright_takeover")
         np.testing.assert_allclose(seen[-1][1][9:11], [.4, -.5])
 
-    def test_real_main_onefoot_takeover_clears_contract(self):
+    def test_real_main_mcu_takeover_clears_contract(self):
         seen, rows = self.run_main([0, .1, .2], [[.2, 0, .5], [.3, 0, 0], [.4, 0, -.5]], onefoot_at=1)
         self.assertEqual(len(seen), 2)
-        self.assertEqual(rows[1]["command_hold_reason"], "onefoot_takeover")
+        self.assertEqual(rows[1]["command_hold_reason"], "stm32_leg_takeover")
         np.testing.assert_allclose(seen[-1][1][9:11], [.4, -.5])
 
     def test_gains_follow_executed_held_command_and_stop_immediately(self):

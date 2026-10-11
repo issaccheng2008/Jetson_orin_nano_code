@@ -12,14 +12,17 @@ cooldown expires. Camera read failure sends `qr=-1` and zero velocity.
 |---|---:|---|---|
 | Circle | 1 | STM32 | Raise left hand |
 | Star | 2 | STM32 | Raise right hand |
-| Square | 3 | Jetson one-foot ONNX | Lift left leg, right foot supports |
-| Diamond | 4 | Jetson one-foot ONNX | Lift right leg, left foot supports |
+| Square | 3 | STM32 | Original PA4 left-leg pose |
+| Diamond | 4 | STM32 | Original PC0 right-leg pose |
 | Cross | 5 | STM32 | Raise both hands |
 | Triangle | 6 | STM32 | Shake head |
 
-The STM32 receives only IDs 1, 2, 5, and 6. It rejects IDs 3 and 4. The
-Jetson remains the only writer of 12 leg targets, including while the STM32
-controls the arms or head. `--fixed-policy` continues through its original
+All six cards use STM32 action requests. Leg cards prepare for 0.5 s, lift for
+1 s, hold for 3 s after reaching the target, then return to the GPIOC13 standing
+pose in 0.5 s (25 steps at 20 ms). After 0.3 s settling, STM32 sends DONE and
+allows 100 ms for host handoff. USB stays serviced throughout the 5.3 s action;
+vision allows 6 s and the host timeout is 8 s. The host pauses walking inference
+and maintains its COMMAND heartbeat during local leg ownership. `--fixed-policy` continues through its original
 joint-frame playback path and does not consume shape events.
 
 Before voting, vision requests the STM32 card re-pose (action 7). The policy
@@ -45,23 +48,20 @@ python -u new_vision/jetson/run_policy_vision.py --camera 0 --headless
 ```
 
 In a third terminal, use the **49-observation walking model that is already
-verified on this robot** for `--model`. The specified one-foot file is the
-46-observation model:
+verified on this robot** for `--model`. Vision leg cards do not require a one-foot ONNX model:
 
 ```bash
 python -u humanoid_jetson_deploy/main.py \
   --policy walking --command-source vision \
   --model /path/to/verified-49-input-walking.onnx \
-  --one-foot-model humanoid_jetson_deploy/policy-one-foot-standing.onnx \
   --port /dev/ttyACM0 --no-plot
 ```
 
 The command above keeps motor enable off. After checking camera classification,
 event IDs, model input/output dimensions, CRC counts and policy output with the
 robot supported, append `--enable-motors` for the physical run. Only one policy
-process may open `/dev/ttyACM0`. The one-foot action holds the lift command for
-4 seconds by default (`--shape-lift-seconds`) after a short standing phase,
-then commands lowering before walking resumes. Video must confirm the physical
+process may open `/dev/ttyACM0`. The leg action holds its commanded lift pose for
+3 seconds, then returns to standing in 0.5 seconds. Video must confirm the physical
 leg is raised for at least 3 seconds; command time alone does not prove this.
 
 ## USB CDC extension
@@ -71,7 +71,7 @@ command frame are unchanged. Two new message types use the same framing:
 
 | Type | Direction | Packed payload | Meaning |
 |---:|---|---|---|
-| 3 | Jetson → STM32 | `<IB`: `event_id`, `action_id` | Upper-body request, IDs 1/2/5/6 |
+| 3 | Jetson → STM32 | `<IB`: `event_id`, `action_id` | Card request, IDs 1-6 |
 | 4 | STM32 → Jetson | `<IBB`: `event_id`, `action_id`, `status` | 1 accepted, 2 done, 3 busy, 4 invalid, 5 failed |
 
 Jetson repeats the request every 100 ms until completion is confirmed, using

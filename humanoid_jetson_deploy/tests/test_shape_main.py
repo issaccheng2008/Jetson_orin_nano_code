@@ -31,7 +31,7 @@ def robot_state(joint_position=None, joint_velocity=None):
 class ShapeMainTests(unittest.TestCase):
     def run_one_tick(self, card):
         with patch("sys.argv", ["main.py", "--model", "walk.onnx", "--no-plot",
-                                 "--command-source", "vision", "--one-foot-model", "foot.onnx"]):
+                                 "--command-source", "vision"]):
             args = main.parse_args()
         state = robot_state()
         with (
@@ -61,7 +61,7 @@ class ShapeMainTests(unittest.TestCase):
         """像 run_one_tick，但喂多帧 —— 撤重摆那一帧和形状请求是同一帧，
         顺序只有在那一帧里才看得见。states 逐帧给，测站定和保持要用。"""
         with patch("sys.argv", ["main.py", "--model", "walk.onnx", "--no-plot",
-                                 "--command-source", "vision", "--one-foot-model", "foot.onnx"]):
+                                 "--command-source", "vision"]):
             args = main.parse_args()
         if states is None:
             states = [robot_state()] * len(snapshots)
@@ -173,17 +173,18 @@ class ShapeMainTests(unittest.TestCase):
         walk.step.assert_called_once()
         foot.step.assert_not_called()
 
-    def test_square_uses_right_support_one_foot_model_without_mcu_action(self):
+    def test_square_uses_mcu_and_keeps_command_heartbeat(self):
         walk, foot, link = self.run_one_tick(3)
-        link.send_action.assert_not_called()
-        foot.select_support_foot.assert_called_once_with("right")
-        self.assertEqual(foot.step.call_args.kwargs["lift_command"], 1.0)
+        link.send_action.assert_called_once_with(765, 3)
+        foot.step.assert_not_called()
         walk.step.assert_not_called()
+        self.assertGreater(link.send_command.call_count, 0)
 
-    def test_diamond_uses_left_support(self):
-        _walk, foot, link = self.run_one_tick(4)
-        link.send_action.assert_not_called()
-        foot.select_support_foot.assert_called_once_with("left")
+    def test_diamond_uses_mcu(self):
+        walk, foot, link = self.run_one_tick(4)
+        link.send_action.assert_called_once_with(765, 4)
+        foot.step.assert_not_called()
+        walk.step.assert_not_called()
 
 
 if __name__ == "__main__":
