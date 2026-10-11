@@ -249,7 +249,8 @@ class ControlDiagnosticsTests(unittest.TestCase):
     def test_main_fixed_onefoot_and_upright_log_the_actual_target_source(self):
         for mode in ("fixed", "one-foot", "upright"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
-                argv = ["main.py", "--no-plot", "--attitude-port", "0", "--diagnostic-log-dir", folder]
+                argv = ["main.py", "--no-plot", "--attitude-port", "0", "--diagnostic-log-dir", folder,
+                        "--position-log-dir", str(Path(folder) / "positions")]
                 if mode == "fixed":
                     frames = Path(folder) / "frames.json"
                     frames.write_text(json.dumps(dict(format="joint_frames_v1", hz=50,

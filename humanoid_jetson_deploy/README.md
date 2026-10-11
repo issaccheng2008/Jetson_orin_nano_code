@@ -162,6 +162,25 @@ q_target_policy = q_default + 0.25 * action
 
 Observation noise used during training is **not** added during deployment.
 
+## 单脚站立角度测试输出
+
+运行 `--policy one-foot`，或视觉流程通过 `--one-foot-model` 执行单脚站立时，
+首次成功发送单脚站立控制包会自动在 `--position-log-dir` 下创建一对独立文件
+（默认 `records/motor_positions/`）：
+
+- `onefoot_targets_<时间戳>.csv`：上位机实际发送的 12 个电机目标角度，经过限位、速度和编码器偏差限制以及坐标转换。
+- `onefoot_feedback_<相同时间戳>.csv`：下位机 STATE 包返回的 12 个关节角度，保留线协议坐标与关节顺序。
+
+角度单位为弧度（rad），列名按 `config.JOINT_NAMES`，分别使用 `target_<关节名>_rad`
+和 `actual_<关节名>_rad`。两个文件每行共享 `host_time_iso`、`elapsed_s`、
+`step` 和 `state_sequence`，可据此对齐。反馈是该控制周期发送前读取的最新
+STATE 数据，并非同一条目标指令执行后的反馈，也不是裸编码器原始值。
+只导出单脚站立阶段成功写入串口的控制周期；走路阶段、发送失败和失能包不进入这两个文件。
+每次进程运行使用新的时间戳，视觉流程内多次单脚动作追加到同一对文件。
+原有 `motor_positions_*.csv` 综合日志继续保留；`--no-plot` 和
+`--no-control-diagnostics` 均不影响这项导出。程序打印两个文件的完整路径，
+运行中即可读取已写出的行，正常退出或故障退出都会关闭文件。
+
 ## One-foot standing interface
 
 Select `--policy one-foot` with an ONNX model exported from

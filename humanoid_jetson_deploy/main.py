@@ -25,6 +25,7 @@ from imu_filter import (
 )
 from policy_runner import HumanoidPolicy
 from one_foot_policy import OneFootCommand, OneFootPolicy, apply_lift_target_scale
+from one_foot_angle_log import OneFootAngleCsvLogger
 from shape_actions import ShapeActionController, UPPER_CARDS
 from position_monitor import LivePositionPlot, PositionCsvLogger
 from protocol import (
@@ -549,6 +550,7 @@ def main() -> int:
     last_q_motor = np.zeros(config.NUM_JOINTS, dtype=np.float32)
     timed_run_completed = False
     diagnostics = None
+    one_foot_angle_logger = None
     diagnostic_error = None
     walking_command_hold = WalkingCommandHold(min_hold_s=args.command_min_hold_s)
     try:
@@ -978,6 +980,15 @@ def main() -> int:
                     raise RuntimeError(f"IMU/encoder data invalid: flags=0x{response.status_flags:08X}")
 
             elapsed_s = now - start_time
+            if diagnostic_mode == "onefoot46" and send_result is True:
+                if one_foot_angle_logger is None:
+                    one_foot_angle_logger = OneFootAngleCsvLogger(
+                        args.position_log_dir, config.JOINT_NAMES)
+                    print(f"One-foot sent angles: {one_foot_angle_logger.target_path}")
+                    print(f"One-foot received angles: {one_foot_angle_logger.feedback_path}")
+                # STATE is the live sample read before this command, not its acknowledgement.
+                one_foot_angle_logger.write(
+                    elapsed_s, step, state.sequence, last_q_motor, state.joint_position)
             position_logger.write(
                 elapsed_s,
                 step,
@@ -1053,6 +1064,8 @@ def main() -> int:
         if attitude is not None:
             attitude.close()
         position_logger.close()
+        if one_foot_angle_logger is not None:
+            one_foot_angle_logger.close()
         if position_plot is not None and not timed_run_completed:
             position_plot.close()
         if command_source is not None and args.policy == "walking":
