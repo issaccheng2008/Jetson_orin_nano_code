@@ -412,7 +412,7 @@ class VisionEntryPointTests(unittest.TestCase):
         def read():
             reads[0] += 1
             clock[0] += 0.1
-            if reads[0] > 60:
+            if reads[0] > 80:
                 run_policy_vision.signal.signal.call_args.args[1](None, None)
                 return False, None
             return True, frame
@@ -714,7 +714,7 @@ class VisionEntryPointTests(unittest.TestCase):
             reads[0] += 1
             clock[0] += 0.1                      # 10 Hz vision
             seen["card"] = 1 < reads[0] < 4      # present on frames 2 and 3 only
-            if reads[0] > 60:                    # 6 s of mocked time; stop the loop
+            if reads[0] > 80:                    # 8 s of mocked time; stop the loop
                 run_policy_vision.signal.signal.call_args.args[1](None, None)
                 return False, frame
             return True, frame
@@ -745,12 +745,12 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertEqual(published[1].args[:2], (0.0, 0.0))
         self.assertEqual(published[1].args[2], -1)
         self.assertEqual(published[2].args[2], 3)
-        # A leg card adds 300 ms for the switch back to the walking model.
+        # A leg card budgets the 5.8 s MCU sequence plus untilt.
         # Asserted as a window rather than an exact index: the mocked clock
         # accumulates 0.1 fifty-odd times and lands either side of the boundary.
         resumed = next(i for i, call in enumerate(published)
                        if i > 1 and call.args[0] > 0.0)
-        self.assertIn(resumed, (55, 56, 57))
+        self.assertIn(resumed, (67, 68, 69))
         self.assertEqual(published[resumed - 1].args[:2], (0.0, 0.0))
         self.assertEqual(published[resumed - 1].kwargs["event_action"], 3)
         self.assertEqual(published[resumed].args[2], -1)      # released with the resume
@@ -2977,8 +2977,8 @@ class StartGateTests(unittest.TestCase):
 
     def test_card_action_stop_budget(self):
         self.assertEqual(run_policy_vision.card_action_stop_s(1, 500), 3.0)
-        self.assertEqual(run_policy_vision.card_action_stop_s(3, 500), 3.3)
-        self.assertEqual(run_policy_vision.card_action_stop_s(4, 5000), 5.3)
+        self.assertEqual(run_policy_vision.card_action_stop_s(3, 500), 6.5)
+        self.assertEqual(run_policy_vision.card_action_stop_s(4, 5000), 6.5)
 
     def test_latching_survives_frames_that_report_nothing(self):
         from start_gate import StartGate
@@ -3301,7 +3301,7 @@ class StartGateIntegrationTests(unittest.TestCase):
         launcher_cls.assert_called_once_with(
             "custom walking.onnx", "/dev/ttyACM0", 1200.0,
             # Vision median window owns timing; the launched policy must not add another hold.
-            policy_python=None, one_foot_model="custom standing.onnx", command_min_hold_s=0.)
+            policy_python=None, command_min_hold_s=0.)
         launcher.start.assert_called_once()
         launcher.close.assert_called_once()
         published = client_cls.return_value.publish.call_args_list

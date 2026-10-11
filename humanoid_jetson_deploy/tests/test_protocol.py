@@ -36,14 +36,11 @@ class ProtocolTests(unittest.TestCase):
                 request = ActionRequestPacket(sequence=1, event_id=9, action_id=action_id)
                 self.assertEqual(len(pack_action_request(request)), 15)
 
-    def test_the_leg_card_ids_are_refused(self):
-        """3/4 是正方形/菱形，走 Nano 自己的抬腿策略，从来不下发 STM32 ——
-        发过去固件会把它当成别的东西。挡住是有意的，别顺手放宽白名单。"""
+    def test_the_leg_card_ids_round_trip(self):
         for action_id in (3, 4):
             with self.subTest(action_id=action_id):
                 request = ActionRequestPacket(sequence=1, event_id=9, action_id=action_id)
-                with self.assertRaises(ValueError):
-                    pack_action_request(request)
+                self.assertEqual(list(FrameDecoder().feed(pack_action_request(request))), [request])
 
     def test_fragmented_state_round_trip(self):
         source = StatePacket(

@@ -31,7 +31,7 @@ def robot_state(joint_position=None, joint_velocity=None):
 class ShapeMainTests(unittest.TestCase):
     def run_one_tick(self, card):
         with patch("sys.argv", ["main.py", "--model", "walk.onnx", "--no-plot",
-                                 "--command-source", "vision", "--one-foot-model", "foot.onnx"]):
+                                 "--command-source", "vision"]):
             args = main.parse_args()
         state = robot_state()
         with (
@@ -55,16 +55,18 @@ class ShapeMainTests(unittest.TestCase):
             link.get_latest_state.side_effect = [state, RuntimeError("end test")]
             link.get_action_status.return_value = 0
             self.assertEqual(main.main(), 1)
+            foot_cls.assert_not_called()
             return walk, foot, link
 
-    def run_ticks(self, snapshots, states=None, action_statuses=None):
+    def run_ticks(self, snapshots, states=None, action_statuses=None, tick_times=None):
         """像 run_one_tick，但喂多帧 —— 撤重摆那一帧和形状请求是同一帧，
         顺序只有在那一帧里才看得见。states 逐帧给，测站定和保持要用。"""
         with patch("sys.argv", ["main.py", "--model", "walk.onnx", "--no-plot",
-                                 "--command-source", "vision", "--one-foot-model", "foot.onnx"]):
+                                 "--command-source", "vision"]):
             args = main.parse_args()
         if states is None:
             states = [robot_state()] * len(snapshots)
+        clock = [0.0]
         with (
             patch.object(main, "parse_args", return_value=args),
             patch.object(main.signal, "signal"),
@@ -87,7 +89,19 @@ class ShapeMainTests(unittest.TestCase):
             link.get_action_status.return_value = 0
             if action_statuses is not None:
                 link.get_action_status.side_effect = action_statuses
-            self.assertEqual(main.main(), 1)
+            if tick_times is not None:
+                def latest_state(*_args, **_kwargs):
+                    if not tick_times:
+                        raise RuntimeError("end test")
+                    clock[0] = tick_times.pop(0)
+                    return states.pop(0)
+                link.get_latest_state.side_effect = latest_state
+                with (patch.object(main.time, "monotonic", lambda: clock[0]),
+                      patch.object(main.time, "monotonic_ns", lambda: int(clock[0] * 1e9)),
+                      patch.object(main.time, "sleep")):
+                    self.assertEqual(main.main(), 1)
+            else:
+                self.assertEqual(main.main(), 1)
             return walk_cls.return_value, link
 
     def test_re_pose_done_is_broadcast_to_vision(self):
@@ -173,17 +187,76 @@ class ShapeMainTests(unittest.TestCase):
         walk.step.assert_called_once()
         foot.step.assert_not_called()
 
-    def test_square_uses_right_support_one_foot_model_without_mcu_action(self):
-        walk, foot, link = self.run_one_tick(3)
-        link.send_action.assert_not_called()
-        foot.select_support_foot.assert_called_once_with("right")
-        self.assertEqual(foot.step.call_args.kwargs["lift_command"], 1.0)
-        walk.step.assert_not_called()
+    def test_leg_heartbeat_holds_pose_through_lift_and_stale_done_feedback(self):
+        card = CommandSnapshot(np.zeros(3, dtype=np.float32), -1, 765, 3)
+        walk_request = CommandSnapshot(np.array([.2, 0., 0.], dtype=np.float32))
+        base = robot_state()
+        lift = robot_state(joint_position=config.Q_DEFAULT + .35,
+                           joint_velocity=np.full(12, .5))
+        walk, link = self.run_ticks(
+            [card, card, walk_request, walk_request, walk_request],
+            states=[base, lift, lift, base, base],
+            action_statuses=[0, 1, 2, 2, 2],
+            tick_times=[.14, 5.9, 5.92, 5.94, 5.96])
+        self.assertEqual([call.args for call in link.send_action.call_args_list],
+                         [(765, 3), (765, 3)])
+        enabled_ticks = link.send_command.call_args_list[:5]
+        self.assertEqual(len(enabled_ticks), 5)
+        for call in enabled_ticks[:2]:
+            np.testing.assert_allclose(call.args[1], base.joint_position)
+        np.testing.assert_allclose(enabled_ticks[2].args[1], lift.joint_position)
+        walk.reset.assert_called_once()
+        self.assertEqual(walk.step.call_count, 2)
+        np.testing.assert_array_equal(walk.step.call_args_list[0].kwargs["velocity_command"],
+                                      np.zeros(3))
+        self.assertAlmostEqual(walk.step.call_args_list[1].kwargs["velocity_command"][0], .2)
 
-    def test_diamond_uses_left_support(self):
-        _walk, foot, link = self.run_one_tick(4)
-        link.send_action.assert_not_called()
-        foot.select_support_foot.assert_called_once_with("left")
+    def test_leg_request_waits_for_stop_and_card_restore_ramp(self):
+        from protocol import ACTION_CARD_RESTORE, ACTION_CARD_TILT
+        window = CommandSnapshot(np.zeros(3, dtype=np.float32), card_tilt=True)
+        card = CommandSnapshot(np.zeros(3, dtype=np.float32), -1, 765, 3)
+        moving = robot_state(joint_velocity=np.full(12, 2.0))
+        walk, link = self.run_ticks([window, window, card, card, card],
+            states=[moving, robot_state(), robot_state(), robot_state(), robot_state()],
+            tick_times=[.02, .04, .1, .7, .72])
+        self.assertEqual([call.args for call in link.send_action.call_args_list],
+                         [(1, ACTION_CARD_TILT), (2, ACTION_CARD_RESTORE), (765, 3)])
+        self.assertEqual(walk.step.call_count, 4)
+
+    def test_full_leg_sequence_keeps_50hz_commands_and_retries_at_10hz(self):
+        card = CommandSnapshot(np.zeros(3, dtype=np.float32), -1, 765, 3)
+        walk, link = self.run_ticks([card] * 301,
+            action_statuses=[0] * 300 + [2],
+            tick_times=[.02 * tick for tick in range(1, 302)])
+        self.assertEqual(link.send_command.call_count - 6, 301)  # exclude exit disable frames
+        requests = [call.args for call in link.send_action.call_args_list]
+        self.assertTrue(50 <= len(requests) <= 61)
+        self.assertEqual(set(requests), {(765, 3)})
+        walk.step.assert_called_once()
+        walk.reset.assert_called_once()
+
+    def test_done_reseeds_heartbeat_from_returned_pose_before_walking_resume(self):
+        card = CommandSnapshot(np.zeros(3, dtype=np.float32), -1, 765, 4)
+        gone = CommandSnapshot(np.array([.2, 0., 0.], dtype=np.float32))
+        returned = robot_state(joint_position=config.Q_DEFAULT + .25,
+                               joint_velocity=np.full(12, .3))
+        settled = robot_state(joint_position=returned.joint_position)
+        walk, link = self.run_ticks([card, gone, gone],
+            states=[robot_state(), returned, settled],
+            action_statuses=[0, 2, 2], tick_times=[5.9, 5.92, 5.94])
+        np.testing.assert_allclose(link.send_command.call_args_list[1].args[1],
+                                   returned.joint_position)
+        walk.reset.assert_called_once()
+        self.assertEqual(walk.step.call_count, 1)
+
+    def test_square_and_diamond_use_mcu_without_loading_onefoot(self):
+        for card in (3, 4):
+            with self.subTest(card=card):
+                walk, foot, link = self.run_one_tick(card)
+                link.send_action.assert_called_once_with(765, card)
+                foot.step.assert_not_called()
+                walk.step.assert_not_called()
+                self.assertGreaterEqual(link.send_command.call_count, 1)
 
 
 if __name__ == "__main__":

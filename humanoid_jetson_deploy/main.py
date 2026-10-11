@@ -24,9 +24,9 @@ from imu_filter import (
     validate_stationary_imu_sample,
 )
 from policy_runner import HumanoidPolicy
-from one_foot_policy import OneFootCommand, OneFootPolicy, apply_lift_target_scale
+from one_foot_policy import OneFootCommand, OneFootPolicy
 from one_foot_angle_log import OneFootAngleCsvLogger
-from shape_actions import ShapeActionController, UPPER_CARDS
+from shape_actions import ShapeActionController, LEG_CARDS
 from position_monitor import LivePositionPlot, PositionCsvLogger
 from protocol import (
     ACTION_BUSY,
@@ -82,9 +82,9 @@ def parse_args() -> argparse.Namespace:
         "--lift-seconds", type=float, default=4.0,
         help="One-foot mode: command-one duration, then command zero until exit",
     )
-    parser.add_argument("--one-foot-model", help="One-foot ONNX model for vision cards 3/4")
+    parser.add_argument("--one-foot-model", help="Obsolete compatibility option, ignored; vision leg cards run on STM32")
     parser.add_argument("--shape-lift-seconds", type=float, default=3.0,
-                        help="Vision card one-foot model duration (default 3 seconds)")
+                        help="Obsolete compatibility option, ignored; MCU fixes the leg hold at 3 seconds")
     parser.add_argument("--port", default="/dev/ttyACM0", help="STM32 serial device")
     parser.add_argument("--startup-ready-file", default=None,
                         help="Optional one-shot ready marker for the vision start gate")
@@ -337,12 +337,9 @@ def main() -> int:
         target_safety = TargetSafety.from_args(args)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
-    if args.one_foot_model and (args.fixed_policy or args.policy != "walking"
-                                or args.command_source != "vision"):
-        raise SystemExit("--one-foot-model requires walking policy with --command-source vision")
-    if args.one_foot_model and (not np.isfinite(args.shape_lift_seconds)
-                                or args.shape_lift_seconds < 3.0):
-        raise SystemExit("--shape-lift-seconds must be at least 3 seconds")
+    if args.one_foot_model:
+        print("--one-foot-model ignored; vision leg cards run on STM32. "
+              "Use --policy one-foot --model for standalone ONNX mode.")
     if args.startup_ready_file and (args.policy != "walking"
                                     or args.command_source != "vision"
                                     or not args.enable_motors):
@@ -426,7 +423,6 @@ def main() -> int:
     signal.signal(signal.SIGTERM, request_stop)
 
     shape_controller = None
-    card_policy = None
 
     if args.fixed_policy:
         if args.policy != "walking" or args.command_source != "fixed":
@@ -451,9 +447,7 @@ def main() -> int:
     else:
         policy = HumanoidPolicy(args.model, step_distance_m)
         if args.command_source == "vision":
-            if args.one_foot_model:
-                card_policy = OneFootPolicy(args.one_foot_model)
-                shape_controller = ShapeActionController(lift_seconds=args.shape_lift_seconds)
+            shape_controller = ShapeActionController()
             command_source = UdpCommandSource(
                 args.udp_command_port, timeout_s=args.command_timeout,
                 bind=args.udp_command_bind,
@@ -523,9 +517,6 @@ def main() -> int:
 
     if not args.fixed_policy:
         print(f"ONNX input={policy.input_name!r}, output={policy.output_name!r}")
-        if card_policy is not None:
-            print(f"Shape one-foot ONNX input={card_policy.input_name!r}, "
-                  f"output={card_policy.output_name!r}")
     print(f"Policy command source: {command_source_description}")
     # 步长就是一个数，不随 vx 变。步频不在这里算 —— 它是策略自己的，会随 vx
     # 和步长变（实测：vx 调小反而步频变快），不是 vx/步长。
@@ -585,8 +576,6 @@ def main() -> int:
         if not getattr(args, "no_control_diagnostics", False):
             sources = ({"fixed_joint_frames": args.fixed_policy} if args.fixed_policy else
                        {"onefoot46" if args.policy == "one-foot" else "walking49": args.model})
-            if args.one_foot_model:
-                sources["card_onefoot46"] = args.one_foot_model
             directory = (getattr(args, "diagnostic_log_dir", None)
                          or Path(args.position_log_dir) / "control_diagnostics")
             diagnostics = ControlDiagnostics(directory, args, target_safety, sources,
@@ -598,7 +587,8 @@ def main() -> int:
         previous_tick = next_tick
         start_time = next_tick
         step = 0
-        card_policy_active = False
+        leg_hold_target = None
+        leg_handoff_deadline = None
         upright_active = False
         card_tilt_active = False
         card_tilt_event = 0
@@ -659,6 +649,7 @@ def main() -> int:
             )
             step_policy = policy
             upright_hold = False
+            leg_hold = False
             held_reference = False
             diagnostic_velocity = None
             diagnostic_lift = None
@@ -684,13 +675,15 @@ def main() -> int:
                 command_values = {"lift_command": lift_command}
                 command_status = f"lift_command={int(lift_command)} support={args.support_foot} "
             else:
-                # Snapshot whenever the source has one, not only when a card policy is
-                # loaded: the upright hold reads it too and must work without
-                # --one-foot-model.
+                # Vision snapshots carry both card events and posture requests.
                 snapshot = (command_source.get_snapshot()
                             if args.command_source == "vision" else None)
                 velocity_command = snapshot.velocity if snapshot is not None else command_source.get()
                 requested_velocity = velocity_command.copy()
+                if (shape_controller is not None and
+                        (snapshot.event_id or shape_controller.phase != "idle"
+                         or leg_hold_target is not None)):
+                    velocity_command = np.zeros(3, dtype=np.float32)
                 decision = None
                 # Both the card action and the upright hold need it, and it is the same
                 # question either way: has the robot actually settled?
@@ -753,14 +746,14 @@ def main() -> int:
                         if shape_controller.accept(snapshot.event_id, snapshot.event_action, now):
                             print(f"[shape] event={snapshot.event_id} card={snapshot.event_action} accepted")
                     status = (link.get_action_status(shape_controller.event_id)
-                              if shape_controller.action_id in UPPER_CARDS else 0)
+                              if shape_controller.phase != "idle" else 0)
                     if not args.enable_motors and status == ACTION_BUSY:
                         print(f"[shape] dry run: STM32 did not execute card={shape_controller.action_id}")
                         status = ACTION_DONE
                     was_busy = shape_controller.phase != "idle"
                     # The card re-pose (8) still owns the body for its return ramp.
-                    # Leg policy targets must wait for that ramp; the first card at
-                    # the start has no re-pose and can enter the model immediately.
+                    # Leg action requests wait for the ramp. The startup first card
+                    # has no re-pose and can request STM32 immediately.
                     decision = shape_controller.advance(
                         now, stopped, status, ready_to_lift=now >= tilt_release_at)
                     if was_busy and not decision.busy:
@@ -770,14 +763,30 @@ def main() -> int:
                     if decision.send_upper and now - last_action_tx >= 0.1:
                         link.send_action(decision.event_id, decision.action_id)
                         last_action_tx = now
-                    if decision.policy == "one-foot":
-                        if not card_policy_active:
-                            card_policy.select_support_foot(decision.support_foot)
-                            card_policy_active = True
-                        step_policy = card_policy
-                    elif card_policy_active:
-                        policy.reset()
-                        card_policy_active = False
+                    # Keep heartbeat targets and policy history independent of the
+                    # asymmetric live feedback while STM32 owns the legs.
+                    if (decision.send_upper and decision.action_id in LEG_CARDS
+                            and leg_hold_target is None):
+                        leg_hold_target = last_q_policy_target.copy()
+                    if leg_hold_target is not None:
+                        velocity_command[:] = 0.0
+                        if not decision.busy:
+                            # Firmware reports DONE after its standing settle and
+                            # holds that pose briefly for this host handoff. Seed
+                            # from returned feedback immediately, even if we wait
+                            # another tick for measured velocity to settle.
+                            if leg_handoff_deadline is None:
+                                leg_handoff_deadline = now + 2.0
+                                leg_hold_target = q_policy.copy()
+                                last_q_policy_target = q_policy.copy()
+                            if np.max(np.abs(qd_policy)) <= 0.2:
+                                last_q_policy_target = q_policy.copy()
+                                policy.reset()
+                                leg_hold_target = None
+                                leg_handoff_deadline = None
+                            elif now >= leg_handoff_deadline:
+                                raise TimeoutError("STM32 leg action DONE without settled feedback")
+                        leg_hold = leg_hold_target is not None
                 # Vision is reading a card and wants the legs held straight. The policy's
                 # own stopped pose is pitched back about 20 degrees, and the card
                 # geometry is calibrated at the mount angle, so that pose is what pushes
@@ -798,7 +807,7 @@ def main() -> int:
                 # let them settle, and engage again - the two poses alternating. Once
                 # engaged, only the vision dropping the flag or a leg action ends it.
                 requested = (snapshot is not None and snapshot.hold_upright
-                             and not card_policy_active)
+                             and not leg_hold)
                 upright_hold = requested and (upright_active or stopped)
                 if upright_active and not upright_hold:
                     policy.reset()
@@ -810,12 +819,7 @@ def main() -> int:
                                                   args.pause_seconds)):
                     velocity_command[:] = 0.0  # vx=0, vy=0, wz=0
 
-                if step_policy is card_policy:
-                    command_values = {"lift_command": decision.lift_command}
-                    command_status = (f"shape={decision.action_id} one-foot "
-                                      f"support={decision.support_foot} "
-                                      f"lift={int(decision.lift_command)} ")
-                elif upright_hold:
+                if upright_hold:
                     command_values = {}
                     command_status = "hold_upright "
                 else:
@@ -844,7 +848,14 @@ def main() -> int:
                      projected_gravity) = held_observation
 
             if not args.fixed_policy:
-                if upright_hold:
+                if leg_hold:
+                    walking_command_hold.clear()
+                    command_hold_reason = "stm32_leg_takeover"
+                    q_policy_target = leg_hold_target.copy()
+                    action = np.zeros(config.ACTION_DIM, dtype=np.float32)
+                    obs = np.zeros(1, dtype=np.float32)
+                    latency_ms = 0.0
+                elif upright_hold:
                     walking_command_hold.clear()
                     command_hold_reason = "upright_takeover"
                     # Same all-zero frame examples/stand_upright_hold.json plays: knees
@@ -856,7 +867,7 @@ def main() -> int:
                     obs = np.zeros(1, dtype=np.float32)
                     latency_ms = 0.0
                 else:
-                    if args.policy == "walking" and step_policy is not card_policy:
+                    if args.policy == "walking":
                         # Timestamp the actual first use at the model boundary,
                         # rather than consuming time spent receiving/processing.
                         command_now = time.monotonic_ns() * 1e-9
@@ -883,34 +894,26 @@ def main() -> int:
                 diagnostic_velocity = velocity_command.copy()
             if upright_hold:
                 diagnostic_mode, diagnostic_source = "upright_hold", "hold_upright_zero_target"
+            elif leg_hold:
+                diagnostic_mode, diagnostic_source = "stm32_leg_hold", "stm32_leg_hold_target"
             elif not args.fixed_policy and args.policy == "walking":
-                if step_policy is card_policy:
-                    diagnostic_mode = "onefoot46"
-                    diagnostic_lift = command_values["lift_command"]
-                else:
-                    diagnostic_velocity = velocity_command.copy()
-            q_policy_target = apply_lift_target_scale(
-                q_policy_target,
-                not args.fixed_policy and args.policy == "walking"
-                and card_policy is not None and step_policy is card_policy
-                and command_values["lift_command"] == 1.0,
-            )
+                diagnostic_velocity = velocity_command.copy()
             q_policy_target = apply_forward_ankle_bias(
                 q_policy_target,
                 velocity_command if not args.fixed_policy and args.policy == "walking" else None,
                 not args.fixed_policy and args.policy == "walking"
-                and not upright_hold and step_policy is policy,
+                and not upright_hold and not leg_hold and step_policy is policy,
                 args.forward_ankle_bias_rad,
             )
             q_policy_target, target_trace = target_safety.apply_with_trace(
-                q_policy_target, last_q_policy_target, q_policy, dt)
+                q_policy_target, last_q_policy_target, leg_hold_target if leg_hold else q_policy, dt)
             last_q_policy_target = q_policy_target
             last_q_motor = config.policy_to_motor_position(q_policy_target)
 
             # Use the held/overridden command actually used by the walking model.
             # Other target sources have no walking velocity and use standing PD.
             gain_velocity = (velocity_command if not args.fixed_policy and args.policy == "walking"
-                             and step_policy is policy and not upright_hold else None)
+                             and step_policy is policy and not upright_hold and not leg_hold else None)
             motion_kp, motion_kd = config.motion_gain_scales(gain_velocity)
             kp_scale, kd_scale = args.kp_scale * motion_kp, args.kd_scale * motion_kd
             flags = COMMAND_ENABLE if args.enable_motors else 0

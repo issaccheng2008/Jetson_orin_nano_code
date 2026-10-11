@@ -16,16 +16,17 @@ class ShapeDecision:
     lift_command: float = 0.0
     support_foot: str = "right"
     busy: bool = False
+    # Historical field name: requests now cover all six MCU actions.
     send_upper: bool = False
     event_id: int = 0
     action_id: int = -1
 
 
 class ShapeActionController:
-    """Stop before each task, route arms/head to STM32 and legs to ONNX."""
+    """Stop before each task, route all six cards through the STM32 handshake."""
 
     def __init__(self, lift_seconds=3.0, recovery_seconds=0.3,
-                 upper_seconds=3.0, stop_timeout=4.0, action_timeout=6.0):
+                 upper_seconds=3.0, stop_timeout=4.0, action_timeout=8.0):
         for value in (lift_seconds, recovery_seconds, upper_seconds,
                       stop_timeout, action_timeout):
             if not math.isfinite(value) or value <= 0:
@@ -64,7 +65,7 @@ class ShapeActionController:
             return ShapeDecision()
         if phase == "wait_stop":
             if stopped and (self.action_id in UPPER_CARDS or ready_to_lift):
-                self.phase = "upper" if self.action_id in UPPER_CARDS else "lift"
+                self.phase = "upper"
                 self.phase_start = now
             elif now - self.phase_start >= self.stop_timeout:
                 raise TimeoutError("Robot did not stop before shape action")
@@ -81,20 +82,8 @@ class ShapeActionController:
                 raise TimeoutError("STM32 shape action did not complete")
             if self.upper_done and now - self.phase_start >= self.upper_seconds:
                 self.phase = "idle"
-        elif phase == "lift" and now - self.phase_start >= self.lift_seconds:
-            self.phase = "recover"
-            self.phase_start = now
-        elif phase == "recover" and now - self.phase_start >= self.recovery_seconds:
-            self.phase = "idle"
-
         if self.phase == "idle":
             return ShapeDecision()
-        if self.action_id in LEG_CARDS and self.phase == "lift":
-            return ShapeDecision(
-                policy="one-foot", lift_command=1.0,
-                support_foot="right" if self.action_id == 3 else "left",
-                busy=True, event_id=self.event_id, action_id=self.action_id,
-            )
         return ShapeDecision(
             busy=True, send_upper=self.phase == "upper" and not self.upper_done,
             event_id=self.event_id, action_id=self.action_id,

@@ -16,7 +16,7 @@ bash scripts/install_button_autostart.sh --dry-run
 bash scripts/install_button_autostart.sh
 ```
 
-首次安装创建 `config/button_start.env`，默认视觉 Python 为仓库的 `.venv/bin/python`，策略 Python 为 `~/venvs/humanoid_policy/bin/python`。两个环境可以不同。安装先检查脚本、两份模型及视觉环境的 `numpy/cv2/serial`、策略环境的 `onnxruntime/serial`，再用 `systemd-analyze verify` 校验生成的服务文件，成功后才写系统服务并设为开机启用。配置生成与程序运行使用当前用户；只有系统文件安装和 `systemctl` 使用 sudo。缺依赖或路径错误时，编辑配置后重跑安装，已有配置保留。更新安装脚本后也需重跑安装；已有配置不会被覆盖。
+首次安装创建 `config/button_start.env`，默认视觉 Python 为仓库的 `.venv/bin/python`，策略 Python 为 `~/venvs/humanoid_policy/bin/python`。两个环境可以不同。安装先检查脚本、行走模型及视觉环境的 `numpy/cv2/serial`、策略环境的 `onnxruntime/serial`，再用 `systemd-analyze verify` 校验生成的服务文件，成功后才写系统服务并设为开机启用。配置生成与程序运行使用当前用户；只有系统文件安装和 `systemctl` 使用 sudo。缺依赖或路径错误时，编辑配置后重跑安装，已有配置保留。更新安装脚本后也需重跑安装；已有配置不会被覆盖。
 
 ```bash
 vi config/button_start.env
@@ -27,7 +27,7 @@ vi 的编辑、保存退出和参数生效步骤见 [参数修改与 vi 保存�
 
 配置使用 Bash 语法，带空格的路径要加引号。默认串口 `/dev/ttyACM0`、摄像头 0；用户须已有串口和摄像头权限（通常为 `dialout`、`video` 组；权限修改后重新登录或重启）。不使用 root 跑视觉或步态。不要把此用户可编辑配置交给不可信账户修改。
 
-默认模型是 `humanoid_jetson_deploy/policy_49_max.onnx` 和 `policy-one-foot-standing_old.onnx`，可以分别修改 `WALKING_MODEL`、`ONE_FOOT_MODEL`。配置还保留当前视觉命令：heading 模式、vx 0.2、max-wz 0.5、wz-step 0.3、lookahead 50 cm、corridor 5 cm、右容差 9°、左容差 4°、full scale 15°、左转档位 0.3/0.4/0.5、卡片触发距离 30 cm、shape-every 2。策略单次最长运行默认 1200 秒，可修改 `POLICY_MAX_SECONDS`。UDP 端口固定 connector 输入 5006、策略输入 5005；connector 使用 `--max-vx-accel 1 --max-wz-accel 0`。
+默认行走模型是 `humanoid_jetson_deploy/policy_49_max.onnx`，修改 `WALKING_MODEL` 即可。图卡3/4由STM32执行，不需要单脚站ONNX模型；旧配置中的 `ONE_FOOT_MODEL` 会被忽略。配置还保留当前视觉命令：heading 模式、vx 0.2、max-wz 0.5、wz-step 0.3、lookahead 50 cm、corridor 5 cm、右容差 9°、左容差 4°、full scale 15°、左转档位 0.3/0.4/0.5、卡片触发距离 30 cm、shape-every 2。策略单次最长运行默认 1200 秒，可修改 `POLICY_MAX_SECONDS`。UDP 端口固定 connector 输入 5006、策略输入 5005；connector 使用 `--max-vx-accel 1 --max-wz-accel 0`。
 
 转向模式由 `WZ_MODE` 设置：`WZ_MODE=heading` 使用原航向控制，`WZ_MODE=segments` 使用分段控制（自动启用分段观测）。已有 `config/button_start.env` 不会被更新覆盖；缺少此项时默认 heading，需要切换就手动添加 `WZ_MODE=segments` 并重启 vision 服务。可用 `bash scripts/run_button_vision.sh --dry-run` 核对实际传入的模式，无需重新安装服务。
 

@@ -19,7 +19,7 @@ class PolicyGateLauncher:
     def __init__(self, model: str, port: str, max_seconds: float,
                  ready_timeout_s: float = 30.0,
                  policy_python: str | None = None,
-                 one_foot_model: str = "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx",
+                 one_foot_model: str | None = None,
                  command_min_hold_s: float = 0.0,
                  recording_directory: Path | None = None) -> None:
         self.recording_directory = Path(recording_directory).resolve() if recording_directory else None
@@ -27,7 +27,8 @@ class PolicyGateLauncher:
             raise ValueError('command_min_hold_s must be finite and nonnegative')
         self.command_min_hold_s = command_min_hold_s
         self.model = model
-        self.one_foot_model = one_foot_model
+        if one_foot_model:
+            print("[start-gate] obsolete one_foot_model ignored; leg cards run on STM32", flush=True)
         self.port = port
         self.max_seconds = max_seconds
         self.ready_timeout_s = ready_timeout_s
@@ -65,9 +66,8 @@ class PolicyGateLauncher:
         if self.started:
             return
         model = REPO_ROOT / self.model
-        one_foot = REPO_ROOT / self.one_foot_model
-        if not model.is_file() or not one_foot.is_file():
-            raise RuntimeError(f"policy model missing: {model if not model.is_file() else one_foot}")
+        if not model.is_file():
+            raise RuntimeError(f"policy model missing: {model}")
         records = self.recording_directory or REPO_ROOT / "records"
         records.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -78,7 +78,6 @@ class PolicyGateLauncher:
         command = [
             self.policy_python, "-u", "humanoid_jetson_deploy/main.py",
             "--policy", "walking", "--model", self.model,
-            "--one-foot-model", self.one_foot_model,
             "--port", self.port, "--command-source", "vision",
             "--udp-command-port", "5005",
             "--command-min-hold-s", f"{self.command_min_hold_s:g}",

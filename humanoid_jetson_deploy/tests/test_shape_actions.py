@@ -6,36 +6,42 @@ from shape_actions import ShapeActionController
 
 
 class ShapeActionControllerTests(unittest.TestCase):
-    def test_square_uses_one_foot_for_three_seconds_then_walks_still_for_point_three(self):
-        task = ShapeActionController()
-        self.assertTrue(task.accept(101, 3, 0.0))
-        self.assertFalse(task.accept(101, 3, 0.1))
-        self.assertEqual(task.advance(0.1, stopped=False).policy, "walking")
-        self.assertEqual(task.advance(0.2, stopped=True).support_foot, "right")
-        self.assertEqual(task.advance(0.8, stopped=True).lift_command, 1.0)
-        self.assertEqual(task.advance(3.19, stopped=True).policy, "one-foot")
-        recovery = task.advance(3.2, stopped=True)
-        self.assertEqual(recovery.policy, "walking")
-        self.assertTrue(recovery.busy)
-        self.assertTrue(task.advance(3.49, stopped=True).busy)
-        self.assertFalse(task.advance(3.51, stopped=True).busy)
+    def test_all_six_cards_use_mcu_handshake_and_never_onefoot(self):
+        for card in range(1, 7):
+            with self.subTest(card=card):
+                task = ShapeActionController()
+                self.assertTrue(task.accept(100 + card, card, 0.0))
+                self.assertFalse(task.advance(0.1, stopped=False).send_upper)
+                request = task.advance(0.2, stopped=True)
+                self.assertTrue(request.send_upper)
+                self.assertEqual(request.policy, "walking")
+                self.assertTrue(task.advance(0.3, True, upper_status=1).send_upper)
+                self.assertTrue(task.advance(0.4, True, upper_status=3).send_upper)
+                self.assertTrue(task.advance(5.9, True).busy)
+                self.assertFalse(task.advance(6.0, True, upper_status=2).busy)
+                self.assertFalse(task.accept(100 + card, card, 7.0))
 
-    def test_diamond_lifts_right_leg_with_left_support(self):
-        task = ShapeActionController()
-        self.assertTrue(task.accept(102, 4, 0.0))
-        self.assertEqual(task.advance(0.1, stopped=True).support_foot, "left")
+    def test_leg_requests_wait_for_untilt(self):
+        for card in (3, 4):
+            task = ShapeActionController()
+            task.accept(103, card, 0.0)
+            self.assertFalse(task.advance(0.1, True, ready_to_lift=False).send_upper)
+            self.assertTrue(task.advance(0.65, True, ready_to_lift=True).send_upper)
 
-    def test_leg_model_waits_for_stm32_untilt_before_its_three_seconds_start(self):
+    def test_leg_actions_have_eight_second_timeout_and_reject_terminal_errors(self):
         task = ShapeActionController()
-        self.assertTrue(task.accept(103, 3, 0.0))
-        waiting = task.advance(0.1, stopped=True, ready_to_lift=False)
-        self.assertTrue(waiting.busy)
-        self.assertEqual(waiting.policy, "walking")
-        self.assertEqual(task.advance(0.65, stopped=True,
-                                      ready_to_lift=True).policy, "one-foot")
-        self.assertEqual(task.advance(3.64, stopped=True).policy, "one-foot")
-        self.assertEqual(task.advance(3.65, stopped=True).policy, "walking")
-        self.assertFalse(task.advance(3.96, stopped=True).busy)
+        self.assertGreaterEqual(task.action_timeout, 8.0)
+        task.accept(103, 3, 0.0)
+        task.advance(0.2, True)
+        self.assertTrue(task.advance(7.9, True).send_upper)
+        with self.assertRaises(TimeoutError):
+            task.advance(8.21, True)
+        for status in (4, 5):
+            task = ShapeActionController()
+            task.accept(104, 4, 0.0)
+            task.advance(0.1, True)
+            with self.assertRaises(RuntimeError):
+                task.advance(0.2, True, upper_status=status)
 
     def test_upper_body_cards_request_stm32_and_wait_for_completion(self):
         for card in (1, 2, 5, 6):

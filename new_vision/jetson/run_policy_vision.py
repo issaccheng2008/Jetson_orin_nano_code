@@ -41,8 +41,8 @@ LANE_RADIUS_M = 0.776
 
 
 def card_action_stop_s(action, hold_ms):
-    """Keep vision stopped through the three-second action and leg handover."""
-    return max(3.0, hold_ms / 1000.0) + (0.3 if action in (3, 4) else 0.0)
+    """Include untilt plus the STM32 5.8-second leg sequence."""
+    return max(6.5 if action in (3, 4) else 3.0, hold_ms / 1000.0)
 
 
 def _new_dump_run(path, run_id, metadata):
@@ -184,8 +184,8 @@ def parse_args():
                         default="humanoid_jetson_deploy/policy_49_max.onnx",
                         help="Walking ONNX model for the automatically started policy")
     parser.add_argument("--start-policy-one-foot-model",
-                        default="humanoid_jetson_deploy/policy-one-foot-standing_old.onnx",
-                        help="One-foot ONNX model for vision cards 3/4 in the automatically started policy")
+                        default=None,
+                        help="Obsolete compatibility option, ignored; cards 3/4 run on STM32")
     parser.add_argument("--start-policy-python", default=None,
                         help="Python executable for the walking policy; defaults to "
                              "the repository .venv/bin/python when available")
@@ -252,7 +252,7 @@ def parse_args():
     parser.add_argument("--card-hold-ms", type=float,
                         default=float(os.getenv("CARD_HOLD_MS", "3000")),
                         help="Minimum stop after an arm/head card event (default 3000 ms). "
-                             "Leg cards also wait 300 ms after the one-foot model before "
+                             "Leg cards wait for the 5.8-second STM32 sequence before "
                              "walking resumes")
     parser.add_argument("--card-stop-ms", type=float,
                         default=float(os.getenv("CARD_STOP_MS", "3000")),
@@ -705,6 +705,8 @@ def fmt(value, spec):
 
 def main():
     args = parse_args()
+    if args.start_policy_one_foot_model:
+        print("[start-gate] --start-policy-one-foot-model ignored; leg cards run on STM32", flush=True)
     from startup_sequence import parse_sequence, StartupSequence
     startup_sequence = StartupSequence(parse_sequence(
         args.startup_sequence, args.startup_first_walk_s, args.vx, args.max_wz))
@@ -814,7 +816,6 @@ def main():
                                              args.start_policy_port,
                                              args.start_policy_max_seconds,
                                              policy_python=args.start_policy_python,
-                                             one_foot_model=args.start_policy_one_foot_model,
                                              command_min_hold_s=effective_policy_hold(args),
                                              **({'recording_directory': recording_directory}
                                                 if recording_directory is not None else {}))
