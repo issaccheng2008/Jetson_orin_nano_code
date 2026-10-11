@@ -19,6 +19,7 @@ from utils import clamp
 from line_preprocess import extract_lane_candidates, sampled_otsu_threshold
 from photometric_thresholds import max_channel, measure, MAX_CHANNEL_REFERENCE
 from continuous_lane_heading import HeadingScanConfig, trace_heading
+from lane_boundary_path import BoundaryPathTracker
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -349,6 +350,9 @@ class LineDetector:
         self.heading_min_span_px = p1("heading_min_span_px", 8.0)
         # Heading only: scan bottom-to-top over the full configured interval.
         self.heading_scan = HeadingScanConfig()
+        self.single_boundary_tracking = True
+        # Cold single-line identity is unknown unless explicitly configured.
+        self.initial_boundary_side = None
         for value in (self.lock_width_cv_max, self.observation_rmse_max_px,
                       self.measurement_max_age_s, self.single_width_max_age_s,
                       self.filter_tau_s, self.shake_filter_tau_s):
@@ -363,11 +367,13 @@ class LineDetector:
         # times below are restored, so diagnostic frames cannot rejuvenate old seeds.
         self._observation_clock_s = 0.0
         self._last_process_time = None
+        self._pending_frame_token = None
 
         self._migrate_metric_sampling()
 
         # ── Internal state ──
         self._state = self._initial_state()
+        self._boundary_path_tracker = BoundaryPathTracker()
         self._scan_diagnostics = {}
 
     def _initial_state(self):
@@ -388,6 +394,7 @@ class LineDetector:
             "last_band_mask": 0,
             "heading_rows": [],
             "heading_rows_time": None,
+            "inside_narrow": False,
             "startup_frames": 0,
             "last_bottom_lock_valid": False,
             "near_err_history": [],
@@ -414,6 +421,7 @@ class LineDetector:
                 if not key.startswith("red_") and key != "start_line_z"
             }),
             "lateral_scale": float(self.lateral_scale),
+            "boundary_path_tracker": deepcopy(self._boundary_path_tracker),
         }
 
     def restore_tracking_state(self, snapshot):
@@ -429,6 +437,7 @@ class LineDetector:
         })
         lateral_scale = float(snapshot["lateral_scale"])
         self._state.update(tracking)
+        self._boundary_path_tracker = deepcopy(snapshot["boundary_path_tracker"])
         self.lateral_scale = lateral_scale
         self._rebuild_err_scale()
 
@@ -442,6 +451,7 @@ class LineDetector:
         the same curve tracks fine, so a fresh state should behave the same.
         """
         self._state = self._initial_state()
+        self._boundary_path_tracker = BoundaryPathTracker()
         self._scan_diagnostics = {}
 
     # ═══════════════════════════════════════════════════════════
@@ -1843,7 +1853,7 @@ class LineDetector:
     # Main process entry
     # ═══════════════════════════════════════════════════════════
 
-    def process(self, bgr, *, dt=None):
+    def process(self, bgr, *, dt=None, frame_token=None):
         """Process one BGR frame, with optional elapsed dt in seconds.
 
         Omitted dt uses monotonic time (first frame 0.1s). Only current qualified
@@ -1866,6 +1876,9 @@ class LineDetector:
             raise ValueError("process dt must be finite seconds >= 0")
         self._last_process_time = now
         self._observation_clock_s += dt
+        if frame_token is None:
+            frame_token = self._pending_frame_token
+        self._pending_frame_token = None
         self._scan_diagnostics = {}
         for name in ('simple', 'low', 'mid', 'bottom_lock'):
             d = self._new_scan_diagnostics(name)
@@ -1919,7 +1932,27 @@ class LineDetector:
             self._px_to_ground_cm, self.cm_per_px_at,
             previous_rows=state["heading_rows"], previous_age_s=previous_heading_age,
             config=self.heading_scan)
-        if heading_trace["valid"] and heading_trace["paired_rows"] >= 2:
+        if self.single_boundary_tracking:
+            boundary_path = self._boundary_path_tracker.update(
+                binary_clean,
+                lambda y: self._collect_track_runs_on_row(
+                    gray_detect, y, 0, self.bird_w-1, black_th, track_is_dark),
+                self._px_to_ground_cm, now_s=self._observation_clock_s,
+                width_cm=self.lane_width_true_cm,
+                reference_z_cm=self.z_cm_at(self.NEAR_BAND_ROW),
+                paired_trace=heading_trace, initial_side=self.initial_boundary_side,
+                frame_token=frame_token,
+                bottom_y=self.heading_scan.bottom_y, top_y=self.heading_scan.top_y,
+                step_px=self.heading_scan.step_px,
+                width_prior_applicable=not state.get("inside_narrow", False))
+        else:
+            boundary_path = BoundaryPathTracker._empty("disabled")
+        duplicate_boundary_frame = boundary_path["reject_reason"] in (
+            "duplicate_frame", "stale_frame")
+        if (not duplicate_boundary_frame and
+                boundary_path["reject_reason"] != "pair_path_disagreement" and
+                heading_trace["valid"] and
+                heading_trace["paired_rows"] >= 2):
             state["heading_rows"] = [r for r in heading_trace["rows"]
                                      if r["source"] == "paired"]
             state["heading_rows_time"] = self._observation_clock_s
@@ -2088,7 +2121,8 @@ class LineDetector:
         line_visible = False
 
         # ── Pixel-domain error fusion ──
-        if roi_results and heading_trace["valid"]:
+        if (roi_results and heading_trace["valid"] and not duplicate_boundary_frame
+                and boundary_path["reject_reason"] != "pair_path_disagreement"):
             state["lost_frames"] = 0
 
             near = self._pick_result_by_band(roi_results, ("low", "mid"))
@@ -2304,6 +2338,56 @@ class LineDetector:
             narrow_gate_score = 1.0
             narrow_gate_dir = 0
 
+        # A genuinely observed, identified edge can supply the SAME target-path
+        # position and heading interface when the paired band/heading path fails.
+        # Its virtual path never updates paired width, lateral scale or lock data.
+        if (not measurement_valid and boundary_path["measurement_valid"] and
+                boundary_path["tracking_mode"] in ("LEFT_ONLY", "RIGHT_ONLY")):
+            near_z_cm = boundary_path["near_z_cm"]
+            far_dist_cm = near_z_cm
+            base_err_cm = boundary_path["near_error_cm"]
+            base_err_px = base_err_cm / self.cm_per_px_at(self.NEAR_BAND_ROW)
+            angle_err = boundary_path["heading_control_deg"]
+            heading_valid = True
+            heading_control.update(
+                heading_control_deg=angle_err, heading_control_valid=True,
+                heading_control_reject_reason="accepted_single_boundary",
+                heading_control_rmse_cm=boundary_path["boundary_rmse_cm"],
+                heading_control_z_span_cm=boundary_path["boundary_span_cm"],
+                heading_control_points=(boundary_path["observed_left_points"]+
+                                        boundary_path["observed_right_points"]),
+                heading_control_slope_dx_dz=-math.tan(math.radians(angle_err)),
+                heading_control_intercept_cm=(base_err_cm+
+                    math.tan(math.radians(angle_err))*near_z_cm),
+                heading_control_pixel_rmse_px=(boundary_path["boundary_rmse_cm"]/
+                    self.cm_per_px_at(self.NEAR_BAND_ROW)),
+                heading_control_source=boundary_path["measurement_source"])
+            measurement_valid = True
+            measurement_quality = boundary_path["path_quality"]
+            avg_conf = measurement_quality
+            state["lost_frames"] = 0
+            state["last_accepted_tracking_time"] = self._observation_clock_s
+            state["last_base_err"] = base_err_cm
+            state["last_angle_err"] = angle_err
+            state["last_lane_center_x"] = clamp(
+                self.center_x+base_err_px, 0., float(self.bird_w-1))
+            single_line = True
+            single_side = "left" if boundary_path["tracking_mode"]=="LEFT_ONLY" else "right"
+            left_seen, right_seen = single_side=="left", single_side=="right"
+            lane_fit["near_observation_paired"] = False
+            lane_fit["near_observation_quality"] = measurement_quality
+            preview_valid = False
+            preview_error_cm = 0.
+            lookahead_z_cm = near_z_cm
+            curve_mode = abs(angle_err) >= self.curve_angle_deg
+            fused_err_cm = -base_err_cm
+            fused_err_raw = fused_err_cm / self.err_scale_cm
+            if previous_time is None or prior_age > self.measurement_max_age_s:
+                state["smoothed_err_cm"] = fused_err_cm
+            else:
+                state["smoothed_err_cm"] = time_constant_ema(
+                    state["smoothed_err_cm"], fused_err_cm, dt, self.filter_tau_s)
+
         if not measurement_valid:
             heading_control["heading_control_reject_reason"] = (
                 heading_trace["reason"] if not heading_trace["valid"]
@@ -2320,6 +2404,17 @@ class LineDetector:
         ng_exit_z = obstacle["ng_exit_z"]
         ng_enter_z = obstacle["ng_enter_z"]
         inside_narrow = obstacle["inside_narrow"]
+        state["inside_narrow"] = inside_narrow
+        if inside_narrow and single_line and measurement_valid:
+            # The equal-width prior does not describe the narrowed gate.
+            measurement_valid = heading_valid = False
+            heading_control["heading_control_valid"] = False
+            heading_control["heading_control_reject_reason"] = "width_prior_not_applicable"
+            avg_conf = measurement_quality = 0.
+            state["lost_frames"] += 1
+            state["last_accepted_tracking_time"] = previous_time
+            boundary_path["tracking_mode"] = "UNKNOWN"
+            boundary_path["reject_reason"] = "width_prior_not_applicable"
 
         accepted_time = state["last_accepted_tracking_time"]
         measurement_age_s = (self._observation_clock_s - accepted_time
@@ -2341,6 +2436,28 @@ class LineDetector:
             dev_px, heading_deg, conf, base_err_px, band_mask,
             heading_trace,
         )
+        # Real edge samples are circles; the offset target is a different colour
+        # and marker, never drawn as a detected second boundary.
+        if boundary_path["tracking_mode"] in ("LEFT_ONLY", "RIGHT_ONLY"):
+            for side, color in (("left", (255, 220, 0)), ("right", (0, 220, 255))):
+                for y, x in boundary_path[side+"_points"]:
+                    if 0 <= x < self.bird_w:
+                        cv2.circle(vis, (int(round(x)), int(y)), 2, color, -1)
+            for z, x_cm in boundary_path["target_points"]:
+                y = int(np.argmin(np.abs(self._lut_z_cm-z)))
+                x = int(round(self.center_x+x_cm/self.cm_per_px_at(y)))
+                if 0 <= x < self.bird_w:
+                    cv2.drawMarker(vis,(x,y),(255,0,255),cv2.MARKER_DIAMOND,6,1)
+        display_mode=(boundary_path['tracking_mode'] if boundary_path['measurement_valid']
+                      else 'BOTH' if measurement_valid and heading_trace['valid'] else 'LOST')
+        cv2.putText(vis, f"{display_mode} {boundary_path['reject_reason']}",
+                    (6, min(self.bird_h-8,75)), cv2.FONT_HERSHEY_SIMPLEX,
+                    .42, (255,255,0), 1)
+        cv2.putText(vis, f"target={base_err_cm:+.1f}cm z={near_z_cm:.1f}cm "
+                    f"hdg={angle_err:+.1f} q={measurement_quality:.2f} "
+                    f"W={boundary_path['width_source']}",
+                    (6, min(self.bird_h-8,93)), cv2.FONT_HERSHEY_SIMPLEX,
+                    .38, (255,255,0), 1)
 
         # ── Debug info ──
         vis[~valid] = 0
@@ -2400,15 +2517,28 @@ class LineDetector:
             "heading_deg": angle_err,
             "heading_valid": heading_valid and measurement_valid,
             "heading_fit_rmse_px": heading_rmse_px,
-            "heading_confidence": heading_trace["confidence"] if measurement_valid else 0.0,
-            "heading_fit_residual": heading_trace["residual_cm"],
-            "heading_observed_rows": heading_trace["observed_rows"],
+            "heading_confidence": (boundary_path["path_quality"]
+                if measurement_valid and boundary_path["tracking_mode"] in
+                   ("LEFT_ONLY", "RIGHT_ONLY") else
+                heading_trace["confidence"] if measurement_valid else 0.0),
+            "heading_fit_residual": (boundary_path["boundary_rmse_cm"]
+                if measurement_valid and boundary_path["tracking_mode"] in
+                   ("LEFT_ONLY", "RIGHT_ONLY") else heading_trace["residual_cm"]),
+            "heading_observed_rows": (boundary_path["observed_left_points"]+
+                boundary_path["observed_right_points"]
+                if measurement_valid and boundary_path["tracking_mode"] in
+                   ("LEFT_ONLY", "RIGHT_ONLY") else heading_trace["observed_rows"]),
             "heading_inferred_rows": heading_trace["inferred_rows"],
-            "heading_span_cm": heading_trace["span_cm"],
-            "heading_right_deg": heading_trace["heading_right_deg"],
+            "heading_span_cm": (boundary_path["boundary_span_cm"]
+                if measurement_valid and boundary_path["tracking_mode"] in
+                   ("LEFT_ONLY", "RIGHT_ONLY") else heading_trace["span_cm"]),
+            "heading_right_deg": (-angle_err if measurement_valid else 0.),
             "heading_rows": heading_trace["rows"],
             **heading_control,
             **single_edge,
+            **{key: value for key, value in boundary_path.items()
+               if key not in ("measurement_valid", "near_error_cm", "near_z_cm",
+                              "heading_control_deg", "heading_control_valid")},
             "preview_error_cm": preview_error_cm,
             "preview_valid": preview_valid and measurement_valid,
             "lookahead_z_cm": lookahead_z_cm,
@@ -2448,6 +2578,17 @@ class LineDetector:
 
         debug["vision_speed_cm_s"] = 0.0
         debug["vision_omega_rad_s"] = 0.0
+        if measurement_valid and boundary_path["tracking_mode"] in ("LEFT_ONLY", "RIGHT_ONLY"):
+            debug["tracking_mode"] = boundary_path["tracking_mode"]
+        elif measurement_valid:
+            debug.update(tracking_mode="BOTH", measurement_source="paired",
+                         path_quality=measurement_quality,
+                         boundary_quality=measurement_quality,
+                         reject_reason="accepted")
+        elif debug["reject_reason"] == "side_ambiguous":
+            debug["tracking_mode"] = "UNKNOWN"
+        else:
+            debug["tracking_mode"] = "LOST"
 
         return dev_px, heading_deg, conf, vis, debug
 

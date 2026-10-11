@@ -191,7 +191,7 @@ class HeadingSteeringController:
             if not debug["heading_control_valid"]:
                 return None
             angle = float(debug["heading_control_deg"])
-            source = "ground_x_z"
+            source = str(debug.get("heading_control_source", "ground_x_z"))
         else:
             if not debug.get("heading_valid", True):
                 return None

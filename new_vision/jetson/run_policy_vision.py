@@ -20,6 +20,7 @@ import os
 import signal
 import sys
 import time
+import zlib
 
 import numpy as np
 
@@ -489,6 +490,14 @@ def parse_args():
                              "equalization and preserves thin/oblique fragments; "
                              "legacy restores the previous binary preprocessing; "
                              "canny selects experimental filled dark-stroke evidence")
+    parser.add_argument("--initial-boundary-side", choices=("unknown", "left", "right"),
+                        default="unknown",
+                        help="Only for an explicitly known cold-start single boundary; "
+                             "unknown refuses to guess its left/right identity")
+    parser.add_argument("--single-boundary-tracking", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="Enable sustained real single-boundary path recovery; "
+                             "--no-single-boundary-tracking restores paired-only control")
     parser.add_argument("--line-adaptive-c", type=float, default=-12.0,
                         help="Reference C for the legacy lane adaptive threshold; "
                              "threshold mode adapts it by ground std/reference std")
@@ -919,11 +928,18 @@ def main():
             else:
                 detector.set_heading_distances(args.heading_near_cm, args.heading_far_cm)
         detector.preprocess_mode = args.line_preprocess
+        detector.initial_boundary_side = (None if args.initial_boundary_side == "unknown"
+                                          else args.initial_boundary_side)
+        detector.single_boundary_tracking = args.single_boundary_tracking
         detector.adaptive_c = args.line_adaptive_c
         detector.photometric_mode = args.photometric_mode
         print(f"[line-preprocess] {detector.preprocess_mode}; "
               f"photometric-effective={resolve_mode(args.photometric_mode)}; "
               "candidate mask only; geometry quality checks retained", flush=True)
+        print(f"[lane-boundary] enabled={args.single_boundary_tracking}; "
+              f"cold-start-side={args.initial_boundary_side}; "
+              f"equal-width-prior={getattr(detector, 'lane_width_true_cm', 'unknown')}cm; "
+              "single edge requires real continuous observations", flush=True)
         if args.no_red_detect:
             detector.red_detect_enable = False
         detector.anticipation_clip = args.anticipation_clip
@@ -1120,6 +1136,7 @@ def main():
         if args.shape_dump or args.dump_on_loss or args.line_log_dir:
             dump_metadata["source_sha256"] = {}
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
+                                "lane_boundary_path.py", "continuous_lane_heading.py",
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
@@ -1274,6 +1291,7 @@ def main():
             # but do not let it train the next walking frame's seed/width/EMA.
             tracking_before_frame = detector.snapshot_tracking_state()
             line_process_start_ns = time.perf_counter_ns()
+            detector._pending_frame_token = zlib.crc32(frame)
             _, _, confidence, visualization, debug = detector.process(
                 frame, dt=processed - previous)
             line_process_ms = (time.perf_counter_ns() - line_process_start_ns) / 1_000_000.0
