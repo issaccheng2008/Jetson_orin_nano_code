@@ -1096,6 +1096,10 @@ def main():
         card_vote_attempts = 0
         card_vote_abstentions = 0
         card_vote_empty_reported = False
+        steering_paired_count = 0
+        steering_single_count = 0
+        card_stop_box_hit_count = 0
+        card_stop_cue_hit_count = 0
         lateral_warned = None    # None until the lateral bound first trips
         card_window_open = False
         # 门控的"上一帧"状态。闸门关着时 window_open 为真，于是窗口关闭那套交接
@@ -1415,6 +1419,16 @@ def main():
                     classify=classify_card, issue_action=False,
                     proposal_mode=(args.shape_proposal_mode if classify_card else "all"))
                 shape_update_ms = (time.perf_counter_ns() - shape_update_start_ns) / 1_000_000.0
+                # Count this call's two independent stop-gate evidence paths,
+                # including early cue hits that have not filled its vote window.
+                if (card_detection_mode == "presence" and not gate_window_open
+                        and not startup_first_card_pending
+                        and processed >= stop_until and processed >= card_until
+                        and last_cmd_vx > 0.0):
+                    if card_dbg.get("card_found"):
+                        card_stop_box_hit_count += 1
+                    elif card_dbg.get("cue_hit"):
+                        card_stop_cue_hit_count += 1
                 # "多近了"这一个量，动作闸和停车闸共用。有真框就量框宽（对机身俯仰
                 # 不敏感），没框才退回 cy。理由见下面停车那段。
                 _quad = card_dbg.get("quad_work")
@@ -1833,6 +1847,18 @@ def main():
             debug['steering_applied_wz'] = wz
             if args.wz_mode == 'segments':
                 debug['segment_applied_wz'] = wz
+            if (args.wz_mode in ('heading', 'segments') and vx > 0.0
+                    and not in_card_window and not gate_window_open
+                    and not args.hold_still and not startup_first_card_pending
+                    and debug.get('measurement_valid')
+                    and debug.get('steering_reason') in ('new_block', 'continue_block')):
+                source = debug.get('steering_heading_source')
+                if (debug.get('tracking_mode') == 'BOTH'
+                        and source not in ('left_boundary', 'right_boundary')):
+                    steering_paired_count += 1
+                elif (debug.get('tracking_mode') in ('LEFT_ONLY', 'RIGHT_ONLY')
+                      and source in ('left_boundary', 'right_boundary')):
+                    steering_single_count += 1
             last_cmd_vx = vx
             # Aggregate policy/card logic; QR and shape fields below are sub-stages.
             decision_ms = (time.perf_counter_ns() - decision_start_ns) / 1_000_000.0
@@ -1891,6 +1917,10 @@ def main():
                     line_process_ms=line_process_ms, qr_decode_ms=qr_decode_ms,
                     shape_update_ms=shape_update_ms, decision_ms=decision_ms,
                     card_detection_mode=card_detection_mode,
+                    steering_paired_count=steering_paired_count,
+                    steering_single_count=steering_single_count,
+                    card_stop_box_hit_count=card_stop_box_hit_count,
+                    card_stop_cue_hit_count=card_stop_cue_hit_count,
                     card_vote_total=card_vote_total,
                     card_vote_attempts=card_vote_attempts,
                     card_vote_abstentions=card_vote_abstentions,
@@ -1954,6 +1984,8 @@ def main():
                     f"age={fmt(debug.get('measurement_age_s'), '.3f')}s "
                     f"lock_w={fmt(debug.get('bottom_lock_weight'), '.2f')} "
                     f"conf={confidence:.2f} qr={visible_qr}"
+                    f" count=both:{steering_paired_count}/single:{steering_single_count}"
+                    f" stop_box:{card_stop_box_hit_count}/cue:{card_stop_cue_hit_count}"
                     # Same id the connector and policy log, so the three can be
                     # lined up by hand when an event goes missing in the middle.
                     + (f"/ev{card_action}#{card_event_id}" if card_event_id else "")

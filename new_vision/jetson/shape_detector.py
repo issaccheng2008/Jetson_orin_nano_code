@@ -717,6 +717,7 @@ class ShapeDetector:
         # 结构命中还要过出口分数闸才算"看到卡"。不过闸的也进不了时间窗
         # （_cue_hist），所以地板那种低分位永远不会攒出 presence。
         hit = box is not None and cue_score >= self.cfg["cue_score_min"]
+        dbg["cue_hit"] = bool(hit)
         self._cue_hist.append(1 if hit else 0)
         if hit:
             bx, by, bw, bh_ = box
