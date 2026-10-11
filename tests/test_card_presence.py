@@ -11,9 +11,9 @@ from card_presence import find_broken_border_presence
 from photometric_thresholds import measure
 
 
-CFG = dict(cue_side_min=30, cue_side_max=340, cue_aspect_max=2.6,
+CFG = dict(cue_side_min=28, cue_side_max=340, cue_aspect_max=2.6,
            cue_edge_margin=4, presence_top_frac=1 / 3,
-           cue_core_gray_min=100., cue_contrast_min=4., cue_score_min=1.2)
+           cue_core_gray_min=100., cue_contrast_min=3., cue_score_min=1.5)
 
 
 def card(gaps=False, marking=True):

@@ -2087,7 +2087,7 @@ class ShapeDetectorReportingTests(unittest.TestCase):
     stop on that centroid, and a stale one walked 0.51 -> 0.78 while the robot was
     standing still."""
 
-    def test_moderate_cues_below_legacy_score_threshold_do_not_confirm(self):
+    def test_cues_below_relaxed_score_threshold_do_not_confirm(self):
         detector = ShapeDetector()
         self.assertEqual(detector.photometric_mode, "legacy")
         blank = np.zeros((720, 1280, 3), np.uint8)
@@ -2095,20 +2095,24 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         for _ in range(9):
             _, rejected = detector.update(blank)
         self.assertFalse(rejected["presence"])
-        self.assertEqual(detector.cfg["cue_score_min"], 2.0)
-        self.assertEqual(detector.cfg["cue_hist_m"], 3)
+        self.assertEqual(detector.cfg["cue_score_min"], 1.5)
+        self.assertEqual(detector.cfg["cue_hist_m"], 2)
 
-    def test_three_legacy_strength_cues_confirm_across_missed_calls(self):
+    def test_two_cues_confirm_across_misses_only_while_recent(self):
         detector = ShapeDetector()
-        scores = iter((2.4, 0., 0., 0., 2.4, 0., 0., 0., 2.4))
+        scores = iter((1.6, 0., 0., 0., 0., 0., 1.6, 0., 0., 0.))
         detector._presence_cue = lambda _gray: ((40, 190, 120, 90), next(scores))
         blank = np.zeros((720, 1280, 3), np.uint8)
-        for _ in range(8):
+        for _ in range(6):
             _, pending = detector.update(blank)
             self.assertFalse(pending["presence"])
         _, confirmed = detector.update(blank)
         self.assertTrue(confirmed["presence"])
         self.assertIsNotNone(confirmed["presence_cy_frac"])
+        for _ in range(3):
+            _, stale = detector.update(blank)
+        self.assertFalse(stale["presence"])
+        self.assertIsNone(stale["presence_cy_frac"])
 
     def test_a_cue_miss_reports_no_centroid(self):
         detector = ShapeDetector()

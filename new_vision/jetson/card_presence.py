@@ -50,7 +50,7 @@ def find_broken_border_presence(gray, photometry, cfg, backend=None):
     sides must remain observed and uncropped, a large bright paper region must survive, and
     dark ink must also occur away from the border. This rejects a lone cable,
     lane, solid blob, empty rectangular glare and wholly missing card sides.
-    This weaker structural path additionally requires a score of at least 3.
+    This weaker structural path additionally requires a score of at least 2.5.
     """
     if gray.ndim != 2 or gray.dtype != np.uint8 or not gray.size:
         raise ValueError("card presence needs a nonempty uint8 grayscale image")
@@ -144,7 +144,7 @@ def find_broken_border_presence(gray, photometry, cfg, backend=None):
             score = paper_fraction * contrast
             # Repaired contours carry less structural evidence than the closed
             # ring path. Keep an additional score floor for this path only.
-            if score < max(3., cfg.get("cue_score_min", 1.2)):
+            if score < max(2.5, cfg.get("cue_score_min", 1.5)):
                 diagnostics["cue_broken_reject_score"] += 1
                 continue
             details = dict(cue_broken_accepted=True,
