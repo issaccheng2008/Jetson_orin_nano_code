@@ -3402,7 +3402,7 @@ class StartGateIntegrationTests(unittest.TestCase):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         clock = [0.0]
         # Continue beyond the first action's three-second retrigger gap.
-        camera, reads = self._camera(frame, clock, 95)
+        camera, reads = self._camera(frame, clock, 130)
         detector = Mock()
         detector.process.return_value = (0, 0, 0.9, None, detection())
         shape = Mock()
@@ -3413,10 +3413,13 @@ class StartGateIntegrationTests(unittest.TestCase):
             if 2 <= index <= 5 or 18 <= index <= 24 or index == 56:
                 return None, {"presence": True, "card_found": True,
                               "presence_cy_frac": 0.9, "shape": "circle"}
-            if index == 57:
+            # The first action is released around read 58 in this start-gate
+            # fixture. Require a genuine clear stretch while walking before
+            # exposing the next card far from the trigger line.
+            if index == 71:
                 return None, {"presence": True, "card_found": True,
                               "presence_cy_frac": 0.2, "shape": "square"}
-            if index >= 58:
+            if index >= 72:
                 return None, {"presence": True, "card_found": True,
                               "presence_cy_frac": 0.9, "shape": "square"}
             return None, {"presence": False, "card_found": False,
