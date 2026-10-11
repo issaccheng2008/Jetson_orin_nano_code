@@ -177,8 +177,7 @@ def pack_startup_control(packet: StartupControlPacket) -> bytes:
                        STARTUP_CONTROL_PAYLOAD.pack(packet.flags))
 
 
-# action_id values that may go on the wire.
-# STM32 local actions. 7/8 are the card re-pose (LEAN / RESTORE).
+# All six cards and the card-posture events use the same request/status protocol.
 SENDABLE_ACTION_IDS = (1, 2, 3, 4, 5, 6, ACTION_CARD_TILT, ACTION_CARD_RESTORE)
 
 

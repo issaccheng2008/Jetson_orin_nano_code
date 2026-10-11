@@ -36,11 +36,10 @@ class ProtocolTests(unittest.TestCase):
                 request = ActionRequestPacket(sequence=1, event_id=9, action_id=action_id)
                 self.assertEqual(len(pack_action_request(request)), 15)
 
-    def test_the_leg_card_ids_round_trip(self):
+    def test_the_leg_card_ids_round_trip_to_stm32(self):
         for action_id in (3, 4):
-            with self.subTest(action_id=action_id):
-                request = ActionRequestPacket(sequence=1, event_id=9, action_id=action_id)
-                self.assertEqual(list(FrameDecoder().feed(pack_action_request(request))), [request])
+            request = ActionRequestPacket(sequence=1, event_id=9, action_id=action_id)
+            self.assertEqual(list(FrameDecoder().feed(pack_action_request(request))), [request])
 
     def test_fragmented_state_round_trip(self):
         source = StatePacket(

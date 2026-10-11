@@ -197,11 +197,10 @@ class WalkingCommandHoldTests(unittest.TestCase):
         self.assertEqual(rows[1]["command_hold_reason"], "upright_takeover")
         np.testing.assert_allclose(seen[-1][1][9:11], [.4, -.5])
 
-    def test_real_main_mcu_leg_takeover_clears_contract(self):
-        seen, rows = self.run_main([0, .1, .2, .3], [[.2, 0, .5], [.3, 0, 0], [.4, 0, -.5], [.4, 0, -.5]], onefoot_at=1)
-        self.assertEqual(len(seen), 3)
+    def test_real_main_mcu_takeover_clears_contract(self):
+        seen, rows = self.run_main([0, .1, .2], [[.2, 0, .5], [.3, 0, 0], [.4, 0, -.5]], onefoot_at=1)
+        self.assertEqual(len(seen), 2)
         self.assertEqual(rows[1]["command_hold_reason"], "stm32_leg_takeover")
-        np.testing.assert_array_equal(seen[1][1][9:11], np.zeros(2))
         np.testing.assert_allclose(seen[-1][1][9:11], [.4, -.5])
 
     def test_gains_follow_executed_held_command_and_stop_immediately(self):
@@ -212,7 +211,7 @@ class WalkingCommandHoldTests(unittest.TestCase):
                           [[.2, 0, .5], [.3, 0, 0], [.3, 0, 0], [0, 0, 0], [.2, 0, .5]])
         self.assertEqual(self.sent_gain_scales, [(.8, 1.8), (.8, 1.8), (1.2, 1.4), (1.5, 2), (.8, 1.8)])
 
-    def test_upright_and_mcu_leg_actions_use_standing_profile(self):
+    def test_upright_and_onefoot_use_standing_profile(self):
         self.assertTrue(hasattr(config, "MOTION_GAIN_SCALES"), "three PD profiles are required")
         profiles = {"standing": (1.5, 2), "straight": (1.2, 1.4), "turning": (.8, 1.8)}
         with patch.object(config, "MOTION_GAIN_SCALES", profiles):

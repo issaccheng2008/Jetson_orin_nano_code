@@ -16,43 +16,6 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
-    def test_vision_preflight_runs_without_a_one_foot_model_setting_or_file(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            checkout = Path(temporary) / 'robot with spaces'
-            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
-            shutil.copytree(REPO / 'config', checkout / 'config',
-                            ignore=shutil.ignore_patterns('button_start.env'))
-            fake_python = checkout / 'fake_python.sh'
-            fake_python.write_text('#!/usr/bin/env bash\n'
-                'if [[ "$1" != -c ]]; then printf "ARG=%s\n" "$@"; fi\n')
-            fake_python.chmod(0o755)
-            template = '\n'.join(line for line in
-                (REPO / 'config/button_start.env.example').read_text().splitlines()
-                if not line.startswith('ONE_FOOT_MODEL=')) + '\n'
-            (checkout / 'config/button_start.env').write_text(template +
-                'VISION_PYTHON="$BUTTON_REPO_DIR/fake_python.sh"\n'
-                'POLICY_PYTHON="$VISION_PYTHON"\n')
-            for relative in ('connector.py', 'new_vision/jetson/run_policy_vision.py',
-                             'humanoid_jetson_deploy/main.py',
-                             'humanoid_jetson_deploy/policy_49_max.onnx'):
-                file = checkout / relative
-                file.parent.mkdir(parents=True, exist_ok=True)
-                file.touch()
-            result = subprocess.run([BASH, 'scripts/run_button_vision.sh'],
-                cwd=checkout, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            output = result.stdout
-            self.assertIn('ARG=--start-policy-model', output)
-            self.assertNotIn('one-foot', output)
-            self.assertFalse(list(checkout.rglob('*one-foot*.onnx')))
-            # Installed legacy configs may name a file that no longer exists.
-            with (checkout / 'config/button_start.env').open('a') as config:
-                config.write('ONE_FOOT_MODEL="/missing/policy-one-foot-standing_old.onnx"\n')
-            result = subprocess.run([BASH, 'scripts/run_button_vision.sh'],
-                cwd=checkout, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertNotIn('one-foot', result.stdout)
-
     def test_array_and_near_distance_config_reaches_real_parser(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision
@@ -325,7 +288,8 @@ class ButtonAutostartTests(unittest.TestCase):
                               'POLICY_PYTHON="$VISION_PYTHON"\n')
             for relative in ('connector.py', 'new_vision/jetson/run_policy_vision.py',
                              'humanoid_jetson_deploy/main.py',
-                             'humanoid_jetson_deploy/policy_49_max.onnx'):
+                             'humanoid_jetson_deploy/policy_49_max.onnx',
+                             'humanoid_jetson_deploy/policy-one-foot-standing_old.onnx'):
                 file = checkout / relative
                 file.parent.mkdir(parents=True, exist_ok=True)
                 file.touch()

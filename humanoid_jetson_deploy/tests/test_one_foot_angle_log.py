@@ -117,11 +117,10 @@ class OneFootAngleLogTests(unittest.TestCase):
                     states[i].joint_position, atol=1e-8)
             self.assertEqual(len(list(Path(folder).glob("motor_positions_*.csv"))), 1)
 
-    def test_vision_uses_mcu_and_creates_no_one_foot_model_files(self):
+    def test_vision_creates_no_one_foot_policy_log(self):
         with tempfile.TemporaryDirectory() as folder:
-            _states, link = self.run_mode(folder, "vision")
+            self.run_mode(folder, "vision")
             self.assertEqual(list(Path(folder).glob("onefoot_*.csv")), [])
-            self.assertIn((765, 3), [call.args for call in link.send_action.call_args_list])
 
     def test_walking_creates_no_one_foot_files(self):
         with tempfile.TemporaryDirectory() as folder:

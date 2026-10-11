@@ -77,7 +77,7 @@ SHAPE_EVERY=2                # 图卡检测间隔，对应 --shape-every
 POLICY_MAX_SECONDS=1200      # 步态最长运行秒数，对应 --start-policy-max-seconds
 ```
 
-以上是当前默认值示例，按实际需要调整。行走模型修改 `WALKING_MODEL`。图卡3/4由STM32执行；旧 `ONE_FOOT_MODEL` 配置已不参与启动或文件检查。
+以上是当前默认值示例，按实际需要调整。行走模型修改 `WALKING_MODEL`，单脚站模型修改 `ONE_FOOT_MODEL`。
 
 在 `heading/segments` 模式中，`WZ_STEP=0.3` 会阻止选用 `0.37/0.4/0.5` 档位，即使 `MAX_WZ=0.5`。想允许这些档位，设置 `WZ_STEP=0.5`。`LOST_HOLD_S` 未写时仍默认 0.2 秒；可单独试 0.5 秒，过期观测仍会取消转向。转弯偏少的分析、逐帧统计和对照测试见 [转弯占空比分析与测试方案](转弯占空比分析与测试方案.md)。
 

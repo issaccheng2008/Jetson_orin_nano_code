@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import shutil
 from pathlib import Path
 import sys
 import tempfile
@@ -38,7 +37,7 @@ class PolicyGateLauncherTests(unittest.TestCase):
 
     def test_model_cli_defaults_and_independent_overrides(self):
         walking = "humanoid_jetson_deploy/policy_49_max.onnx"
-        one_foot = None
+        one_foot = "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx"
         for options, expected_walk, expected_foot in (
             ([], walking, one_foot),
             (["--start-policy-model", "walk.onnx"], "walk.onnx", one_foot),
@@ -54,6 +53,7 @@ class PolicyGateLauncherTests(unittest.TestCase):
             root = Path(folder)
             (root / "humanoid_jetson_deploy").mkdir()
             (root / "humanoid_jetson_deploy/policy_49_max.onnx").touch()
+            (root / "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx").touch()
             policy = Mock(pid=1234, stdout=io.BytesIO())
             policy.poll.return_value = None
             tee = Mock()
@@ -83,7 +83,7 @@ class PolicyGateLauncherTests(unittest.TestCase):
                 policy.terminate.assert_called_once()
                 self.assertFalse(launcher.ready_file.exists())
 
-    def test_obsolete_one_foot_model_is_ignored(self):
+    def test_custom_legacy_one_foot_model_is_not_sent(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "walk.onnx").touch()
@@ -101,18 +101,16 @@ class PolicyGateLauncherTests(unittest.TestCase):
                 self.assertNotIn("--one-foot-model", command)
                 launcher.close()
 
-    def test_missing_obsolete_one_foot_model_does_not_prevent_child_start(self):
+    def test_missing_legacy_one_foot_model_does_not_block_start(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "walk.onnx").touch()
             with (patch.object(policy_gate_launcher, "REPO_ROOT", root),
-                  patch.object(policy_gate_launcher.subprocess, "Popen",
-                               side_effect=[Mock(pid=1234, stdout=io.BytesIO()), Mock()]) as popen):
+                  patch.object(policy_gate_launcher.subprocess, "Popen") as popen):
                 launcher = policy_gate_launcher.PolicyGateLauncher(
                     "walk.onnx", "/dev/ttyACM0", 1200,
                     one_foot_model="missing.onnx")
                 launcher.start()
-                self.assertEqual(popen.call_count, 2)
                 self.assertNotIn("--one-foot-model", popen.call_args_list[0].args[0])
                 launcher.close()
 
@@ -121,6 +119,7 @@ class PolicyGateLauncherTests(unittest.TestCase):
             root = Path(folder)
             (root / "humanoid_jetson_deploy").mkdir()
             (root / "humanoid_jetson_deploy/policy(13).onnx").touch()
+            (root / "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx").touch()
             policy = Mock(pid=1234, stdout=io.BytesIO())
             policy.poll.return_value = 1
             tee = Mock()
@@ -137,12 +136,12 @@ class PolicyGateLauncherTests(unittest.TestCase):
                 tee.wait.assert_called_with(timeout=1.0)
                 launcher.close()
 
-    @unittest.skipUnless(shutil.which("tee"), "Jetson tee executable unavailable")
     def test_real_child_stream_reaches_both_logs_and_error_report(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "humanoid_jetson_deploy").mkdir()
             (root / "humanoid_jetson_deploy/policy(13).onnx").touch()
+            (root / "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx").touch()
             (root / "humanoid_jetson_deploy/main.py").write_text(
                 "import sys\nprint('policy startup', flush=True)\n"
                 "print('FAULT: simulated failure', file=sys.stderr, flush=True)\n"

@@ -16,14 +16,13 @@ class ShapeDecision:
     lift_command: float = 0.0
     support_foot: str = "right"
     busy: bool = False
-    # Historical field name: requests now cover all six MCU actions.
     send_upper: bool = False
     event_id: int = 0
     action_id: int = -1
 
 
 class ShapeActionController:
-    """Stop before each task, route all six cards through the STM32 handshake."""
+    """Stop before each task, route all six cards to STM32."""
 
     def __init__(self, lift_seconds=3.0, recovery_seconds=0.3,
                  upper_seconds=3.0, stop_timeout=4.0, action_timeout=8.0):

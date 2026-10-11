@@ -19,7 +19,7 @@ class PolicyGateLauncher:
     def __init__(self, model: str, port: str, max_seconds: float,
                  ready_timeout_s: float = 30.0,
                  policy_python: str | None = None,
-                 one_foot_model: str | None = None,
+                 one_foot_model: str = "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx",
                  command_min_hold_s: float = 0.0,
                  recording_directory: Path | None = None) -> None:
         self.recording_directory = Path(recording_directory).resolve() if recording_directory else None
@@ -27,8 +27,7 @@ class PolicyGateLauncher:
             raise ValueError('command_min_hold_s must be finite and nonnegative')
         self.command_min_hold_s = command_min_hold_s
         self.model = model
-        if one_foot_model:
-            print("[start-gate] obsolete one_foot_model ignored; leg cards run on STM32", flush=True)
+        self.one_foot_model = one_foot_model
         self.port = port
         self.max_seconds = max_seconds
         self.ready_timeout_s = ready_timeout_s

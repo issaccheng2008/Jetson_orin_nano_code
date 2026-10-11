@@ -42,7 +42,7 @@ class LiftPitchScaleTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     one_foot_policy.apply_lift_target_scale(config.Q_DEFAULT, True)
 
-    def test_mcu_cards_keep_host_hold_targets_unscaled(self):
+    def test_mcu_cards_do_not_use_host_lift_scaling(self):
         harness = test_shape_main.ShapeMainTests()
         for card in (3, 4):
             with self.subTest(card=card):
@@ -70,8 +70,10 @@ class LiftPitchScaleTests(unittest.TestCase):
                     walk, _link = harness.run_ticks(snapshots)
                 expected = config.Q_DEFAULT.copy()
                 self.assertEqual(len(targets), 4)
-                for target in targets:
+                for target in targets[:2]:
                     np.testing.assert_allclose(target, expected)
+                for target in targets[2:]:
+                    np.testing.assert_array_equal(target, config.Q_DEFAULT)
                 self.assertEqual(walk.step.call_count, 0)
 
 
