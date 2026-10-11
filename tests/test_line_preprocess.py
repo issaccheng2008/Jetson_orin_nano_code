@@ -16,11 +16,11 @@ class LinePreprocessTests(unittest.TestCase):
         gray = np.full((400, 320), 150, np.uint8)
         cv2.line(gray, (60, 390), (90, 10), 60, 5)
         mean, std = MAX_CHANNEL_REFERENCE
-        photo = Photometry(mean*.5+10, std*.5, mean, std, 'normalize')
+        photo = Photometry(mean*.5+10, std*.5, mean, std, 'threshold')
         _, _, _, dbg = extract_lane_candidates(gray, photometry=photo)
         self.assertEqual(dbg['preprocess_mode'], 'legacy')
         self.assertAlmostEqual(dbg['preprocess_adaptive_c_effective'], -6)
-        photo_shift = Photometry(photo.mean+40, photo.std, mean, std, 'normalize')
+        photo_shift = Photometry(photo.mean+40, photo.std, mean, std, 'threshold')
         shifted = extract_lane_candidates(gray, photometry=photo_shift)
         np.testing.assert_array_equal(shifted[1], extract_lane_candidates(gray, photometry=photo)[1])
 
@@ -33,7 +33,7 @@ class LinePreprocessTests(unittest.TestCase):
         fixed = extract_lane_candidates(gray, 'legacy', photometry=legacy_photo)
         np.testing.assert_array_equal(old[1], fixed[1])
         self.assertEqual(old[2], fixed[2])
-        dim = Photometry(60, 8, mean, std, 'normalize')
+        dim = Photometry(60, 8, mean, std, 'threshold')
         self.assertEqual(extract_lane_candidates(gray, 'contrast', photometry=dim)[3]
                          ['preprocess_adaptive_c_effective'], -12)
 

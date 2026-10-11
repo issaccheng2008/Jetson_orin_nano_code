@@ -1,7 +1,8 @@
 """Mutually exclusive camera photometry: raw, threshold, guarded match, or LUT.
 
 ``legacy`` still means the old per-frame mean/std image matching. ``normalize``
-is a deprecated alias for threshold-only adaptation; callers log the resolved mode.
+is an alias for the calibrated LUT; explicit ``threshold`` retains the old
+statistics-based threshold adaptation for controlled comparisons.
 ``lut`` applies the calibrated fixed->auto camera LUT (load_lut_mapping) and
 never stacks with the guarded match or with statistics-based threshold
 compensation. Statistics use the original central ROI. A matched image is
@@ -20,7 +21,7 @@ MAX_MATCH_GAIN = 2.5
 
 
 def resolve_mode(mode):
-    aliases = {"legacy": "match", "normalize": "threshold"}
+    aliases = {"legacy": "match", "normalize": "lut"}
     result = aliases.get(mode, mode)
     if result not in ("raw", "threshold", "match", "lut"):
         raise ValueError("photometric mode must be raw, threshold, match, lut, legacy or normalize")
@@ -41,6 +42,9 @@ def load_lut_mapping(directory):
         raise ValueError("lut_bgr must be uint8 with shape (3, 256)")
     if lut_gray.shape != (256,) or lut_gray.dtype != np.uint8:
         raise ValueError("lut_gray must be uint8 with shape (256,)")
+    lut_max = np.asarray(mapping.get("lut_max"))
+    if lut_max.shape != (256,) or lut_max.dtype != np.uint8:
+        raise ValueError("lut_max must be uint8 with shape (256,) for lane max(B,G,R) input")
     _LUT_MAPPING = mapping
     _LUT_SOURCE = str(directory)
     return mapping
@@ -59,6 +63,7 @@ class Photometry:
     reference_mean: float
     reference_std: float
     mode: str
+    lut_input: str = "gray"
 
     @property
     def effective_mode(self):
@@ -108,6 +113,13 @@ class Photometry:
             if _LUT_MAPPING is None:
                 raise RuntimeError("photometric mode 'lut' has no loaded mapping; "
                                    "run load_lut_mapping(directory) first")
+            if self.lut_input == "max_channel":
+                image = np.asarray(image)
+                if image.dtype != np.uint8 or image.ndim != 2:
+                    raise ValueError("max-channel LUT expects a uint8 2D max(B,G,R) image")
+                return _LUT_MAPPING["lut_max"][image]
+            if self.lut_input != "gray":
+                raise ValueError(f"unknown photometric LUT input: {self.lut_input}")
             return apply_mapping(image, _LUT_MAPPING)
         return self.match_image(image) if self.match_allowed else image
 
@@ -123,6 +135,7 @@ class Photometry:
         return dict(photometric_mode=self.mode,
                     photometric_effective_mode=self.effective_mode,
                     photometric_lut_source=_LUT_SOURCE,
+                    photometric_lut_input=self.lut_input if self.effective_mode == "lut" else None,
                     photometric_lut_applied=self.effective_mode == "lut" and _LUT_MAPPING is not None,
                     photometric_mean=self.mean, photometric_std=self.std,
                     photometric_std_used=max(self.std, STD_FLOOR),
@@ -140,7 +153,7 @@ class Photometry:
                         self.effective_mode == "threshold" and self.std < STD_FLOOR else None))
 
 
-def measure(gray, mode="normalize", reference=GRAY_REFERENCE):
+def measure(gray, mode="threshold", reference=GRAY_REFERENCE, *, lut_input="gray"):
     """Measure the original central ROI, excluding caller padding/HUD."""
     resolve_mode(mode)
     if gray.ndim != 2 or not gray.size:
@@ -148,7 +161,7 @@ def measure(gray, mode="normalize", reference=GRAY_REFERENCE):
     height, width = gray.shape
     roi = gray[int(.35*height):max(int(.35*height)+1, int(.75*height)),
                int(.25*width):max(int(.25*width)+1, int(.75*width))]
-    return Photometry(float(roi.mean()), float(roi.std()), *reference, mode)
+    return Photometry(float(roi.mean()), float(roi.std()), *reference, mode, lut_input)
 
 
 def max_channel(image):

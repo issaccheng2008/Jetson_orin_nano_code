@@ -1880,7 +1880,7 @@ class LineDetector:
         # Measure on the original camera frame. Keep its BGR values for the
         # color/blocker paths; photometric matching is only for lane luminance.
         self._photometry = measure(max_channel(bgr), self.photometric_mode,
-                                   MAX_CHANNEL_REFERENCE)
+                                   MAX_CHANNEL_REFERENCE, lut_input="max_channel")
 
         # ── Step 1: Warp to birdseye (single warp, derive gray on birdseye) ──
         bgr_bird = cv2.warpPerspective(bgr, self.M, (self.bird_w, self.bird_h))

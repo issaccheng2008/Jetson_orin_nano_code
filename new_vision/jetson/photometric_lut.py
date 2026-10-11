@@ -316,12 +316,15 @@ def apply_mapping(image, mapping) -> np.ndarray:
 
 def load_mapping(directory) -> dict:
     directory = Path(directory)
-    return {"lut_bgr": np.load(directory / "lut_bgr.npy", allow_pickle=False),
-            "lut_gray": np.load(directory / "lut_gray.npy", allow_pickle=False),
-            "metadata": json.loads((directory / "mapping.json").read_text(encoding="utf-8"))}
+    result = {"lut_bgr": np.load(directory / "lut_bgr.npy", allow_pickle=False),
+              "lut_gray": np.load(directory / "lut_gray.npy", allow_pickle=False),
+              "metadata": json.loads((directory / "mapping.json").read_text(encoding="utf-8"))}
+    if (directory / "lut_max.npy").is_file():
+        result["lut_max"] = np.load(directory / "lut_max.npy", allow_pickle=False)
+    return result
 
 
-def save_mapping(directory, lut_bgr, lut_gray, metadata):
+def save_mapping(directory, lut_bgr, lut_gray, metadata, lut_max=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     lut_bgr = np.asarray(lut_bgr)
@@ -332,6 +335,11 @@ def save_mapping(directory, lut_bgr, lut_gray, metadata):
         raise ValueError("lut_gray must be uint8 with shape (256,)")
     np.save(directory / "lut_bgr.npy", lut_bgr, allow_pickle=False)
     np.save(directory / "lut_gray.npy", lut_gray, allow_pickle=False)
+    if lut_max is not None:
+        lut_max = np.asarray(lut_max)
+        if lut_max.shape != (256,) or lut_max.dtype != np.uint8:
+            raise ValueError("lut_max must be uint8 with shape (256,)")
+        np.save(directory / "lut_max.npy", lut_max, allow_pickle=False)
     (directory / "mapping.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
         encoding="utf-8")
@@ -421,13 +429,16 @@ def extract_board_cells(image, corners, cells_per_row=16, cell_px=DEFAULT_CELL_P
             x1 = min((col + 1) * cell_px - offset, x0 + extent)
             patch = bgr[y0:y1, x0:x1]
             gray_patch = gray_from_bgr(patch)
+            max_patch = np.max(patch, axis=2)
             level = col if row == 0 else cells_per_row - 1 - col
             cells.append({
                 "row": row, "col": col, "gray_level_index": level,
                 "bgr_median": np.median(patch.reshape(-1, 3), axis=0).astype(float).tolist(),
                 "gray_median": float(np.median(gray_patch)),
+                "max_channel_median": float(np.median(max_patch)),
                 "bgr_std": np.std(patch.reshape(-1, 3), axis=0).astype(float).tolist(),
                 "gray_std": float(np.std(gray_patch)),
+                "max_channel_std": float(np.std(max_patch)),
                 "saturated_fraction": float(np.mean(np.any((patch <= 1) | (patch >= 254), axis=2))),
                 "sample_rect_board": [int(x0), int(y0), int(x1), int(y1)],
             })
@@ -508,18 +519,26 @@ def aggregate_group_cells(per_image_cells):
     for (row, col), samples in sorted(by_key.items()):
         bgr = np.asarray([s["bgr_median"] for s in samples], dtype=float)
         gray = np.asarray([s["gray_median"] for s in samples], dtype=float)
+        maximum = np.asarray([s.get("max_channel_median", s["gray_median"])
+                              for s in samples], dtype=float)
         result.append({
             "row": row, "col": col, "gray_level_index": samples[0]["gray_level_index"],
             "frame_count": len(samples),
             "bgr_median": np.median(bgr, axis=0).tolist(),
             "gray_median": float(np.median(gray)),
+            "max_channel_median": float(np.median(maximum)),
             "bgr_group_spread_p90_p10": (np.percentile(bgr, 90, axis=0)-np.percentile(bgr, 10, axis=0)).tolist(),
             "gray_group_spread_p90_p10": float(np.percentile(gray, 90)-np.percentile(gray, 10)),
+            "max_channel_group_spread_p90_p10": float(np.percentile(maximum, 90)-np.percentile(maximum, 10)),
             "bgr_patch_std_median": np.median(np.asarray([s["bgr_std"] for s in samples],float),axis=0).tolist(),
             "gray_patch_std_median": float(np.median([s["gray_std"] for s in samples])),
+            "max_channel_patch_std_median": float(np.median([s.get("max_channel_std", s["gray_std"])
+                                                               for s in samples])),
             "saturated_fraction": float(np.mean([s["saturated_fraction"] for s in samples])),
             "per_frame": [{"bgr_median": s["bgr_median"], "gray_median": s["gray_median"],
+                           "max_channel_median": s.get("max_channel_median", s["gray_median"]),
                            "bgr_std": s["bgr_std"], "gray_std": s["gray_std"],
+                           "max_channel_std": s.get("max_channel_std", s["gray_std"]),
                            "saturated_fraction": s["saturated_fraction"]} for s in samples],
         })
     return result

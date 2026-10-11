@@ -393,14 +393,18 @@ class PhotometricCalibrationToolsTests(unittest.TestCase):
             output,result = fit_session(args)
             self.assertTrue((output/"lut_bgr.npy").is_file())
             self.assertTrue((output/"lut_gray.npy").is_file())
+            self.assertTrue((output/"lut_max.npy").is_file())
             self.assertTrue((output/"mapping.json").is_file())
             self.assertTrue((output/"comparison_008.png").is_file())
             self.assertTrue((output/"sampling_overlay.png").is_file())
             self.assertLess(result["quality"]["gray_mae_after"],
                             result["quality"]["gray_mae_before"])
+            self.assertLess(result["quality"]["max_channel_mae_after"],
+                            result["quality"]["max_channel_mae_before"])
             mapping = {"lut_bgr":np.load(output/"lut_bgr.npy"),
                        "lut_gray":np.load(output/"lut_gray.npy")}
             self.assertTrue(np.all(np.diff(mapping["lut_gray"].astype(np.int16))>=0))
+            self.assertTrue(np.all(np.diff(np.load(output/"lut_max.npy").astype(np.int16))>=0))
 
 
 if __name__ == "__main__":

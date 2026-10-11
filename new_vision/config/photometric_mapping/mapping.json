@@ -1004,6 +1004,159 @@
         "high": 1.1428571428571428
       },
       "lut_clipped_fraction": 0.27734375
+    },
+    "max_channel": {
+      "sample_count": 28,
+      "unique_input_groups": 21,
+      "used_groups": 21,
+      "max_slope": 4.0,
+      "merge_tolerance": 2.5,
+      "conflict_limit": 16.0,
+      "conflicts": [],
+      "outliers": [],
+      "sample_points": [
+        {
+          "fixed": 10.0,
+          "auto": 49.0,
+          "isotonic": 49.0,
+          "fit": 49.0
+        },
+        {
+          "fixed": 15.5,
+          "auto": 56.5,
+          "isotonic": 56.5,
+          "fit": 56.5
+        },
+        {
+          "fixed": 25.0,
+          "auto": 71.0,
+          "isotonic": 71.0,
+          "fit": 71.0
+        },
+        {
+          "fixed": 32.5,
+          "auto": 82.5,
+          "isotonic": 82.5,
+          "fit": 82.5
+        },
+        {
+          "fixed": 38.0,
+          "auto": 89.5,
+          "isotonic": 89.5,
+          "fit": 89.5
+        },
+        {
+          "fixed": 44.0,
+          "auto": 96.0,
+          "isotonic": 96.0,
+          "fit": 96.0
+        },
+        {
+          "fixed": 54.0,
+          "auto": 107.0,
+          "isotonic": 107.0,
+          "fit": 107.0
+        },
+        {
+          "fixed": 57.0,
+          "auto": 111.0,
+          "isotonic": 111.0,
+          "fit": 111.0
+        },
+        {
+          "fixed": 61.25,
+          "auto": 115.0,
+          "isotonic": 115.0,
+          "fit": 115.0
+        },
+        {
+          "fixed": 68.5,
+          "auto": 121.5,
+          "isotonic": 121.5,
+          "fit": 121.5
+        },
+        {
+          "fixed": 77.0,
+          "auto": 131.5,
+          "isotonic": 131.5,
+          "fit": 131.5
+        },
+        {
+          "fixed": 82.0,
+          "auto": 136.0,
+          "isotonic": 136.0,
+          "fit": 136.0
+        },
+        {
+          "fixed": 87.0,
+          "auto": 145.0,
+          "isotonic": 145.0,
+          "fit": 145.0
+        },
+        {
+          "fixed": 94.0,
+          "auto": 146.0,
+          "isotonic": 146.0,
+          "fit": 146.0
+        },
+        {
+          "fixed": 98.75,
+          "auto": 156.5,
+          "isotonic": 156.5,
+          "fit": 156.5
+        },
+        {
+          "fixed": 105.5,
+          "auto": 164.0,
+          "isotonic": 163.5,
+          "fit": 163.5
+        },
+        {
+          "fixed": 109.0,
+          "auto": 163.0,
+          "isotonic": 163.5,
+          "fit": 163.5
+        },
+        {
+          "fixed": 113.0,
+          "auto": 172.0,
+          "isotonic": 171.25,
+          "fit": 171.25
+        },
+        {
+          "fixed": 116.0,
+          "auto": 170.5,
+          "isotonic": 171.25,
+          "fit": 171.25
+        },
+        {
+          "fixed": 119.0,
+          "auto": 182.0,
+          "isotonic": 182.0,
+          "fit": 182.0
+        },
+        {
+          "fixed": 127.0,
+          "auto": 195.0,
+          "isotonic": 195.0,
+          "fit": 195.0
+        }
+      ],
+      "extrapolated_input_ranges": [
+        [
+          0,
+          10
+        ],
+        [
+          127,
+          255
+        ]
+      ],
+      "extrapolation_slopes": {
+        "low": 1.3636363636363635,
+        "high": 1.625
+      },
+      "lut_clipped_fraction": 0.359375
     }
   },
   "training_cells": [
@@ -1052,7 +1205,11 @@
       "excluded_reasons": [
         "fixed_saturated"
       ],
-      "used_for_fit": false
+      "used_for_fit": false,
+      "fixed_max_channel": 0.0,
+      "auto_max_channel": 18.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 0.3000000000000007
     },
     {
       "row": 0,
@@ -1099,7 +1256,11 @@
       "excluded_reasons": [
         "fixed_saturated"
       ],
-      "used_for_fit": false
+      "used_for_fit": false,
+      "fixed_max_channel": 0.0,
+      "auto_max_channel": 25.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 0.3000000000000007
     },
     {
       "row": 0,
@@ -1146,7 +1307,11 @@
       "excluded_reasons": [
         "fixed_saturated"
       ],
-      "used_for_fit": false
+      "used_for_fit": false,
+      "fixed_max_channel": 8.0,
+      "auto_max_channel": 40.5,
+      "fixed_max_channel_group_spread": 0.2999999999999998,
+      "auto_max_channel_group_spread": 1.2999999999999972
     },
     {
       "row": 0,
@@ -1191,7 +1356,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 15.0,
+      "auto_max_channel": 54.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 0.6000000000000014
     },
     {
       "row": 0,
@@ -1236,7 +1405,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 26.0,
+      "auto_max_channel": 71.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 0.0
     },
     {
       "row": 0,
@@ -1281,7 +1454,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 33.0,
+      "auto_max_channel": 82.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 1.2999999999999972
     },
     {
       "row": 0,
@@ -1326,7 +1503,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 44.0,
+      "auto_max_channel": 96.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 0.0
     },
     {
       "row": 0,
@@ -1371,7 +1552,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 57.0,
+      "auto_max_channel": 111.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 0,
@@ -1416,7 +1601,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 68.0,
+      "auto_max_channel": 122.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 0,
@@ -1461,7 +1650,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 78.0,
+      "auto_max_channel": 134.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 0,
@@ -1506,7 +1699,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 87.0,
+      "auto_max_channel": 145.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 0.6000000000000227
     },
     {
       "row": 0,
@@ -1551,7 +1748,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 98.0,
+      "auto_max_channel": 158.0,
+      "fixed_max_channel_group_spread": 0.29999999999999716,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 0,
@@ -1596,7 +1797,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 105.5,
+      "auto_max_channel": 164.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 0.0
     },
     {
       "row": 0,
@@ -1641,7 +1846,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 113.0,
+      "auto_max_channel": 172.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 1.3000000000000114
     },
     {
       "row": 0,
@@ -1686,7 +1895,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 119.0,
+      "auto_max_channel": 182.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 0.0
     },
     {
       "row": 0,
@@ -1731,7 +1944,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 127.0,
+      "auto_max_channel": 195.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 0.6500000000000057
     },
     {
       "row": 1,
@@ -1776,7 +1993,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 116.0,
+      "auto_max_channel": 170.5,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 1.3000000000000114
     },
     {
       "row": 1,
@@ -1821,7 +2042,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 109.0,
+      "auto_max_channel": 163.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 1,
@@ -1866,7 +2091,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 99.5,
+      "auto_max_channel": 155.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 0.30000000000001137
     },
     {
       "row": 1,
@@ -1911,7 +2140,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 94.0,
+      "auto_max_channel": 146.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 1.3000000000000114
     },
     {
       "row": 1,
@@ -1956,7 +2189,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 82.0,
+      "auto_max_channel": 136.0,
+      "fixed_max_channel_group_spread": 3.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 1,
@@ -2001,7 +2238,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 76.0,
+      "auto_max_channel": 129.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 1,
@@ -2046,7 +2287,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 69.0,
+      "auto_max_channel": 121.0,
+      "fixed_max_channel_group_spread": 0.5999999999999943,
+      "auto_max_channel_group_spread": 0.5999999999999943
     },
     {
       "row": 1,
@@ -2091,7 +2336,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 61.25,
+      "auto_max_channel": 115.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 0.0
     },
     {
       "row": 1,
@@ -2136,7 +2385,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 54.0,
+      "auto_max_channel": 107.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 1,
@@ -2181,7 +2434,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 44.0,
+      "auto_max_channel": 96.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 1,
@@ -2226,7 +2483,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 38.0,
+      "auto_max_channel": 89.5,
+      "fixed_max_channel_group_spread": 0.29999999999999716,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 1,
@@ -2271,7 +2532,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 32.0,
+      "auto_max_channel": 83.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 1,
@@ -2316,7 +2581,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 24.0,
+      "auto_max_channel": 71.0,
+      "fixed_max_channel_group_spread": 0.0,
+      "auto_max_channel_group_spread": 1.2999999999999972
     },
     {
       "row": 1,
@@ -2361,7 +2630,11 @@
       "fixed_saturated_fraction": 0.0,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 16.0,
+      "auto_max_channel": 59.0,
+      "fixed_max_channel_group_spread": 1.0,
+      "auto_max_channel_group_spread": 1.0
     },
     {
       "row": 1,
@@ -2406,7 +2679,11 @@
       "fixed_saturated_fraction": 0.042265625,
       "auto_saturated_fraction": 0.0,
       "excluded_reasons": [],
-      "used_for_fit": true
+      "used_for_fit": true,
+      "fixed_max_channel": 10.0,
+      "auto_max_channel": 49.0,
+      "fixed_max_channel_group_spread": 0.3000000000000007,
+      "auto_max_channel_group_spread": 0.29999999999999716
     },
     {
       "row": 1,
@@ -2453,7 +2730,11 @@
       "excluded_reasons": [
         "fixed_saturated"
       ],
-      "used_for_fit": false
+      "used_for_fit": false,
+      "fixed_max_channel": 5.0,
+      "auto_max_channel": 41.0,
+      "fixed_max_channel_group_spread": 0.2999999999999998,
+      "auto_max_channel_group_spread": 0.0
     }
   ],
   "quality": {
@@ -2495,6 +2776,11 @@
         "fixed_gray": 0.0,
         "auto_gray": 16.0,
         "mapped_gray": 38.0,
+        "fixed_max_channel": 0.0,
+        "auto_max_channel": 18.0,
+        "mapped_max_channel": 35.0,
+        "before_error_max_channel": -18.0,
+        "after_error_max_channel": 17.0,
         "before_error_gray": -16.0,
         "after_error_gray": 22.0,
         "fixed_saturated_fraction": 1.0,
@@ -2532,6 +2818,11 @@
         "fixed_gray": 0.0,
         "auto_gray": 24.0,
         "mapped_gray": 38.0,
+        "fixed_max_channel": 0.0,
+        "auto_max_channel": 25.0,
+        "mapped_max_channel": 35.0,
+        "before_error_max_channel": -25.0,
+        "after_error_max_channel": 10.0,
         "before_error_gray": -24.0,
         "after_error_gray": 14.0,
         "fixed_saturated_fraction": 1.0,
@@ -2569,6 +2860,11 @@
         "fixed_gray": 4.5,
         "auto_gray": 40.0,
         "mapped_gray": 43.0,
+        "fixed_max_channel": 6.5,
+        "auto_max_channel": 41.0,
+        "mapped_max_channel": 44.0,
+        "before_error_max_channel": -34.5,
+        "after_error_max_channel": 3.0,
         "before_error_gray": -35.5,
         "after_error_gray": 3.0,
         "fixed_saturated_fraction": 0.77375,
@@ -2606,6 +2902,11 @@
         "fixed_gray": 12.5,
         "auto_gray": 53.0,
         "mapped_gray": 53.0,
+        "fixed_max_channel": 14.0,
+        "auto_max_channel": 54.0,
+        "mapped_max_channel": 54.0,
+        "before_error_max_channel": -40.0,
+        "after_error_max_channel": 0.0,
         "before_error_gray": -40.5,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.000625,
@@ -2643,6 +2944,11 @@
         "fixed_gray": 23.5,
         "auto_gray": 71.0,
         "mapped_gray": 70.0,
+        "fixed_max_channel": 25.0,
+        "auto_max_channel": 71.0,
+        "mapped_max_channel": 71.0,
+        "before_error_max_channel": -46.0,
+        "after_error_max_channel": 0.0,
         "before_error_gray": -47.5,
         "after_error_gray": -1.0,
         "fixed_saturated_fraction": 0.0,
@@ -2680,6 +2986,11 @@
         "fixed_gray": 30.5,
         "auto_gray": 80.0,
         "mapped_gray": 80.0,
+        "fixed_max_channel": 32.5,
+        "auto_max_channel": 82.5,
+        "mapped_max_channel": 82.0,
+        "before_error_max_channel": -50.0,
+        "after_error_max_channel": -0.5,
         "before_error_gray": -49.5,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -2717,6 +3028,11 @@
         "fixed_gray": 41.5,
         "auto_gray": 95.0,
         "mapped_gray": 95.0,
+        "fixed_max_channel": 43.0,
+        "auto_max_channel": 96.0,
+        "mapped_max_channel": 95.0,
+        "before_error_max_channel": -53.0,
+        "after_error_max_channel": -1.0,
         "before_error_gray": -53.5,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -2754,6 +3070,11 @@
         "fixed_gray": 54.0,
         "auto_gray": 111.0,
         "mapped_gray": 109.0,
+        "fixed_max_channel": 56.0,
+        "auto_max_channel": 111.0,
+        "mapped_max_channel": 110.0,
+        "before_error_max_channel": -55.0,
+        "after_error_max_channel": -1.0,
         "before_error_gray": -57.0,
         "after_error_gray": -2.0,
         "fixed_saturated_fraction": 0.0,
@@ -2791,6 +3112,11 @@
         "fixed_gray": 66.5,
         "auto_gray": 122.0,
         "mapped_gray": 121.0,
+        "fixed_max_channel": 68.0,
+        "auto_max_channel": 123.0,
+        "mapped_max_channel": 121.0,
+        "before_error_max_channel": -55.0,
+        "after_error_max_channel": -2.0,
         "before_error_gray": -55.5,
         "after_error_gray": -1.0,
         "fixed_saturated_fraction": 0.0,
@@ -2828,6 +3154,11 @@
         "fixed_gray": 75.5,
         "auto_gray": 131.0,
         "mapped_gray": 131.0,
+        "fixed_max_channel": 77.5,
+        "auto_max_channel": 134.0,
+        "mapped_max_channel": 132.0,
+        "before_error_max_channel": -56.5,
+        "after_error_max_channel": -2.0,
         "before_error_gray": -55.5,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -2865,6 +3196,11 @@
         "fixed_gray": 82.5,
         "auto_gray": 140.0,
         "mapped_gray": 137.0,
+        "fixed_max_channel": 86.5,
+        "auto_max_channel": 145.25,
+        "mapped_max_channel": 143.0,
+        "before_error_max_channel": -58.75,
+        "after_error_max_channel": -2.25,
         "before_error_gray": -57.5,
         "after_error_gray": -3.0,
         "fixed_saturated_fraction": 0.0,
@@ -2902,6 +3238,11 @@
         "fixed_gray": 94.5,
         "auto_gray": 153.0,
         "mapped_gray": 149.0,
+        "fixed_max_channel": 97.0,
+        "auto_max_channel": 157.5,
+        "mapped_max_channel": 153.0,
+        "before_error_max_channel": -60.5,
+        "after_error_max_channel": -4.5,
         "before_error_gray": -58.5,
         "after_error_gray": -4.0,
         "fixed_saturated_fraction": 0.0,
@@ -2939,6 +3280,11 @@
         "fixed_gray": 102.0,
         "auto_gray": 161.0,
         "mapped_gray": 159.0,
+        "fixed_max_channel": 105.0,
+        "auto_max_channel": 164.0,
+        "mapped_max_channel": 163.0,
+        "before_error_max_channel": -59.0,
+        "after_error_max_channel": -1.0,
         "before_error_gray": -59.0,
         "after_error_gray": -2.0,
         "fixed_saturated_fraction": 0.0,
@@ -2976,6 +3322,11 @@
         "fixed_gray": 110.0,
         "auto_gray": 168.0,
         "mapped_gray": 168.0,
+        "fixed_max_channel": 113.0,
+        "auto_max_channel": 171.0,
+        "mapped_max_channel": 171.0,
+        "before_error_max_channel": -58.0,
+        "after_error_max_channel": 0.0,
         "before_error_gray": -58.0,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -3013,6 +3364,11 @@
         "fixed_gray": 115.0,
         "auto_gray": 175.0,
         "mapped_gray": 175.0,
+        "fixed_max_channel": 119.5,
+        "auto_max_channel": 182.0,
+        "mapped_max_channel": 184.0,
+        "before_error_max_channel": -62.5,
+        "after_error_max_channel": 2.0,
         "before_error_gray": -60.0,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -3050,6 +3406,11 @@
         "fixed_gray": 122.0,
         "auto_gray": 183.0,
         "mapped_gray": 183.0,
+        "fixed_max_channel": 127.0,
+        "auto_max_channel": 195.0,
+        "mapped_max_channel": 195.0,
+        "before_error_max_channel": -68.0,
+        "after_error_max_channel": 0.0,
         "before_error_gray": -61.0,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -3087,6 +3448,11 @@
         "fixed_gray": 106.5,
         "auto_gray": 162.0,
         "mapped_gray": 163.0,
+        "fixed_max_channel": 115.5,
+        "auto_max_channel": 170.0,
+        "mapped_max_channel": 171.0,
+        "before_error_max_channel": -54.5,
+        "after_error_max_channel": 1.0,
         "before_error_gray": -55.5,
         "after_error_gray": 1.0,
         "fixed_saturated_fraction": 0.0,
@@ -3124,6 +3490,11 @@
         "fixed_gray": 102.5,
         "auto_gray": 156.0,
         "mapped_gray": 159.0,
+        "fixed_max_channel": 109.0,
+        "auto_max_channel": 163.0,
+        "mapped_max_channel": 164.0,
+        "before_error_max_channel": -54.0,
+        "after_error_max_channel": 1.0,
         "before_error_gray": -53.5,
         "after_error_gray": 3.0,
         "fixed_saturated_fraction": 0.0,
@@ -3161,6 +3532,11 @@
         "fixed_gray": 96.0,
         "auto_gray": 151.0,
         "mapped_gray": 152.0,
+        "fixed_max_channel": 100.0,
+        "auto_max_channel": 155.0,
+        "mapped_max_channel": 158.0,
+        "before_error_max_channel": -55.0,
+        "after_error_max_channel": 3.0,
         "before_error_gray": -55.0,
         "after_error_gray": 1.0,
         "fixed_saturated_fraction": 0.0,
@@ -3198,6 +3574,11 @@
         "fixed_gray": 90.5,
         "auto_gray": 142.0,
         "mapped_gray": 142.0,
+        "fixed_max_channel": 94.5,
+        "auto_max_channel": 146.0,
+        "mapped_max_channel": 146.0,
+        "before_error_max_channel": -51.5,
+        "after_error_max_channel": 0.0,
         "before_error_gray": -51.5,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -3235,6 +3616,11 @@
         "fixed_gray": 80.0,
         "auto_gray": 132.0,
         "mapped_gray": 134.0,
+        "fixed_max_channel": 83.0,
+        "auto_max_channel": 135.0,
+        "mapped_max_channel": 138.0,
+        "before_error_max_channel": -52.0,
+        "after_error_max_channel": 3.0,
         "before_error_gray": -52.0,
         "after_error_gray": 2.0,
         "fixed_saturated_fraction": 0.0,
@@ -3272,6 +3658,11 @@
         "fixed_gray": 72.5,
         "auto_gray": 125.0,
         "mapped_gray": 125.0,
+        "fixed_max_channel": 76.5,
+        "auto_max_channel": 129.0,
+        "mapped_max_channel": 130.0,
+        "before_error_max_channel": -52.5,
+        "after_error_max_channel": 1.0,
         "before_error_gray": -52.5,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -3309,6 +3700,11 @@
         "fixed_gray": 66.0,
         "auto_gray": 119.5,
         "mapped_gray": 121.0,
+        "fixed_max_channel": 69.0,
+        "auto_max_channel": 120.0,
+        "mapped_max_channel": 122.0,
+        "before_error_max_channel": -51.0,
+        "after_error_max_channel": 2.0,
         "before_error_gray": -53.5,
         "after_error_gray": 1.5,
         "fixed_saturated_fraction": 0.0,
@@ -3346,6 +3742,11 @@
         "fixed_gray": 60.0,
         "auto_gray": 115.0,
         "mapped_gray": 115.0,
+        "fixed_max_channel": 61.5,
+        "auto_max_channel": 115.0,
+        "mapped_max_channel": 116.0,
+        "before_error_max_channel": -53.5,
+        "after_error_max_channel": 1.0,
         "before_error_gray": -55.0,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -3383,6 +3784,11 @@
         "fixed_gray": 52.5,
         "auto_gray": 106.0,
         "mapped_gray": 107.0,
+        "fixed_max_channel": 53.5,
+        "auto_max_channel": 106.0,
+        "mapped_max_channel": 107.0,
+        "before_error_max_channel": -52.5,
+        "after_error_max_channel": 1.0,
         "before_error_gray": -53.5,
         "after_error_gray": 1.0,
         "fixed_saturated_fraction": 0.0,
@@ -3420,6 +3826,11 @@
         "fixed_gray": 43.5,
         "auto_gray": 96.0,
         "mapped_gray": 97.0,
+        "fixed_max_channel": 44.5,
+        "auto_max_channel": 96.0,
+        "mapped_max_channel": 96.0,
+        "before_error_max_channel": -51.5,
+        "after_error_max_channel": 0.0,
         "before_error_gray": -52.5,
         "after_error_gray": 1.0,
         "fixed_saturated_fraction": 0.0,
@@ -3457,6 +3868,11 @@
         "fixed_gray": 38.0,
         "auto_gray": 89.0,
         "mapped_gray": 90.0,
+        "fixed_max_channel": 38.5,
+        "auto_max_channel": 89.0,
+        "mapped_max_channel": 90.0,
+        "before_error_max_channel": -50.5,
+        "after_error_max_channel": 1.0,
         "before_error_gray": -51.0,
         "after_error_gray": 1.0,
         "fixed_saturated_fraction": 0.0,
@@ -3494,6 +3910,11 @@
         "fixed_gray": 31.5,
         "auto_gray": 83.0,
         "mapped_gray": 83.0,
+        "fixed_max_channel": 32.0,
+        "auto_max_channel": 83.0,
+        "mapped_max_channel": 82.0,
+        "before_error_max_channel": -51.0,
+        "after_error_max_channel": -1.0,
         "before_error_gray": -51.5,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -3531,6 +3952,11 @@
         "fixed_gray": 23.5,
         "auto_gray": 70.0,
         "mapped_gray": 70.0,
+        "fixed_max_channel": 24.0,
+        "auto_max_channel": 70.5,
+        "mapped_max_channel": 69.0,
+        "before_error_max_channel": -46.5,
+        "after_error_max_channel": -1.5,
         "before_error_gray": -46.5,
         "after_error_gray": 0.0,
         "fixed_saturated_fraction": 0.0,
@@ -3568,6 +3994,11 @@
         "fixed_gray": 15.0,
         "auto_gray": 58.0,
         "mapped_gray": 57.0,
+        "fixed_max_channel": 16.0,
+        "auto_max_channel": 59.0,
+        "mapped_max_channel": 57.0,
+        "before_error_max_channel": -43.0,
+        "after_error_max_channel": -2.0,
         "before_error_gray": -43.0,
         "after_error_gray": -1.0,
         "fixed_saturated_fraction": 0.0,
@@ -3605,6 +4036,11 @@
         "fixed_gray": 9.0,
         "auto_gray": 48.0,
         "mapped_gray": 49.0,
+        "fixed_max_channel": 10.0,
+        "auto_max_channel": 49.0,
+        "mapped_max_channel": 49.0,
+        "before_error_max_channel": -39.0,
+        "after_error_max_channel": 0.0,
         "before_error_gray": -39.0,
         "after_error_gray": 1.0,
         "fixed_saturated_fraction": 0.06625,
@@ -3642,6 +4078,11 @@
         "fixed_gray": 4.0,
         "auto_gray": 40.0,
         "mapped_gray": 43.0,
+        "fixed_max_channel": 6.5,
+        "auto_max_channel": 41.0,
+        "mapped_max_channel": 44.0,
+        "before_error_max_channel": -34.5,
+        "after_error_max_channel": 3.0,
         "before_error_gray": -36.0,
         "after_error_gray": 3.0,
         "fixed_saturated_fraction": 0.8525,
@@ -3977,7 +4418,8 @@
       "B": [],
       "G": [],
       "R": [],
-      "gray": []
+      "gray": [],
+      "max_channel": []
     },
     "training_upper_lower_repeat_check": [
       {
@@ -4256,9 +4698,24 @@
         255
       ]
     ],
-    "extra_validation": []
+    "extra_validation": [],
+    "max_channel_mae_before": 49.7578125,
+    "max_channel_mae_after": 2.1171875,
+    "lut_max_extrapolated_input_ranges": [
+      [
+        0,
+        10
+      ],
+      [
+        127,
+        255
+      ]
+    ]
   },
   "scope_note": "Gray-board response match only; not arbitrary color recovery. BGR and gray LUT paths are alternatives, never stack them.",
   "production_deployed": true,
-  "deployed_path": "new_vision/config/photometric_mapping"
+  "deployed_path": "new_vision/config/photometric_mapping",
+  "lut_max_shape": [
+    256
+  ]
 }

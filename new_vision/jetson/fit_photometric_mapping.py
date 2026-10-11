@@ -235,7 +235,8 @@ def _make_curve_png(path, fits, size=(900, 560)):
         draw_line(canvas, (left, y), (right, y), (225,225,225), 1)
     draw_line(canvas, (left, bottom), (right, bottom), (30,30,30), 2)
     draw_line(canvas, (left, bottom), (left, top), (30,30,30), 2)
-    channel_colors = {"B": (255,0,0), "G": (0,180,0), "R": (0,0,255), "gray": (40,40,40)}
+    channel_colors = {"B": (255,0,0), "G": (0,180,0), "R": (0,0,255),
+                      "gray": (40,40,40), "max_channel": (180,0,180)}
     for name, entry in fits.items():
         lut = entry["lut"].astype(float)
         points = []
@@ -325,12 +326,28 @@ def _build_mapping(session, auto_cells, fixed_cells, fit_count, saturation_limit
         max_slope=max_slope, conflict_limit=conflict_limit)
     all_conflicts = {name: data["details"]["conflicts"] for name, data in bgr_fits.items()}
     all_conflicts["gray"] = gray_details["conflicts"]
+    # The lane detector's established input domain is max(B,G,R), not standard
+    # weighted gray. Fit that precise scalar domain for its independent path.
+    for record in joined:
+        key = (record["row"], record["col"])
+        f, a = fixed[key], auto[key]
+        record.update(
+            fixed_max_channel=f.get("max_channel_median", max(record["fixed_bgr"])),
+            auto_max_channel=a.get("max_channel_median", max(record["auto_bgr"])),
+            fixed_max_channel_group_spread=f.get("max_channel_group_spread_p90_p10", 0.0),
+            auto_max_channel_group_spread=a.get("max_channel_group_spread_p90_p10", 0.0))
+    max_lut, max_details = fit_monotonic_lut(
+        [r["fixed_max_channel"] for r in accepted],
+        [r["auto_max_channel"] for r in accepted],
+        max_slope=max_slope, conflict_limit=conflict_limit)
+    all_conflicts["max_channel"] = max_details["conflicts"]
+    bgr_fits["max_channel"] = {"lut": max_lut, "details": max_details}
     return (np.stack([bgr_fits[c]["lut"] for c in ("B","G","R")]), gray_lut,
             joined, rejected, bgr_fits, gray_details, all_conflicts)
 
 
 def _holdout_report(fixed_holdout, auto_holdout, lut_bgr, lut_gray, per_image_fixed,
-                    per_image_auto):
+                    per_image_auto, lut_max=None):
     fixed = _cell_lookup(fixed_holdout)
     auto = _cell_lookup(auto_holdout)
     by_level = {}
@@ -344,12 +361,20 @@ def _holdout_report(fixed_holdout, auto_holdout, lut_bgr, lut_gray, per_image_fi
         after = mapped_bgr.astype(float)-auto_bgr
         fixed_g, auto_g = float(f["gray_median"]), float(a["gray_median"])
         mapped_g = float(lut_gray[int(np.clip(round(fixed_g),0,255))])
+        fixed_max = float(f.get("max_channel_median", max(fixed_bgr)))
+        auto_max = float(a.get("max_channel_median", max(auto_bgr)))
+        mapped_max = (float(lut_max[int(np.clip(round(fixed_max),0,255))])
+                      if lut_max is not None else None)
         level = f["gray_level_index"]
         entry = {"row": key[0], "col": key[1], "gray_level_index": level,
                  "fixed_bgr": fixed_bgr.tolist(), "auto_bgr": auto_bgr.tolist(),
                  "mapped_bgr": mapped_bgr.astype(float).tolist(),
                  "before_error_bgr": before.tolist(), "after_error_bgr": after.tolist(),
                  "fixed_gray": fixed_g, "auto_gray": auto_g, "mapped_gray": mapped_g,
+                 "fixed_max_channel": fixed_max, "auto_max_channel": auto_max,
+                 "mapped_max_channel": mapped_max,
+                 "before_error_max_channel": fixed_max-auto_max,
+                 "after_error_max_channel": (mapped_max-auto_max if mapped_max is not None else None),
                  "before_error_gray": fixed_g-auto_g, "after_error_gray": mapped_g-auto_g,
                  "fixed_saturated_fraction": f["saturated_fraction"],
                  "auto_saturated_fraction": a["saturated_fraction"]}
@@ -387,6 +412,10 @@ def _holdout_report(fixed_holdout, auto_holdout, lut_bgr, lut_gray, per_image_fi
     return {"held_out_images_per_group": len(per_image_fixed),
             "gray_mae_before": float(np.mean(before_gray)) if before_gray else None,
             "gray_mae_after": float(np.mean(after_gray)) if after_gray else None,
+            "max_channel_mae_before": (float(np.mean([abs(e["before_error_max_channel"])
+                                                  for e in errors])) if errors and lut_max is not None else None),
+            "max_channel_mae_after": (float(np.mean([abs(e["after_error_max_channel"])
+                                                 for e in errors])) if errors and lut_max is not None else None),
             "gray_rmse_before": float(np.sqrt(np.mean(np.square([e["before_error_gray"] for e in errors])))) if errors else None,
             "gray_rmse_after": float(np.sqrt(np.mean(np.square([e["after_error_gray"] for e in errors])))) if errors else None,
             "block_errors": errors, "by_gray_level": level_summary,
@@ -520,7 +549,9 @@ def fit_session(args):
     lut_bgr, lut_gray, training_cells, rejected, bgr_fits, gray_details, conflicts = _build_mapping(
         session, auto_train, fixed_train, args.fit_images, args.max_saturation_fraction,
         args.max_patch_spread, args.max_slope, args.conflict_limit)
-    mapping = {"lut_bgr": lut_bgr, "lut_gray": lut_gray}
+    lut_max = bgr_fits["max_channel"]["lut"]
+    max_details = bgr_fits["max_channel"]["details"]
+    mapping = {"lut_bgr": lut_bgr, "lut_gray": lut_gray, "lut_max": lut_max}
 
     # Holdout stats are independently extracted from the last two pairs; they
     # never enter fitting, duplicate grouping, outlier rejection, or LUT updates.
@@ -531,7 +562,7 @@ def fit_session(args):
         images["fixed"][args.fit_images:], corner_map, args.cells_per_row,
         args.cell_px, args.center_fraction)
     quality = _holdout_report(fixed_holdout, auto_holdout, lut_bgr, lut_gray,
-                              fixed_hold_frames, auto_hold_frames)
+                              fixed_hold_frames, auto_hold_frames, lut_max=lut_max)
 
     output = Path(args.output_dir).resolve() if args.output_dir else session / "photometric_mapping"
     output = _new_output_dir(output)
@@ -593,6 +624,7 @@ def fit_session(args):
     quality["lut_bgr_extrapolated_input_ranges"] = {
         c: bgr_fits[c]["details"]["extrapolated_input_ranges"] for c in ("B","G","R")}
     quality["lut_gray_extrapolated_input_ranges"] = gray_details["extrapolated_input_ranges"]
+    quality["lut_max_extrapolated_input_ranges"] = max_details["extrapolated_input_ranges"]
 
     validation_outputs = []
     if args.apply_to:
@@ -631,13 +663,14 @@ def fit_session(args):
                                       for key,value in corner_map.items()},
         "lut_bgr_order": ["B","G","R"], "lut_bgr_shape": list(lut_bgr.shape),
         "lut_gray_shape": list(lut_gray.shape),
+        "lut_max_shape": list(lut_max.shape),
         "per_channel_fit": {**{k:v["details"] for k,v in bgr_fits.items()},
                             "gray": gray_details},
         "training_cells": training_cells, "quality": quality,
         "scope_note": "Gray-board response match only; not arbitrary color recovery. BGR and gray LUT paths are alternatives, never stack them.",
         "production_deployed": False,
     }
-    save_mapping(output, lut_bgr, lut_gray, fit_summary)
+    save_mapping(output, lut_bgr, lut_gray, fit_summary, lut_max=lut_max)
     (output / "quality.json").write_text(json.dumps(quality,ensure_ascii=False,indent=2,allow_nan=False)+"\n",
                                           encoding="utf-8")
     with (output / "block_errors.csv").open("w",newline="",encoding="utf-8-sig") as handle:
@@ -693,9 +726,11 @@ def main(argv=None):
         print(f"错误：{exc}", file=sys.stderr)
         return 2
     print(f"LUT 已导出到：{output}")
-    print(f"LUT 单调性：通过；BGR shape=(3,256)，gray shape=(256,)")
+    print(f"LUT 单调性：通过；BGR shape=(3,256)，gray shape=(256,)，max-channel shape=(256,)")
     print(f"holdout 灰度块 MAE：{result['quality']['gray_mae_before']:.2f} -> "
           f"{result['quality']['gray_mae_after']:.2f} DN（同场景重复性，不是泛化验证）")
+    print(f"holdout max-channel 灰阶块 MAE：{result['quality']['max_channel_mae_before']:.2f} -> "
+          f"{result['quality']['max_channel_mae_after']:.2f} DN（同场景重复性）")
     if result["quality"]["conflict_warning"]:
         print("警告：同一固定灰度附近存在参考值冲突；请查看 quality.json 的 mapping_conflicts_by_channel。")
     print("三通道 LUT 只匹配灰阶板的中性色响应，不代表任意颜色的准确恢复。")

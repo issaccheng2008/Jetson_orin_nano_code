@@ -15,7 +15,7 @@ from shape_detector import ShapeDetector
 class PhotometricTests(unittest.TestCase):
     def test_threshold_mapping_is_reference_z_score_not_mean_std_weighting(self):
         old_mean, old_std = GRAY_REFERENCE
-        p = Photometry(64.59, 15.04, old_mean, old_std, 'normalize')
+        p = Photometry(64.59, 15.04, old_mean, old_std, 'threshold')
         for threshold in (50, 100, 180):
             self.assertAlmostEqual((p.intensity(threshold)-p.mean)/p.std,
                                    (threshold-old_mean)/old_std)
@@ -38,7 +38,7 @@ class PhotometricTests(unittest.TestCase):
         legacy = measure(blank, 'legacy')
         self.assertEqual(legacy.intensity(100), 100)
         self.assertEqual(legacy.difference(-16), -16)
-        for mode in ('normalize', 'legacy'):
+        for mode in ('threshold', 'legacy'):
             detector = ShapeDetector()
             detector.photometric_mode = mode
             for _ in range(3):
@@ -54,7 +54,7 @@ class PhotometricTests(unittest.TestCase):
         for gain in (1., .6, .4):
             image = (gray.astype(np.float32)*gain).astype(np.uint8)
             detector = ShapeDetector()
-            detector.photometric_mode = 'normalize'
+            detector.photometric_mode = 'threshold'
             box, score = detector._presence_cue(image)
             self.assertIsNotNone(box)
             cues.append(score)
@@ -76,7 +76,7 @@ class PhotometricTests(unittest.TestCase):
         frame = np.full((540, 960), 180, np.uint8)
         cv2.rectangle(frame, (250, 200), (600, 400), 20, 20)
         detector = ShapeDetector()
-        detector.photometric_mode = 'normalize'
+        detector.photometric_mode = 'threshold'
         _, dbg = detector.update(frame)
         self.assertGreater(dbg['photometric_contrast_scale'], 1)
         self.assertEqual(dbg['shape_adaptive_c'], detector.cfg['adaptive_c'])
@@ -92,6 +92,7 @@ class LutModeTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         levels = np.arange(256, dtype=np.uint8)
         self.lut_gray = (255 - levels).astype(np.uint8)
+        self.lut_max = np.clip(levels.astype(np.int32) + 17, 0, 255).astype(np.uint8)
         self.lut_bgr = np.stack([
             levels,
             np.clip(levels.astype(np.int32) + 30, 0, 255).astype(np.uint8),
@@ -99,6 +100,7 @@ class LutModeTests(unittest.TestCase):
         ])
         np.save(Path(self.tmp.name) / 'lut_bgr.npy', self.lut_bgr, allow_pickle=False)
         np.save(Path(self.tmp.name) / 'lut_gray.npy', self.lut_gray, allow_pickle=False)
+        np.save(Path(self.tmp.name) / 'lut_max.npy', self.lut_max, allow_pickle=False)
         (Path(self.tmp.name) / 'mapping.json').write_text(
             json.dumps({'schema_version': 1}), encoding='utf-8')
 
@@ -118,6 +120,15 @@ class LutModeTests(unittest.TestCase):
         self.assertTrue(debug['photometric_lut_applied'])
         self.assertFalse(debug['photometric_match_applied'])
         self.assertEqual(debug['photometric_lut_source'], self.tmp.name)
+
+    def test_lane_max_channel_uses_its_own_lut_and_normalize_alias(self):
+        load_lut_mapping(self.tmp.name)
+        lane = np.arange(32, dtype=np.uint8).reshape(4, 8)
+        photo = measure(lane, 'normalize', lut_input='max_channel')
+        np.testing.assert_array_equal(photo.apply(lane), self.lut_max[lane])
+        self.assertEqual(photo.effective_mode, 'lut')
+        self.assertEqual(photo.difference(-12), -12)
+        self.assertNotEqual(int(self.lut_max[10]), int(self.lut_gray[10]))
 
     def test_lut_mode_maps_bgr_per_channel_and_preserves_contract(self):
         load_lut_mapping(self.tmp.name)
@@ -173,6 +184,7 @@ class LutModeTests(unittest.TestCase):
         for channel in mapping['lut_bgr']:
             self.assertTrue(np.all(np.diff(channel.astype(np.int32)) >= 0))
         self.assertTrue(np.all(np.diff(mapping['lut_gray'].astype(np.int32)) >= 0))
+        self.assertTrue(np.all(np.diff(mapping['lut_max'].astype(np.int32)) >= 0))
 
 
 if __name__ == '__main__':

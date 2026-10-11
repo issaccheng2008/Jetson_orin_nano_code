@@ -477,7 +477,7 @@ def parse_args():
                              "canny selects experimental filled dark-stroke evidence")
     parser.add_argument("--line-adaptive-c", type=float, default=-12.0,
                         help="Reference C for the legacy lane adaptive threshold; "
-                             "normalize maps it by ground std/reference std")
+                             "threshold mode adapts it by ground std/reference std")
     parser.add_argument("--shape-preprocess", choices=("selective", "canny"),
                         default=os.getenv("SHAPE_PREPROCESS", "selective"),
                         help="Card ink candidates; canny is an explicit experimental alternative")
@@ -485,11 +485,12 @@ def parse_args():
                         default=os.getenv("PHOTOMETRIC_MODE", "lut"),
                         help="Mutually exclusive image mapping: raw passthrough, threshold-only, "
                              "guarded per-frame match (legacy), or the calibrated fixed->auto LUT "
-                             "(lut, the production default; never stacks with the match or with "
+                             "(lut/normalize, the production default; never stacks with the match or with "
                              "statistics-based threshold compensation)")
     parser.add_argument("--photometric-lut-dir",
                         default=os.getenv("PHOTOMETRIC_LUT_DIR", _DEFAULT_LUT_DIR),
-                        help="Fitted fixed->auto mapping directory (lut_bgr.npy/lut_gray.npy/mapping.json "
+                        help="Fitted fixed->auto mapping directory (lut_bgr.npy/lut_gray.npy/"
+                             "lut_max.npy/mapping.json "
                              "from fit_photometric_mapping.py); required by --photometric-mode lut")
     parser.add_argument("--lane-fit", action="store_true",
                         help="EXPERIMENTAL, and it changes nothing on its own: also "

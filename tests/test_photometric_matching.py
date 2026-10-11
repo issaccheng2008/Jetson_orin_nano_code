@@ -86,7 +86,7 @@ class PhotometricMatchingTests(unittest.TestCase):
         self.assertTrue(matched.match_allowed)
         np.testing.assert_array_equal(matched.apply(source),
                                       measure(source, "legacy").apply(source))
-        self.assertEqual(resolve_mode("normalize"), "threshold")
+        self.assertEqual(resolve_mode("normalize"), "lut")
 
     def test_capped_gain_and_noise_rejection(self):
         source = np.tile(np.array([80, 81, 82, 83], np.uint8), (60, 30))

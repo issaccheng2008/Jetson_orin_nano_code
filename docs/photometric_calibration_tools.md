@@ -49,7 +49,7 @@ python3 new_vision/jetson/fit_photometric_mapping.py calibration/<session> \
   --corners-json corners.json --no-gui
 ```
 
-默认前 8 张成对照片拟合，后 2 张做同一相机/场景下的重复性检查。输出目录 `photometric_mapping/` 包含 `lut_bgr.npy`、`lut_gray.npy`、`mapping.json`、逐块误差 CSV/JSON、采样框覆盖图、映射曲线和固定原图/映射图/自动参考图对照。GUI 模式还会打开采样框预览供核对；无 GUI 时可查看保存的 `sampling_overlay.png`。后两张不是独立场景的泛化验证。
+默认前 8 张成对照片拟合，后 2 张做同一相机/场景下的重复性检查。输出目录 `photometric_mapping/` 包含 `lut_bgr.npy`、标准灰度 `lut_gray.npy`、巡线 max(B,G,R) 专用的 `lut_max.npy`、`mapping.json`、逐块误差 CSV/JSON、采样框覆盖图、映射曲线和固定原图/映射图/自动参考图对照。GUI 模式还会打开采样框预览供核对；无 GUI 时可查看保存的 `sampling_overlay.png`。后两张不是独立场景的泛化验证。
 
 额外照片或视频可使用同一个 LUT 验证，不会重新拟合：
 
@@ -73,10 +73,10 @@ mapped_gray = apply_mapping(gray, mapping)      # 选择标准灰度 LUT
 
 BGR 和灰度是两个互斥入口；一次图像处理只能调用一条 LUT 路径。生产巡线与图卡入口的 Normalization 已替换为该 LUT（`--photometric-mode lut`，现为 `run_policy_vision.py` 默认）：
 
-- 巡线入口在 IPM 后对 `max(B,G,R)` 单通道使用 `lut_gray`（[line_detector_v1_warp.py:1895](/mnt/d/用户/lenovo/桌面/github%20repository/jetson_orin_nano_code/new_vision/jetson/line_detector_v1_warp.py:1895)）；图卡入口在裁剪前对标准灰度使用 `lut_gray`（[shape_detector.py:405](/mnt/d/用户/lenovo/桌面/github%20repository/jetson_orin_nano_code/new_vision/jetson/shape_detector.py:405)）。两处调用点未改动，只换了 `Photometry.apply` 的实现路径。
-- 映射目录默认 `new_vision/config/photometric_mapping/`（已从 session `20261011_130034_658597` 部署），可用 `--photometric-lut-dir` 或 `PHOTOMETRIC_LUT_DIR` 覆盖；模式可用 `PHOTOMETRIC_MODE` 覆盖。
+- 巡线入口在 IPM 后对 `max(B,G,R)` 单通道使用从同一像素域拟合的 `lut_max`（[line_detector_v1_warp.py:1895](/mnt/d/用户/lenovo/桌面/github%20repository/jetson_orin_nano_code/new_vision/jetson/line_detector_v1_warp.py:1895)）；图卡入口在裁剪前对标准灰度使用 `lut_gray`（[shape_detector.py:405](/mnt/d/用户/lenovo/桌面/github%20repository/jetson_orin_nano_code/new_vision/jetson/shape_detector.py:405)）。两条入口分别取对应像素域，不叠加映射。
+- 映射目录默认 `new_vision/config/photometric_mapping/`（已从 session `20261011_130034_658597` 部署），可用 `--photometric-lut-dir` 或 `PHOTOMETRIC_LUT_DIR` 覆盖；模式可用 `PHOTOMETRIC_MODE` 覆盖。`lut` 与 `normalize` 都使用这套 LUT；若需旧的统计量阈值适配，应明确选择 `threshold`。`legacy` 仍是旧的逐帧均值/方差图像匹配。
 - lut 模式下旧的整帧均值/标准差匹配与基于帧统计量的阈值补偿全部停用（阈值原样传递、`scale=1`），不存在叠加；缺失映射文件时启动即报错，不会静默回退。
-- 用真实 session 照片核对：固定组经 `lut_gray` 后与自动参考的整帧统计一致（mean 148.0 vs 144.9、median 162 vs 162、p90 189 vs 188）。巡线 max 域用灰 LUT 与"逐通道 LUT 后再取 max"两法 MAE 差 <1 DN，巡线沿用前者；强彩色像素（红条）不在灰阶板标定范围内，色路仍走原 BGR 检测。
+- 本 session 中，用前 8 张拟合、后 2 张同场景照片核对：标准灰度块 MAE 49.69→2.14 DN；max(B,G,R) 灰阶块 MAE 49.76→2.12 DN。这只是灰阶板同场景重复性检查，不代表真实赛道、图卡或强彩色像素的恢复质量。
 - 回退：`--photometric-mode legacy` 恢复旧的整帧匹配。
 
 **相机前置条件**：该 LUT 只在相机处于标定时的固定设置下有效 —— 手动曝光 ≈31.25 ms（V4L2 0.1 ms 步进写 31.2）+ 自动白平衡。B 命令已带 `--camera-exposure-mode manual --camera-exposure-ms 31.2 --camera-white-balance-mode auto`；不设定这些相机参数直接跑 LUT 会得到错误亮度。
