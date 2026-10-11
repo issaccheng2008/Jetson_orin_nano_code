@@ -466,6 +466,21 @@ class HeadingSteeringController:
                              if candidate*recovery_level > 0 else recovery_level)
             decision = 'position_recovery_left' if self._position_side < 0 else 'position_recovery_right'
             self.diagnostics.update(steering_decision=decision, steering_braked=False)
+        # The field-tested loss fallback can also supply the left-turn strength
+        # when a *measured* right boundary is the only reliable lane evidence.
+        # Keep the geometric decision's sign: a rightward correction must not
+        # become a forced left turn merely because the opposite edge is hidden.
+        if (debug.get('tracking_mode') == 'RIGHT_ONLY'
+                and source == 'right_boundary'
+                and self._turn_history is not None
+                and self._turn_history.config.fallback_wz > 0
+                and candidate >= self.straight_wz
+                and (near <= -self.corridor_cm or candidate > self.straight_wz)):
+            floor = min(self._turn_history.config.fallback_wz, self._cap(+1))
+            if candidate < floor:
+                self.diagnostics.update(steering_decision='right_boundary_left_floor',
+                                        steering_right_boundary_floor_wz=floor)
+                candidate = floor
         selected = (self.inner.vx, candidate*self.yaw_sign)
         changed = selected != self._command or self._started is None
         if changed:

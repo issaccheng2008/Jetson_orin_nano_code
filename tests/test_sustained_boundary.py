@@ -18,6 +18,7 @@ from continuous_lane_heading import trace_heading
 from lane_boundary_path import BoundaryPathTracker
 from line_detector_v1_warp import LineDetector
 from heading_steering import HeadingSteeringController
+from steering_recovery import RecoveryConfig
 from policy_bridge import SteeringController
 from segment_steering import SegmentSteeringController
 import run_policy_vision
@@ -257,6 +258,50 @@ class DetectorControlIntegrationTests(unittest.TestCase):
         blank=np.full_like(self.frame(),170)
         lost=d.process(blank,dt=.1,frame_token=99)[-1]
         self.assertFalse(lost['measurement_valid'])
+
+    def test_right_boundary_uses_configured_left_search_strength_only_when_turning_left(self):
+        d = self.detector
+        paired = d.process(self.frame(offset=-12.), dt=.1, frame_token=0)[-1]
+        right = d.process(self.frame(('right',), offset=-12.), dt=.1,
+                          frame_token=1)[-1]
+        self.assertEqual(right['tracking_mode'], 'RIGHT_ONLY')
+        self.assertTrue(right['measurement_valid'])
+        controller = HeadingSteeringController(
+            SteeringController(), min_hold_s=0., position_gain=0.,
+            position_recovery_cm=0., recovery_config=RecoveryConfig(.8, .8, .5),
+            angle_wz_table=[[-90, -45, -.2], [-45, -15, -.1],
+                            [-15, 15, .1], [15, 50, .25], [50, 90, .3]])
+        command = controller.command(right, right['measurement_quality'], .1)
+        self.assertEqual(command[1], .5)
+        self.assertEqual(controller.diagnostics['steering_decision'],
+                         'right_boundary_left_floor')
+        self.assertEqual(controller.diagnostics['steering_heading_source'],
+                         'right_boundary')
+        paired_controller = HeadingSteeringController(
+            SteeringController(), min_hold_s=0., position_gain=0.,
+            position_recovery_cm=0., recovery_config=RecoveryConfig(.8, .8, .5),
+            angle_wz_table=[[-90, -45, -.2], [-45, -15, -.1],
+                            [-15, 15, .1], [15, 50, .25], [50, 90, .3]])
+        paired_command = paired_controller.command(
+            paired, paired['measurement_quality'], .1)
+        self.assertNotEqual(paired_command[1], .5)
+        self.assertNotIn('steering_right_boundary_floor_wz',
+                         paired_controller.diagnostics)
+
+    def test_right_boundary_floor_does_not_force_left_from_opposite_geometry(self):
+        d = self.detector
+        d.process(self.frame(offset=12.), dt=.1, frame_token=0)
+        right = d.process(self.frame(('right',), offset=12.), dt=.1,
+                          frame_token=1)[-1]
+        self.assertEqual(right['tracking_mode'], 'RIGHT_ONLY')
+        controller = HeadingSteeringController(
+            SteeringController(), min_hold_s=0., position_gain=0.,
+            position_recovery_cm=0., recovery_config=RecoveryConfig(.8, .8, .5),
+            angle_wz_table=[[-90, -45, -.2], [-45, -15, -.1],
+                            [-15, 15, .1], [15, 50, .25], [50, 90, .3]])
+        command = controller.command(right, right['measurement_quality'], .1)
+        self.assertLess(command[1], .5)
+        self.assertNotIn('steering_right_boundary_floor_wz', controller.diagnostics)
 
     def test_detector_left_only_remains_fresh_for_five_seconds(self):
         d=self.detector
