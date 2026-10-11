@@ -1,7 +1,8 @@
 """Photometric lane candidates; geometry still decides which candidates are lanes.
 
 The input is a metric birdseye grayscale image with an optional validity mask. ``contrast``
-uses limited local equalization and preserves thin/oblique fragments. ``legacy``
+uses limited local equalization and preserves oblique fragments with a local
+stroke width of at least about five pixels. ``legacy``
 reproduces the former threshold/morphology/component filter for comparison.
 No temporal history or motor commands belong in this stage.
 """
@@ -107,6 +108,14 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
     for operation, kernel in operations:
         mask = (masked_morphology(mask, operation, kernel, valid) if masked
                 else cv2.morphologyEx(mask, operation, kernel))
+    # The contrast branch deliberately avoids the old large-component/vertical
+    # gate, but a long one-pixel field border can pass that gate by area alone.
+    # Require a local stroke at least about 5 px wide in both orientations.
+    # Apply before components so attached hairline spurs cannot inherit a
+    # legitimate tape component's area and survive as a false boundary.
+    if mode == "contrast":
+        mask = (masked_morphology(mask, cv2.MORPH_OPEN, k5, valid) if masked
+                else cv2.morphologyEx(mask, cv2.MORPH_OPEN, k5))
     morph_pixels = int(np.count_nonzero(mask))
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     retained = np.zeros(count, np.uint8)
@@ -121,6 +130,7 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
     response[mask == 0] = 0
     diagnostics = {
         "preprocess_mode": mode,
+        "preprocess_min_stroke_px": 5 if mode == "contrast" else 0,
         "preprocess_adaptive_c_reference": float(adaptive_c),
         "preprocess_adaptive_c_effective": float(effective_c),
         **validity_debug,

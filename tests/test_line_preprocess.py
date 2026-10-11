@@ -37,10 +37,10 @@ class LinePreprocessTests(unittest.TestCase):
         self.assertEqual(extract_lane_candidates(gray, 'contrast', photometry=dim)[3]
                          ['preprocess_adaptive_c_effective'], -12)
 
-    def test_dark_thin_tape_is_not_erased(self):
+    def test_real_width_tape_is_not_erased(self):
         gray = np.full((400, 320), 65, np.uint8)
         truth = np.zeros_like(gray)
-        cv2.line(gray, (50, 390), (230, 10), 40, 2)
+        cv2.line(gray, (50, 390), (230, 10), 40, 5)
         cv2.line(truth, (50, 390), (230, 10), 255, 1)
         original = gray.copy()
         old = extract_lane_candidates(gray, 'legacy')[1]
@@ -48,6 +48,14 @@ class LinePreprocessTests(unittest.TestCase):
         self.assertEqual(np.count_nonzero(old), 0)
         self.assertGreater(np.mean(new[truth > 0] > 0), .95)
         np.testing.assert_array_equal(gray, original)
+
+    def test_contrast_rejects_long_hairline_but_keeps_track_width(self):
+        gray = np.full((400, 320), 160, np.uint8)
+        cv2.line(gray, (25, 390), (25, 10), 35, 1)
+        cv2.line(gray, (105, 390), (105, 10), 35, 7)
+        mask = extract_lane_candidates(gray, 'contrast')[1]
+        self.assertEqual(np.count_nonzero(mask[:, 23:28]), 0)
+        self.assertGreater(np.count_nonzero(mask[:, 102:109]), 250)
 
     def test_horizontal_and_oblique_tape_survive(self):
         for points in [((20, 200), (290, 200)), ((20, 350), (290, 30))]:
