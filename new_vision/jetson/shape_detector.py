@@ -527,7 +527,24 @@ class ShapeDetector:
             # dump 里五角星 15/16 判对（binary 只有 11/16），十字 5/5。
             warp = self._warp_card(cv2.bitwise_or(binary, ink), best)
             dbg["warp"] = warp
-            shape = self._classify(warp, dbg)
+            # Read the enclosed symbol from the rectified grayscale card first.
+            # The existing binary classifier remains a fallback for incomplete ink.
+            from card_appearance import card_appearance
+            appearance = card_appearance(gray, best)
+            dbg.update({"shape_" + key: value
+                        for key, value in appearance.diagnostics().items()})
+            dbg["appearance_gray"] = appearance.gray
+            dbg["appearance_binary"] = appearance.binary
+            shape = (self._classify_contour(appearance.symbol)
+                     if appearance.symbol is not None else None)
+            dbg["shape_classification_path"] = (
+                "local_gray" if shape is not None else "legacy")
+            if shape is None:
+                shape = self._classify(warp, dbg)
+            else:
+                dbg["shape_rules"] = shape
+                dbg["hu_best"] = self.last_hu[0] if self.last_hu else None
+                dbg["hu_dist"] = self.last_hu[1] if self.last_hu else None
             # quad映射回原图分辨率（找框在960×540上做，含 ROI 偏移）
             q_orig = best.astype(np.float32) * np.array(
                 [self._scale_x, self._scale_y], np.float32)

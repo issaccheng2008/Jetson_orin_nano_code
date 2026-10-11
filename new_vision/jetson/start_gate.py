@@ -13,18 +13,26 @@
 
 from __future__ import annotations
 
+from collections import Counter, deque
+
 MODES = ("off", "qr", "shape", "both", "button")
 
 
 class StartGate:
-    def __init__(self, mode="both", expected_qr="1", shape_confirm=2):
+    def __init__(self, mode="both", expected_qr="1", shape_confirm=2,
+                 *, shape_vote_min=8, shape_vote_window=24, shape_voting=False):
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
         if shape_confirm < 1:
             raise ValueError("shape_confirm must be at least 1")
+        if shape_vote_min < 1 or shape_vote_window < shape_vote_min:
+            raise ValueError("shape vote window must hold at least the minimum votes")
         self.mode = mode
         self.expected_qr = str(expected_qr).strip()
         self.shape_confirm = int(shape_confirm)
+        self.shape_voting = bool(shape_voting)
+        self.shape_vote_min = int(shape_vote_min)
+        self.shape_votes = deque(maxlen=int(shape_vote_window))
         self.require_qr = mode in ("qr", "both")
         # In button mode shape recognition drives the lamp, never permission to walk.
         self.require_shape = mode in ("shape", "both", "button")
@@ -34,6 +42,9 @@ class StartGate:
         self.last_qr = None
         self.last_shape = None
         self.shape_streak = 0
+
+    def vote_tally(self):
+        return dict(Counter(self.shape_votes))
 
     @property
     def passed(self):
@@ -60,9 +71,28 @@ class StartGate:
         return True
 
     def observe_shape(self, name):
-        """返回本帧是否锁存了阀2。None 不打断连续计数。"""
+        """返回本帧是否锁存了阀2；比赛模式在扫码后才结算近期票。"""
         if name is None:
             return False
+        if self.shape_voting:
+            if self.shape_passed:
+                return False
+            self.shape_votes.append(name)
+            # Before QR arrives, keep collecting recent votes rather than
+            # freezing the first two matching readings of a stationary card.
+            if self.require_qr and not self.qr_passed:
+                return False
+            counts = Counter(self.shape_votes)
+            total = len(self.shape_votes)
+            winner, votes = counts.most_common(1)[0]
+            runner_up = max((count for label, count in counts.items()
+                             if label != winner), default=0)
+            if (total < self.shape_vote_min or votes * 3 < total * 2
+                    or votes - runner_up < 2):
+                return False
+            self.last_shape = winner
+            self.shape_passed = True
+            return True
         if name == self.last_shape:
             self.shape_streak += 1
         else:
@@ -81,5 +111,7 @@ class StartGate:
             "已过" if self.qr_passed else f"等二维码 最近={self.last_qr}")
         shape = "不需要" if not self.require_shape else (
             "已过" if self.shape_passed else
-            f"等图卡 最近={self.last_shape} 连 {self.shape_streak}/{self.shape_confirm}")
+            (f"等图卡 投票={self.vote_tally()} / 至少{self.shape_vote_min}票"
+             if self.shape_voting else
+             f"等图卡 最近={self.last_shape} 连 {self.shape_streak}/{self.shape_confirm}"))
         return f"阀1={qr} | 阀2={shape}"

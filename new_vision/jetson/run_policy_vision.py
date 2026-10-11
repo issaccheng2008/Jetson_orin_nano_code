@@ -166,9 +166,9 @@ def parse_args():
                         default="off",
                         help="Hold the robot at vx=wz=0 until the start valves pass. "
                              "'qr' = a QR code decoded to --start-gate-qr-payload; "
-                             "'shape' = the first card classified to a shape on "
-                             "--start-gate-shape-frames consecutive detection calls; "
-                             "'both' = the competition setting; 'button' = STM32 PC2 "
+                             "'shape' = the first card classified on consecutive calls; "
+                             "'both' = the competition setting, voting on recent card "
+                             "readings and locking the winner only after QR; 'button' = STM32 PC2 "
                              "starts gait, with optional first-card PA3 indication. "
                              "In button mode gait is not launched while waiting. "
                              "In the other gate modes, while held the body is "
@@ -181,8 +181,13 @@ def parse_args():
     parser.add_argument("--start-gate-qr-payload", default="1",
                         help="The QR payload that opens the first valve")
     parser.add_argument("--start-gate-shape-frames", type=int, default=2,
-                        help="Consecutive detection calls naming the same shape "
-                             "before the second valve latches")
+                        help="Consecutive same-shape calls for --start-gate shape; "
+                             "competition --start-gate both uses votes instead")
+    parser.add_argument("--start-gate-shape-votes", type=int, default=8,
+                        help="Minimum classified calls in the recent start-card vote "
+                             "window; with --start-gate both, decide only after QR")
+    parser.add_argument("--start-gate-vote-window", type=int, default=24,
+                        help="Maximum recent classified calls kept for the first-card vote")
     parser.add_argument("--start-policy-on-gate", action="store_true",
                         help="After the both/button start gate passes, launch the enabled walking "
                              "policy and wait for its STM32-ready marker before moving")
@@ -621,6 +626,9 @@ def parse_args():
         parser.error("start-gate-qr-payload must not be empty")
     if args.start_gate_shape_frames < 1:
         parser.error("start-gate-shape-frames must be at least 1")
+    if (args.start_gate_shape_votes < 1
+            or args.start_gate_vote_window < args.start_gate_shape_votes):
+        parser.error("start-gate-vote-window must be at least start-gate-shape-votes >= 1")
     if args.start_policy_on_gate and args.start_gate not in ("both", "button"):
         parser.error("start-policy-on-gate requires --start-gate both or button")
     if args.start_gate == "button" and not args.start_policy_on_gate:
@@ -826,7 +834,10 @@ def main():
         from start_gate import StartGate
         start_gate = StartGate(mode=args.start_gate,
                                expected_qr=args.start_gate_qr_payload,
-                               shape_confirm=args.start_gate_shape_frames)
+                               shape_confirm=args.start_gate_shape_frames,
+                               shape_vote_min=args.start_gate_shape_votes,
+                               shape_vote_window=args.start_gate_vote_window,
+                               shape_voting=args.start_gate == "both")
         if start_gate.require_qr:
             from qr_reader import QrReader
             qr_reader = QrReader(min_edge_px=args.qr_min_edge_px,
@@ -1505,11 +1516,15 @@ def main():
                         and not (args.start_gate == "button" and start_gate.button_passed)
                         and card_dbg and card_dbg.get("shape")):
                     if start_gate.observe_shape(card_dbg["shape"]):
+                        evidence = (f"最近 {len(start_gate.shape_votes)} 票 "
+                                    f"{start_gate.vote_tally()}"
+                                    if start_gate.shape_voting else
+                                    f"连续 {start_gate.shape_streak} 帧")
                         print("\n" + "=" * 68, flush=True)
                         print(f"  ◆◆◆  阀2 通过：图卡 "
                               f"{CARD_NAMES_ZH.get(start_gate.last_shape, '?')}"
                               f"（{start_gate.last_shape}）"
-                              f"    连续 {start_gate.shape_streak} 帧", flush=True)
+                              f"    {evidence}", flush=True)
                         print("=" * 68 + "\n", flush=True)
                 if (startup_button_link is not None
                         and start_gate.observe_button(startup_button_link.poll(start_gate.shape_passed))):
