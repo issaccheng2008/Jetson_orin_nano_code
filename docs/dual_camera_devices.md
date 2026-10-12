@@ -6,11 +6,11 @@
 
 2026-10-12 只读查询板子：两台均为 XHH-260602-KTY 2M，ID_SERIAL_SHORT 均为 01.00.00；by-id 名称冲突，无法用此序列号区分。应按物理 USB 路径绑定，角色须由安装位置确认。
 
-如果主接 2.3、副接 2.1，配置为：
+用户已确认：主接 2.1、副接 2.3。无需安装规则时可直接配置稳定路径：
 
 ```bash
-CAMERA_DEVICE=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.3:1.0-video-index0
-CARD_CAMERA_DEVICE=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0
+CAMERA_DEVICE=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0
+CARD_CAMERA_DEVICE=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.3:1.0-video-index0
 CARD_CAMERA=1
 ```
 
@@ -23,3 +23,27 @@ CARD_CAMERA=1
 现场 video0 查询时被视觉进程11208占用，该进程后来能运行说明节点可用；不能仅凭事后进程状态确认17:49那次失败的唯一原因，不要同时启动第二个视觉进程抢占它。
 
 验证：摄像头默认值、稳定路径/重复节点、投票帧时间与真实入口路由，加原单摄像头入口回归共22项通过。旧单摄像头回归用例显式添加 --card-camera -1。仅查询了设备与进程，没有开启摄像头、重启服务或使能电机。
+
+## 固定名称（推荐）
+
+规则文件 config/udev/99-robot-cameras.rules 将接口 2.1 命名为 /dev/robot_main_camera，接口 2.3 命名为 /dev/robot_card_camera。这是 udev 符号链接，不修改硬件序列号。模板已改用这些名字，需要先安装规则；缺少别名会明确报错。
+
+在 Nano 仓库中执行一次：
+
+```bash
+sudo install -m 0644 config/udev/99-robot-cameras.rules /etc/udev/rules.d/99-robot-cameras.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=video4linux --action=add
+sudo udevadm settle
+ls -l /dev/robot_main_camera /dev/robot_card_camera
+```
+
+然后修改现有按钮配置（不是仅改模板）：
+
+```bash
+CAMERA_DEVICE=/dev/robot_main_camera
+CARD_CAMERA_DEVICE=/dev/robot_card_camera
+CARD_CAMERA=1
+```
+
+手动入口对应 --camera-device /dev/robot_main_camera --card-camera-device /dev/robot_card_camera。程序不会根据名字交换主副用途。拔掉设备后别名随设备消失，插回固定接口后重新创建。规则尚未在实车安装验证。
