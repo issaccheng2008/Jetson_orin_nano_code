@@ -89,10 +89,10 @@ def add_arguments(parser):
                         default='history-turn',
                         help='history-turn keeps walking and uses fallback yaw without a recent turn; '
                              'history-stop is a compatibility alias with the same behavior')
-    parser.add_argument('--steering-loss-max-s', type=float, default=.8,
+    parser.add_argument('--steering-loss-max-s', type=float, default=0.,
                         help='Maximum reuse of a recent turn during lane loss; then use fallback yaw, never stop')
     parser.add_argument('--steering-loss-history-s', type=float, default=.8)
-    parser.add_argument('--steering-loss-fallback-wz', type=float, default=.3,
+    parser.add_argument('--steering-loss-fallback-wz', type=float, default=.5,
                         help='Signed geometric fallback yaw: positive left, negative right; obeys yaw-sign and caps')
     parser.add_argument('--steering-segment-fallback', action=argparse.BooleanOptionalAction,
                         default=True, help='Allow quality-gated near segment when global direction is invalid')

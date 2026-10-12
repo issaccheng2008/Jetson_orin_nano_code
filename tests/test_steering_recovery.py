@@ -21,7 +21,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(default.steering_loss_mode, 'history-turn')
         for mode in ('history-turn', 'history-stop'):
             args = parser.parse_args(['--steering-loss-mode', mode])
-            self.assertEqual(config_from_args(args), RecoveryConfig())
+            self.assertEqual(config_from_args(args), RecoveryConfig(max_loss_s=0.,fallback_wz=.5))
         self.assertIsNone(config_from_args(parser.parse_args(['--steering-loss-mode', 'legacy'])))
 
     def test_loss_keeps_last_applied_speed_instead_of_configured_speed(self):

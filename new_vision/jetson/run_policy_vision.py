@@ -494,6 +494,14 @@ def parse_args():
                         help="Join observed tape fragments with compatible endpoint directions")
     parser.add_argument("--lane-gap-max-cm", type=float, default=12.,
                         help="Maximum endpoint gap per joining pass, nominal ground centimetres")
+    parser.add_argument('--straight-road-guard', action=argparse.BooleanOptionalAction, default=True,
+                        help='Strict near-image straight confirmation; restrict final walking yaw to straight and first gears')
+    parser.add_argument('--straight-near-cm', type=float, default=10.)
+    parser.add_argument('--straight-far-cm', type=float, default=40.)
+    parser.add_argument('--straight-confirm-s', type=float, default=1.)
+    parser.add_argument('--straight-exit-s', type=float, default=.6)
+    parser.add_argument('--straight-hold-s', type=float, default=3.,
+                        help='Maximum time to retain road state without supporting fresh observations')
     parser.add_argument("--initial-boundary-side", choices=("unknown", "left", "right"),
                         default="unknown",
                         help="Only for an explicitly known cold-start single boundary; "
@@ -608,6 +616,13 @@ def parse_args():
         parser.error("connector-port must be between 1 and 65535")
     if not math.isfinite(args.lane_gap_max_cm) or not 0 < args.lane_gap_max_cm <= 15:
         parser.error("lane-gap-max-cm must be in (0, 15]")
+    if (not all(math.isfinite(v) for v in (args.straight_near_cm,args.straight_far_cm,
+             args.straight_confirm_s,args.straight_exit_s,args.straight_hold_s))
+            or not 0 <= args.straight_near_cm < args.straight_far_cm <= 80
+            or args.straight_far_cm-args.straight_near_cm < 15
+            or min(args.straight_confirm_s,args.straight_exit_s) <= 0
+            or args.straight_hold_s < max(args.straight_confirm_s,args.straight_exit_s)):
+        parser.error('invalid straight road region or confirmation/hold durations')
     if args.width <= 0 or args.height <= 0:
         parser.error("camera dimensions must be positive")
     if (not all(math.isfinite(v) for v in (args.camera_height_cm, args.camera_pitch_deg,
@@ -822,6 +837,16 @@ def main():
             position_confirm_frames=args.position_confirm_frames), args)
     # Lazy imports keep --help and controller tests usable without a camera stack.
     import cv2
+    from straight_road_guard import StraightRoadGuard
+    straight_guard = StraightRoadGuard(
+        enabled=args.straight_road_guard, confirm_s=args.straight_confirm_s,
+        exit_s=args.straight_exit_s, hold_s=args.straight_hold_s,
+        straight_wz=getattr(controller,'straight_wz',args.heading_straight_wz),
+        left_levels=tuple(v for v in getattr(controller,'left_levels',args.heading_left_wz)
+                          if v <= args.max_wz),
+        right_levels=tuple(v for v in getattr(controller,'right_levels',args.heading_right_wz)
+                          if v <= (args.max_wz if args.max_wz_right is None else args.max_wz_right)),
+        yaw_sign=args.yaw_sign)
     from line_detector_v1_warp import LineDetector
     from utils import open_camera, show_debug_windows
 
@@ -938,6 +963,14 @@ def main():
         detector.lane_gap_max_cm = args.lane_gap_max_cm
         print(f"[lane-gap] enabled={args.lane_gap_fill}; max={args.lane_gap_max_cm:g}cm; "
               "up to three endpoint joining passes", flush=True)
+        detector.straight_guard_enabled = args.straight_road_guard
+        detector.straight_near_cm = args.straight_near_cm
+        detector.straight_far_cm = args.straight_far_cm
+        print(f'[straight-road] enabled={args.straight_road_guard}; observed near region '
+              f'{args.straight_near_cm:g}..{args.straight_far_cm:g}cm; '
+              f'confirm={args.straight_confirm_s:g}s exit={args.straight_exit_s:g}s '
+              f'unknown-hold={args.straight_hold_s:g}s; '
+              f'allowed geometric wz={straight_guard.allowed}', flush=True)
         detector.initial_boundary_side = (None if args.initial_boundary_side == "unknown"
                                           else args.initial_boundary_side)
         detector.single_boundary_tracking = args.single_boundary_tracking
@@ -1155,6 +1188,7 @@ def main():
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
                                 "lane_gap_completion.py",
                                 "lane_boundary_path.py", "continuous_lane_heading.py",
+                                "straight_road_guard.py",
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
@@ -1310,7 +1344,8 @@ def main():
             # but do not let it train the next walking frame's seed/width/EMA.
             tracking_before_frame = detector.snapshot_tracking_state()
             line_process_start_ns = time.perf_counter_ns()
-            detector._pending_frame_token = zlib.crc32(frame)
+            line_frame_token = zlib.crc32(frame)
+            detector._pending_frame_token = line_frame_token
             _, _, confidence, visualization, debug = detector.process(
                 frame, dt=processed - previous)
             line_process_ms = (time.perf_counter_ns() - line_process_start_ns) / 1_000_000.0
@@ -1863,6 +1898,19 @@ def main():
                 vx, wz = command_window.update(vx, wz, processed,
                                                 valid=not line_lost(debug, confidence))
                 debug.update(command_window.diagnostics)
+            road_before = straight_guard.state
+            straight_guard.update(debug.get('straight_evidence','UNKNOWN'), processed,
+                line_frame_token, paused=in_card_window or args.hold_still)
+            wz_before_guard = wz
+            straight_bypass = (in_card_window or gate_window_open
+                or args.hold_still or startup_first_card_pending or vx <= 0.)
+            wz = straight_guard.limit(wz, bypass=straight_bypass)
+            debug.update(straight_guard.diagnostics(processed,wz_before_guard,wz))
+            debug['straight_guard_bypass'] = straight_bypass
+            if road_before != straight_guard.state:
+                print(f'[straight-road] {road_before}->{straight_guard.state}; '
+                      f"evidence={debug.get('straight_evidence','UNKNOWN')} "
+                      f"reason={debug.get('straight_reject_reason','unavailable')}", flush=True)
             debug['steering_applied_wz'] = wz
             if args.wz_mode == 'segments':
                 debug['segment_applied_wz'] = wz
