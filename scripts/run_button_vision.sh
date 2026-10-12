@@ -22,6 +22,11 @@ case "${LANE_GAP_FILL:-1}" in
     0) gap_flag=--no-lane-gap-fill ;;
     *) printf 'LANE_GAP_FILL must be 0 or 1\n' >&2; exit 2 ;;
 esac
+case "${STARTUP_VISION_PAUSE:-1}" in
+    1) startup_pause_flag=--startup-vision-pause ;;
+    0) startup_pause_flag=--no-startup-vision-pause ;;
+    *) printf 'STARTUP_VISION_PAUSE must be 0 or 1\n' >&2; exit 2 ;;
+esac
 command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --lane-observation-mode "${LANE_OBSERVATION_MODE:-continuous}" "$gap_flag"
     --lane-strictness-pct "${LANE_STRICTNESS_PCT:-0}"
@@ -35,6 +40,7 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --steering-command-median "$STEERING_COMMAND_MEDIAN"
     --steering-loss-fallback-wz "$STEERING_LOSS_FALLBACK_WZ"
     --startup-first-walk-s "$STARTUP_FIRST_WALK_S"
+    "$startup_pause_flag"
     --startup-sequence "$STARTUP_SEQUENCE"
     --steering-filter-mode "$STEERING_FILTER_MODE" --steering-filter-algorithm "$STEERING_FILTER_ALGORITHM"
     --steering-filter-min-hz "$STEERING_FILTER_MIN_HZ" --steering-filter-max-hz "$STEERING_FILTER_MAX_HZ"

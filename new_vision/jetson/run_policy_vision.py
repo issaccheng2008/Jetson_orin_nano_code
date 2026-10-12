@@ -213,6 +213,11 @@ def parse_args():
     parser.add_argument('--command-min-hold-s', type=float, default=0.0,
                         help='Legacy minimum walking command duration in launched policy; '
                              'used only when steering-command-window-s is 0; median window disables it')
+    parser.add_argument('--startup-vision-pause', action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help='First-card experiment: suspend image computation from initial '
+                             'motion through the latched action, publishing commands at 50Hz. '
+                             'Requires both/button start gate and asynchronous capture')
     parser.add_argument("--qr-every", type=int, default=5,
                         help="Decode a QR every N frames while the first valve is "
                              "still waiting. The decoder is CPU-only and costs tens "
@@ -683,6 +688,10 @@ def parse_args():
         parser.error("start-policy-on-gate requires --start-gate both or button")
     if args.start_gate == "button" and not args.start_policy_on_gate:
         parser.error("start-gate button requires --start-policy-on-gate")
+    if args.startup_vision_pause and args.start_gate not in ('both', 'button'):
+        parser.error('--startup-vision-pause requires a latched first card: --start-gate both/button')
+    if args.startup_vision_pause and not args.camera_async:
+        parser.error('--startup-vision-pause requires --camera-async for fresh frames on resume')
     if (not math.isfinite(args.start_policy_max_seconds)
             or args.start_policy_max_seconds <= 0):
         parser.error("start-policy-max-seconds must be positive")
@@ -780,6 +789,12 @@ def fmt(value, spec):
 
 def main():
     args = parse_args()
+    if args.startup_vision_pause and args.record_video:
+        # Avoid a codec worker completing queued images during the no-image
+        # interval and a resampling burst when the next image arrives.
+        args.record_video = False
+        print('[startup-vision-pause] image video disabled for this run; '
+              'scalar command and policy diagnostics remain enabled', flush=True)
     from startup_sequence import parse_sequence, StartupSequence
     startup_sequence = StartupSequence(parse_sequence(
         args.startup_sequence, args.startup_first_walk_s, args.vx, args.max_wz))
@@ -1175,6 +1190,9 @@ def main():
         startup_first_card_pending = False
         startup_first_card_lock = False
         startup_first_card_clear_calls = 0
+        startup_pause = None
+        startup_pause_logged_phase = None
+        startup_pause_resume_frame_after_s = None
         dumped = 0
         run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}_{time.time_ns()}"
         dump_metadata = {
@@ -1204,7 +1222,7 @@ def main():
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
                                 "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
-                                "line_preprocess.py", "masked_ground.py", "latest_camera.py", "photometric_thresholds.py", "canny_candidates.py"):
+                                "line_preprocess.py", "masked_ground.py", "latest_camera.py", "photometric_thresholds.py", "canny_candidates.py", "startup_vision_pause.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
         if args.line_log_dir:
@@ -1252,6 +1270,61 @@ def main():
                 break
             if args.max_seconds > 0 and now - start >= args.max_seconds:
                 break
+            # No image is read or computed in this branch. The first card is
+            # already latched; only the existing timed sequence/action runs.
+            if startup_pause is not None:
+                wait_s = startup_pause.wait_s(now)
+                if wait_s > 0:
+                    time.sleep(min(.02, wait_s))
+                    continue
+                tick = startup_pause.command(now)
+                if tick.event_id:
+                    startup_first_card_pending = False
+                    card_triggered = card_action_triggered = True
+                    card_armed = False
+                    card_action, card_event_id = tick.event_action, tick.event_id
+                    card_until = startup_pause.action_until_s
+                    next_card_stop_allowed_at = max(next_card_stop_allowed_at,
+                        card_until + CARD_STOP_RETRIGGER_GAP_S)
+                pause_vx, pause_wz = ((0., 0.) if args.hold_still else (tick.vx, tick.wz))
+                client.publish(pause_vx, pause_wz, tick.qr,
+                    hold_upright=args.hold_upright and tick.phase == 'ACTION',
+                    command_mode='held' if args.wz_mode in ('heading', 'segments') else None,
+                    event_id=tick.event_id, event_action=tick.event_action)
+                startup_pause.published(time.monotonic())
+                if attitude is not None:
+                    attitude.poll()
+                pause_diagnostics = startup_pause.diagnostics()
+                if tick.phase != startup_pause_logged_phase:
+                    startup_pause_logged_phase = tick.phase
+                    print(f'[startup-vision-pause] phase={tick.phase} '
+                          f'vx={pause_vx:+.3f} wz={pause_wz:+.3f} '
+                          f'action={tick.event_action} event={tick.event_id} '
+                          f'hold={startup_pause.hold_s:g}s '
+                          f'ticks={startup_pause.message_count} '
+                          f"hz={fmt(pause_diagnostics['startup_pause_publish_hz'], '.1f')} "
+                          f"max-gap={pause_diagnostics['startup_pause_max_publish_gap_ms']:.1f}ms",
+                          flush=True)
+                if line_log is not None:
+                    line_log.write(dict(tracking_mode='PAUSED', measurement_valid=False,
+                        heading_control_valid=False, reject_reason='startup_vision_pause'),
+                        **pause_diagnostics, frame=frames, host_time_ns=time.time_ns(),
+                        process_monotonic_s=now, vx=pause_vx, wz=pause_wz,
+                        event_id=tick.event_id, event_action=tick.event_action)
+                previous = now
+                last_cmd_vx = pause_vx
+                if tick.phase == 'RESUME':
+                    startup_pause = None
+                    startup_first_card_pending = False
+                    card_action, card_event_id = -1, 0
+                    controller.drop_held_command()
+                    command_window.reset()
+                    # Normal handover on the next fresh image. No pre-start
+                    # pixels or loss timers are used as a new observation.
+                    card_window_open = True
+                    gate_released = False
+                    startup_pause_resume_frame_after_s = now
+                continue
             # App read-attempt cadence, not the sensor's hardware frame timestamp.
             loop_start_ns = time.perf_counter_ns()
             loop_period_ms = (None if previous_loop_start_ns is None else
@@ -1274,6 +1347,18 @@ def main():
                     last_log = now
                 time.sleep(0.02)
                 continue
+            if startup_pause_resume_frame_after_s is not None:
+                captured_at = capture_metadata.get('camera_capture_started_s', time.monotonic())
+                if captured_at < startup_pause_resume_frame_after_s:
+                    # Drain the last in-flight exposure from the action pose;
+                    # never feed it to lane steering as resumed walking evidence.
+                    fresh_wait = time.monotonic()-startup_pause_resume_frame_after_s
+                    resume_vx = 0. if args.hold_still or fresh_wait > .25 else args.vx
+                    client.publish(resume_vx, 0., -1,
+                        command_mode='held' if args.wz_mode in ('heading', 'segments') else None)
+                    time.sleep(.02)
+                    continue
+                startup_pause_resume_frame_after_s = None
             # Stamp the frame on arrival, before the detector runs. stop_until and
             # card_until are set from these stamps, so the stopped-to-walking edge
             # below has to be judged with the same clock as the window that set it -
@@ -1702,6 +1787,15 @@ def main():
                             startup_first_card_lock = True
                             startup_first_card_clear_calls = 0
                             startup_sequence.reset()  # begins on first released camera frame
+                            if args.startup_vision_pause:
+                                from startup_vision_pause import StartupVisionPause
+                                startup_pause = StartupVisionPause(startup_sequence,
+                                    startup_first_card,
+                                    card_action_stop_s(startup_first_card, args.card_hold_ms),
+                                    args.vx, lambda: max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF))
+                                print('[startup-vision-pause] armed: no image computations '
+                                      'until first-card action hold ends; command heartbeat=50Hz',
+                                      flush=True)
                             card_armed = False
                             release_source = ("按钮已按下、首卡已锁存" if args.start_gate == "button"
                                               else "二维码和首卡均已锁存")
@@ -1989,6 +2083,7 @@ def main():
                         if key.startswith(("photometric_", "cue_", "shape_"))})
                 line_log.write(
                     telemetry_debug, frame=frames, host_time_ns=command_host_time_ns,
+                    observation_processed=True, startup_vision_paused=False,
                     process_monotonic_s=processed, confidence=confidence,
                     camera_async=args.camera_async, **capture_metadata,
                     loop_period_ms=loop_period_ms, camera_read_ms=camera_read_ms,
