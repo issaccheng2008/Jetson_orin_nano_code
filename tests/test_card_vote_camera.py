@@ -12,10 +12,30 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'new_vision' / 'jetson'))
 from card_vote_camera import CardVoteCamera
+from start_gate import StartGate, resolve_card_shapes
 import run_policy_vision
 
 
 class CardVoteCameraTests(unittest.TestCase):
+    def test_startup_two_camera_vote_fusion(self):
+        self.assertEqual(resolve_card_shapes('square', 'square'), ('square', 'both'))
+        self.assertEqual(resolve_card_shapes('square', None), ('square', 'primary'))
+        self.assertEqual(resolve_card_shapes(None, 'square'), ('square', 'secondary'))
+        self.assertEqual(resolve_card_shapes(None, None), (None, 'none'))
+        self.assertEqual(resolve_card_shapes('square', 'diamond'), (None, 'conflict'))
+
+        gate = StartGate(mode='shape', shape_confirm=2)
+        self.assertFalse(gate.observe_shape('square'))
+        gate.reject_shape_conflict()
+        self.assertFalse(gate.observe_shape('square'))
+        self.assertTrue(gate.observe_shape('square'))
+
+        voted = StartGate(mode='both', shape_vote_min=2, shape_vote_window=4,
+                          shape_voting=True)
+        voted.observe_shape('square')
+        voted.reject_shape_conflict()
+        self.assertEqual(voted.vote_tally(), {})
+
     def test_dual_camera_enabled_by_default(self):
         with patch('sys.argv',['vision']):
             self.assertEqual(run_policy_vision.parse_args().card_camera,1)
@@ -115,6 +135,8 @@ class CardVoteCameraTests(unittest.TestCase):
                             for call in precision_shape.update.call_args_list))
         self.assertTrue(any(call.kwargs.get('classify') is True
                             for call in precision_shape.update.call_args_list))
+        self.assertTrue(any(call.kwargs.get('classify') is True
+                            for call in primary_shape.update.call_args_list))
         self.assertTrue(any(call.kwargs.get('event_action') == 3
                             for call in connector.return_value.publish.call_args_list))
         capture.close.assert_called_once()
@@ -187,6 +209,8 @@ class CardVoteCameraTests(unittest.TestCase):
                             for call in precision_shape.update.call_args_list))
         self.assertTrue(any(call.kwargs.get('classify') is True
                             for call in precision_shape.update.call_args_list))
+        self.assertTrue(any(call.kwargs.get('classify') is True
+                            for call in primary_shape.update.call_args_list))
         self.assertTrue(any(call.kwargs.get('hold_upright') is True
                             for call in connector.return_value.publish.call_args_list))
         self.assertEqual(capture.close.call_count, 1)

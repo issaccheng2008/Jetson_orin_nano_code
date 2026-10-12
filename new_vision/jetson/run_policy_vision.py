@@ -29,6 +29,7 @@ from policy_bridge import ConnectorClient, SteeringController
 from line_telemetry import LineTelemetry
 from command_video import line_lost
 from steering_command_window import SteeringCommandWindow, effective_policy_hold
+from start_gate import resolve_card_shapes
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
 CARD_NAMES_ZH = {
@@ -854,6 +855,11 @@ def main():
     card_trigger_frac = (args.card_trigger_frac if args.card_trigger_frac is not None
                          else trigger_frac_at_dist(args.card_trigger_dist_cm))
     card_trigger_width = trigger_width_at_dist(args.card_trigger_dist_cm)
+    print(f"[card-stop] configured distance={args.card_trigger_dist_cm:g}cm; "
+          f"box width>={card_trigger_width:.1f}px; "
+          f"no-box cue cy>={card_trigger_frac:.3f}"
+          f"{' (explicit cy override)' if args.card_trigger_frac is not None else ' (distance-derived)'}; "
+          "cue score only confirms presence, it does not set stop distance", flush=True)
 
     from photometric_thresholds import load_lut_mapping, resolve_mode
     if resolve_mode(args.photometric_mode) == "lut":
@@ -1443,6 +1449,11 @@ def main():
             card_frame_source = None
             card_camera_status = None
             card_camera_meta = {}
+            card_primary_shape = None
+            card_secondary_shape = None
+            startup_shape_candidate = None
+            startup_shape_source = None
+            card_shape_source = None
             # ── 阀1：二维码 ──
             # 只在还没扫到时跑，而且每 --qr-every 帧才解一次：detectAndDecode 是纯
             # CPU 的，1280x720 raw 十几毫秒、再放大一倍几十毫秒，逐帧跑会把主循环
@@ -1495,26 +1506,52 @@ def main():
                 card_detection_mode = "classify" if classify_card else "presence"
                 shape_update_start_ns = time.perf_counter_ns()
                 shape_frame = frame
-                shape_reader = shape
                 card_frame_source = "primary"
-                if classify_card and (startup_shape_needed or stopped_vote_needed) and card_camera_reader is not None:
+                dual_vote = startup_shape_needed or stopped_vote_needed
+                primary_card_dbg = None
+                if dual_vote:
+                    # Each camera owns its classifier state. Fuse the two
+                    # results into at most one vote for this capture cycle.
+                    action, card_dbg = shape.update(
+                        frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
+                        classify=True, issue_action=False,
+                        proposal_mode=args.shape_proposal_mode)
+                    primary_card_dbg = card_dbg
+                    card_primary_shape = card_dbg.get("shape")
+                if dual_vote and card_camera_reader is not None:
                     # The startup gate has no body re-pose: the newly opened
                     # capture supplies its own fresh frames. Normal stops wait
                     # for the re-pose DONE + settle timestamp.
                     vote_start = (card_vote_ready_at or tilt_until) if stopped_vote_needed else 0.0
                     shape_frame, card_camera_meta, card_camera_status = (
                         card_camera_reader.sample(vote_start))
-                    card_frame_source = "secondary"
-                    shape_reader = precision_shape
-                if shape_frame is None:
-                    # A missing or pre-settle second-camera frame is an abstention,
-                    # never a reason to silently vote from the primary camera.
-                    action, card_dbg = None, {}
-                else:
-                    action, card_dbg = shape_reader.update(
+                    if shape_frame is not None:
+                        card_frame_source = "secondary"
+                    else:
+                        shape_frame = frame
+                if dual_vote and card_frame_source == "secondary":
+                    action, card_dbg = precision_shape.update(
                         shape_frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
+                        classify=True, issue_action=False,
+                        proposal_mode=args.shape_proposal_mode)
+                    card_secondary_shape = card_dbg.get("shape")
+                    if primary_card_dbg.get("presence"):
+                        # A card visible to either camera remains present while
+                        # the stopped vote is active.
+                        card_dbg = dict(card_dbg, presence=True)
+                elif not dual_vote:
+                    action, card_dbg = shape.update(
+                        frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
                         classify=classify_card, issue_action=False,
                         proposal_mode=(args.shape_proposal_mode if classify_card else "all"))
+                if dual_vote:
+                    fused_shape, card_shape_source = resolve_card_shapes(
+                        card_primary_shape, card_secondary_shape)
+                    if startup_shape_needed:
+                        startup_shape_candidate = fused_shape
+                        startup_shape_source = card_shape_source
+                    else:
+                        card_dbg = dict(card_dbg, shape=fused_shape)
                 shape_update_ms = (time.perf_counter_ns() - shape_update_start_ns) / 1_000_000.0
                 # Count this call's two independent stop-gate evidence paths,
                 # including early cue hits that have not filled its vote window.
@@ -1699,7 +1736,8 @@ def main():
                         f"rej={' '.join(f'{k}:{n}' for k, n in rej) or '-'} "
                         f"armed={int(bool(card_armed))} "
                         f"mode={card_detection_mode} "
-                        f"source={card_dbg.get('shape_proposal_source') or '-'}",
+                        f"source={card_dbg.get('shape_proposal_source') or '-'} "
+                        f"cameras={card_shape_source or '-'}",
                         flush=True)
             # ── 阀2：认出第一张图卡的形状 ──
             # 放在停车触发之后是故意的：释放那一帧仍然算在门控里（card_armed 这一帧
@@ -1708,8 +1746,14 @@ def main():
             if start_gate is not None:
                 if (start_gate.require_shape and not start_gate.shape_passed
                         and not (args.start_gate == "button" and start_gate.button_passed)
-                        and card_dbg and card_dbg.get("shape")):
-                    if start_gate.observe_shape(card_dbg["shape"]):
+                        and startup_shape_source == "conflict"):
+                    start_gate.reject_shape_conflict()
+                    print(f"[start-gate] 图卡双摄冲突：主={card_primary_shape} "
+                          f"副={card_secondary_shape}；本帧弃票并清除旧票", flush=True)
+                if (start_gate.require_shape and not start_gate.shape_passed
+                        and not (args.start_gate == "button" and start_gate.button_passed)
+                        and startup_shape_candidate):
+                    if start_gate.observe_shape(startup_shape_candidate):
                         evidence = (f"最近 {len(start_gate.shape_votes)} 票 "
                                     f"{start_gate.vote_tally()}"
                                     if start_gate.shape_voting else
@@ -1718,7 +1762,7 @@ def main():
                         print(f"  ◆◆◆  阀2 通过：图卡 "
                               f"{CARD_NAMES_ZH.get(start_gate.last_shape, '?')}"
                               f"（{start_gate.last_shape}）"
-                              f"    {evidence}", flush=True)
+                              f"    {evidence} 来源={startup_shape_source}", flush=True)
                         print("=" * 68 + "\n", flush=True)
                 if (startup_button_link is not None
                         and start_gate.observe_button(startup_button_link.poll(start_gate.shape_passed))):
@@ -1791,8 +1835,9 @@ def main():
                     _name = card_dbg["shape"]
                     card_votes[_name] = card_votes.get(_name, 0) + 1
                     card_vote_total += 1
-                    if (card_dbg.get("shape_local_candidate") == _name
-                            and card_dbg.get("shape_legacy_candidate") == _name):
+                    if (card_shape_source == "both" or
+                            (card_dbg.get("shape_local_candidate") == _name
+                             and card_dbg.get("shape_legacy_candidate") == _name)):
                         card_agreement_streak = (
                             card_agreement_streak + 1
                             if card_agreement_shape == _name else 1)
@@ -2019,6 +2064,10 @@ def main():
                     shape_update_ms=shape_update_ms, decision_ms=decision_ms,
                     card_detection_mode=card_detection_mode,
                     card_frame_source=card_frame_source,
+                    card_primary_shape=card_primary_shape,
+                    card_secondary_shape=card_secondary_shape,
+                    startup_shape_source=startup_shape_source,
+                    card_shape_source=card_shape_source,
                     card_camera_status=card_camera_status,
                     card_camera_sequence=card_camera_meta.get('camera_sequence'),
                     card_camera_frame_age_ms=card_camera_meta.get('camera_frame_age_ms'),
