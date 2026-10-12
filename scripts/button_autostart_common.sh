@@ -13,6 +13,8 @@ load_button_config() {
     # Older installed configs lack this setting; preserve their heading behavior.
     WZ_MODE=heading
     SINGLE_BOUNDARY_TRACKING=1
+    LANE_GAP_FILL=1
+    STRAIGHT_ROAD_GUARD=1
     LINE_PREPROCESS=legacy
     LINE_ADAPTIVE_C=-12
     SHAPE_PREPROCESS=selective

@@ -63,6 +63,14 @@ class ButtonAutostartTests(unittest.TestCase):
             self.assertEqual((args.steering_loss_max_s,args.steering_loss_fallback_wz,args.wz_step),(0,.5,.5))
             self.assertEqual((args.straight_near_cm,args.straight_far_cm,args.straight_confirm_s,
                               args.straight_exit_s,args.straight_hold_s),(12,42,1.5,.8,4))
+            # Installed configs predating both flags must enable the two stages.
+            missing='\n'.join(line for line in original.splitlines()
+                              if not line.startswith(('LANE_GAP_FILL=','STRAIGHT_ROAD_GUARD=')))+'\n'
+            (checkout/'config/button_start.env').write_text(missing)
+            command=shlex.split(self.run_bash('scripts/run_button_vision.sh','--dry-run',cwd=checkout))
+            with patch('sys.argv',command[2:]):args=run_policy_vision.parse_args()
+            self.assertTrue(args.lane_gap_fill)
+            self.assertTrue(args.straight_road_guard)
 
     def test_median_window_and_loss_fallback_config_reach_real_parser(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
