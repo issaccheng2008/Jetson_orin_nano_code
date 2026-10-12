@@ -369,6 +369,9 @@ class LineDetector:
         # This clock keeps advancing through card-stop snapshots. Accepted tracking
         # times below are restored, so diagnostic frames cannot rejuvenate old seeds.
         self._observation_clock_s = 0.0
+        self.straight_guard_enabled = False
+        self.straight_near_cm = 10.
+        self.straight_far_cm = 40.
         self._last_process_time = None
         self._pending_frame_token = None
 
@@ -1931,6 +1934,18 @@ class LineDetector:
         binary_clean[~valid] = 0
         binary_observed = binary_clean.copy()
         gray_observed = gray_detect.copy()
+        straight_evidence = {}
+        if self.straight_guard_enabled:
+            from straight_road_guard import measure_near_road
+            straight_started = time.perf_counter()
+            straight_evidence = measure_near_road(
+                binary_observed, valid, self._px_to_ground_cm,
+                near_cm=self.straight_near_cm, far_cm=self.straight_far_cm,
+                lane_width_cm=self.lane_width_true_cm,
+                row_z_cm=self._lut_z_cm,
+                row_x_scale_cm=self._lut_cm_per_px*self.lateral_scale,
+                center_x=self.center_x)
+            straight_evidence['straight_analysis_ms'] = (time.perf_counter()-straight_started)*1000.
         gap_added = np.zeros_like(binary_clean)
         if self.lane_gap_fill:
             from lane_gap_completion import complete_lane_gaps
@@ -2439,6 +2454,9 @@ class LineDetector:
         ng_enter_z = obstacle["ng_enter_z"]
         inside_narrow = obstacle["inside_narrow"]
         state["inside_narrow"] = inside_narrow
+        if inside_narrow and straight_evidence:
+            straight_evidence.update(straight_evidence='UNKNOWN',
+                                     straight_reject_reason='narrow_gate')
         if inside_narrow and single_line and measurement_valid:
             # The equal-width prior does not describe the narrowed gate.
             measurement_valid = heading_valid = False
@@ -2547,6 +2565,7 @@ class LineDetector:
             "binary_raw": binary_raw_inv,
             "binary": binary_clean,
             "binary_observed": binary_observed,
+            **straight_evidence,
             "binary_gap_added": gap_added,
             "boundary_tracker_mode": boundary_path["tracking_mode"],
             "boundary_tracker_reject_reason": boundary_path["reject_reason"],

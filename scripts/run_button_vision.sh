@@ -58,6 +58,16 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
     --recording-root "$RECORDS_DIR/tests" "$video_flag"
     --video-source "$VIDEO_SOURCE" --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
+case "${STRAIGHT_ROAD_GUARD:-1}" in
+    1) command+=(--straight-road-guard) ;;
+    0) command+=(--no-straight-road-guard) ;;
+    *) printf 'STRAIGHT_ROAD_GUARD must be 0 or 1\n' >&2; exit 2 ;;
+esac
+command+=(--straight-near-cm "${STRAIGHT_NEAR_CM:-10}"
+          --straight-far-cm "${STRAIGHT_FAR_CM:-40}"
+          --straight-confirm-s "${STRAIGHT_CONFIRM_S:-1}"
+          --straight-exit-s "${STRAIGHT_EXIT_S:-0.6}"
+          --straight-hold-s "${STRAIGHT_HOLD_S:-3}")
 for setting in HEADING_REGIONS_CM HEADING_NEAR_CM HEADING_FAR_CM STEERING_ANGLE_WZ_TABLE SEGMENT_REGIONS_CM; do
     if [[ -n "${!setting:-}" ]]; then
         flag="${setting,,}"

@@ -44,6 +44,23 @@ class ButtonAutostartTests(unittest.TestCase):
             self.assertEqual(args.heading_regions_cm, ((24,26),(28,30)))
             self.assertEqual(args.steering_angle_wz_table[1][2], -.1)
 
+    def test_straight_guard_parameters_reach_real_parser(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout=Path(temporary)/'robot'
+            shutil.copytree(REPO/'scripts',checkout/'scripts')
+            shutil.copytree(REPO/'config',checkout/'config',ignore=shutil.ignore_patterns('button_start.env'))
+            original=(REPO/'config/button_start.env.example').read_text()
+            (checkout/'config/button_start.env').write_text(original+'\nSTRAIGHT_ROAD_GUARD=0\n'
+                'STRAIGHT_NEAR_CM=12\nSTRAIGHT_FAR_CM=42\nSTRAIGHT_CONFIRM_S=1.5\n'
+                'STRAIGHT_EXIT_S=0.8\nSTRAIGHT_HOLD_S=4\n')
+            command=shlex.split(self.run_bash('scripts/run_button_vision.sh','--dry-run',cwd=checkout))
+            with patch('sys.argv',command[2:]):args=run_policy_vision.parse_args()
+            self.assertFalse(args.straight_road_guard)
+            self.assertEqual((args.straight_near_cm,args.straight_far_cm,args.straight_confirm_s,
+                              args.straight_exit_s,args.straight_hold_s),(12,42,1.5,.8,4))
+
     def test_median_window_and_loss_fallback_config_reach_real_parser(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision
