@@ -1465,8 +1465,13 @@ def main():
                         qr_odd_seen.add(reading.payload)
                         print(f"[start-gate] ⚠️ 扫到 payload={reading.payload!r}，"
                               f"不是 {start_gate.expected_qr!r}，忽略", flush=True)
-            secondary_needed = (card_device is not None and processed < stop_until
-                                and not card_action_triggered)
+            startup_shape_needed = bool(
+                gate_window_open and start_gate is not None
+                and start_gate.require_shape and not start_gate.shape_passed
+                and not (args.start_gate == 'button' and start_gate.button_passed))
+            stopped_vote_needed = processed < stop_until and not card_action_triggered
+            secondary_needed = card_device is not None and (
+                startup_shape_needed or stopped_vote_needed)
             if secondary_needed and card_camera_reader is None:
                 from latest_camera import LatestCamera
                 from card_vote_camera import CardVoteCamera
@@ -1475,7 +1480,8 @@ def main():
                     card_cap.release()
                     raise RuntimeError(f"Cannot open stopped-card camera {card_device}")
                 card_camera_reader = CardVoteCamera(LatestCamera(card_cap).start())
-                print(f"[card-camera] opened {card_device} for stopped recognition", flush=True)
+                print(f"[card-camera] opened {card_device} for "
+                      f"{'startup shape gate' if startup_shape_needed else 'stopped recognition'}", flush=True)
             elif not secondary_needed and card_camera_reader is not None:
                 if not card_camera_reader.close():
                     raise RuntimeError('Stopped-card capture did not terminate; refusing duplicate open')
@@ -1491,8 +1497,11 @@ def main():
                 shape_frame = frame
                 shape_reader = shape
                 card_frame_source = "primary"
-                if classify_card and processed < stop_until and card_camera_reader is not None:
-                    vote_start = card_vote_ready_at or tilt_until
+                if classify_card and (startup_shape_needed or stopped_vote_needed) and card_camera_reader is not None:
+                    # The startup gate has no body re-pose: the newly opened
+                    # capture supplies its own fresh frames. Normal stops wait
+                    # for the re-pose DONE + settle timestamp.
+                    vote_start = (card_vote_ready_at or tilt_until) if stopped_vote_needed else 0.0
                     shape_frame, card_camera_meta, card_camera_status = (
                         card_camera_reader.sample(vote_start))
                     card_frame_source = "secondary"
