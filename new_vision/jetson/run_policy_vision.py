@@ -490,6 +490,13 @@ def parse_args():
                              "equalization and preserves thin/oblique fragments; "
                              "legacy restores the previous binary preprocessing; "
                              "canny selects experimental filled dark-stroke evidence")
+    parser.add_argument("--lane-observation-mode", choices=("continuous", "strict"),
+                        default="continuous",
+                        help="Boundary association and local support acceptance; strict restores the prior gates")
+    parser.add_argument("--lane-gap-fill", action=argparse.BooleanOptionalAction, default=True,
+                        help="Join short tape gaps with compatible observed endpoint directions")
+    parser.add_argument("--lane-gap-max-cm", type=float, default=6.,
+                        help="Maximum endpoint gap for binary completion, in ground centimetres")
     parser.add_argument("--initial-boundary-side", choices=("unknown", "left", "right"),
                         default="unknown",
                         help="Only for an explicitly known cold-start single boundary; "
@@ -602,6 +609,8 @@ def parse_args():
         parser.error('steering-filter-mode shadow/active requires heading or segments')
     if not 1 <= args.connector_port <= 65535:
         parser.error("connector-port must be between 1 and 65535")
+    if not math.isfinite(args.lane_gap_max_cm) or not 0 < args.lane_gap_max_cm <= 15:
+        parser.error("lane-gap-max-cm must be in (0, 15]")
     if args.width <= 0 or args.height <= 0:
         parser.error("camera dimensions must be positive")
     if (not all(math.isfinite(v) for v in (args.camera_height_cm, args.camera_pitch_deg,
@@ -928,6 +937,11 @@ def main():
             else:
                 detector.set_heading_distances(args.heading_near_cm, args.heading_far_cm)
         detector.preprocess_mode = args.line_preprocess
+        detector.set_lane_observation_mode(args.lane_observation_mode)
+        detector.lane_gap_fill = args.lane_gap_fill
+        detector.lane_gap_max_cm = args.lane_gap_max_cm
+        print(f"[lane-observation] mode={args.lane_observation_mode}; "
+              f"gap-fill={args.lane_gap_fill} max={args.lane_gap_max_cm:g}cm", flush=True)
         detector.initial_boundary_side = (None if args.initial_boundary_side == "unknown"
                                           else args.initial_boundary_side)
         detector.single_boundary_tracking = args.single_boundary_tracking
@@ -1144,6 +1158,7 @@ def main():
             dump_metadata["source_sha256"] = {}
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
                                 "lane_boundary_path.py", "continuous_lane_heading.py",
+                                "lane_gap_completion.py", "visible_lane_direction.py",
                                 "shape_detector.py", "policy_bridge.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",

@@ -15,7 +15,12 @@ class BoundaryPathTracker:
     def __init__(self, *, min_points=6, min_span_cm=8., max_rmse_cm=2.5,
                  max_slope=1.2, frame_search_px=52., row_search_px=28.,
                  history_age_s=.6, width_tolerance=.18,
-                 max_direction_step_deg=35.):
+                 max_direction_step_deg=35., continuous=False):
+        self.continuous = bool(continuous)
+        if self.continuous:
+            min_points, min_span_cm, max_rmse_cm, max_slope = 2, 1., 12., 12.
+            frame_search_px, row_search_px = 200., 100.
+            history_age_s, max_direction_step_deg = 1.5, 55.
         self.min_points = min_points
         self.min_span_cm = min_span_cm
         self.max_rmse_cm = max_rmse_cm
@@ -69,7 +74,7 @@ class BoundaryPathTracker:
         # Robust seed, then fit only genuine points within a bounded residual.
         k0 = float(np.median([(x[j]-x[i])/(z[j]-z[i])
                               for i in range(len(z)) for j in range(i+1,len(z))
-                              if abs(z[j]-z[i]) >= 2.]))
+                              if abs(z[j]-z[i]) >= 1e-6]))
         b0 = float(np.median(x-k0*z))
         keep = np.abs(x-(b0+k0*z)) <= max_rmse_cm
         if int(keep.sum()) < min_points or float(np.ptp(z[keep])) < min_span_cm:
@@ -116,7 +121,7 @@ class BoundaryPathTracker:
     def _local_fit(self, points, to_ground, side, width_cm, reference_z_cm):
         """Choose short supported tangents on a bend, never a distant extrapolation."""
         normal_sign=-1 if side=='right' else 1
-        lengths=sorted(set((len(points),10,12,14)),reverse=True)
+        lengths=sorted(set((len(points),2,3,4,6,8,10,12,14)),reverse=True)
         choices=[]
         for length in lengths:
             if length<self.min_points or length>len(points):
@@ -128,7 +133,8 @@ class BoundaryPathTracker:
                 k=fit['k']
                 dz=-(width_cm/2)*normal_sign*k/math.hypot(1.,k)
                 target_min,target_max=fit['z_min']+dz,fit['z_max']+dz
-                if not target_min-3.<=reference_z_cm<=target_max+3.:
+                margin = 15. if self.continuous else 3.
+                if not target_min-margin<=reference_z_cm<=target_max+margin:
                     continue
                 target_mid=.5*(target_min+target_max)
                 score=(fit['rmse']+.025*abs(target_mid-reference_z_cm)
@@ -138,15 +144,17 @@ class BoundaryPathTracker:
 
     @staticmethod
     def _predict(track, y):
-        points=track['points']
-        rows=np.asarray([p[0] for p in points],dtype=float)
-        columns=np.asarray([p[1] for p in points],dtype=float)
-        if len(points)>=3 and float(np.ptp(rows))>1.:
-            slope=float(np.polyfit(rows,columns,1)[0])
-        else:
-            slope=0.
-        i=int(np.argmin(np.abs(rows-y)))
-        return float(columns[i]+slope*(y-rows[i]))
+        # Interpolate real row samples on a bend; a global straight fit biases
+        # the association toward the wrong side of a curved tape.
+        points = sorted(track['points'])
+        rows = np.asarray([p[0] for p in points], dtype=float)
+        columns = np.asarray([p[1] for p in points], dtype=float)
+        if rows[0] <= y <= rows[-1]:
+            return float(np.interp(y, rows, columns))
+        a, b = (0, min(2, len(rows)-1)) if y < rows[0] else (max(0,len(rows)-3),len(rows)-1)
+        slope = (columns[b]-columns[a])/max(1.,rows[b]-rows[a])
+        anchor = a if y < rows[0] else b
+        return float(columns[anchor]+slope*(y-rows[anchor]))
 
     def _rows(self, mask, collect_runs, *, bottom_y, top_y, step_px):
         bottom=min(mask.shape[0]-1,bottom_y)
@@ -156,23 +164,27 @@ class BoundaryPathTracker:
             ys.append(top)
         for y in ys:
             centers=[.5*(a+b) for a,b in collect_runs(y)
-                     if 5 <= b-a+1 <= 32]
+                     if 5 <= b-a+1 <= (128 if self.continuous else 32)]
             yield y,centers
 
     def _single_points(self, mask, collect_runs, side, now_s, initial_side,
                        *, bottom_y, top_y, step_px):
         track=self.left_track if side=='left' else self.right_track
-        fresh=(track is not None and now_s-track['time_s']<=self.history_age_s)
+        fresh=(track is not None and (self.continuous or
+               now_s-track['time_s']<=self.history_age_s))
         if not fresh and initial_side!=side:
             return [], 'side_ambiguous'
         points=[]
+        gap = 0
         for y, centers in self._rows(mask,collect_runs,bottom_y=bottom_y,
                                      top_y=top_y,step_px=step_px):
-            if not points and y < min(mask.shape[0]-1,bottom_y)-2*step_px:
+            if not points and y < min(mask.shape[0]-1,bottom_y)-(20 if self.continuous else 2)*step_px:
                 break  # an isolated far object cannot seed near tracking
             if not centers:
                 if points:
-                    break
+                    gap += 1
+                    if not self.continuous or gap > 6:
+                        break
                 continue
             if points:
                 if len(points)>=2:
@@ -192,11 +204,12 @@ class BoundaryPathTracker:
                 radius=1.
             distances=sorted((abs(c-expected),c) for c in centers)
             if (distances[0][0]>radius or
-                    (len(distances)>1 and distances[1][0]-distances[0][0]<10.)):
+                    (len(distances)>1 and distances[1][0]-distances[0][0]<(2. if self.continuous else 10.))):
                 if points:
                     break
                 return [],'association_ambiguous'
             points.append((y,distances[0][1]))
+            gap = 0
         return points,'accepted' if points else 'no_near_boundary'
 
     def update(self, mask, collect_runs, to_ground, *, now_s, width_cm,
@@ -230,21 +243,31 @@ class BoundaryPathTracker:
         self.last_frame_token=frame_token
         self.width_prior_cm=width_cm
         pair_rows=([r for r in paired_trace['rows'] if r['source']=='paired']
-                   if paired_trace is not None and paired_trace.get('valid') else [])
+                   if paired_trace is not None and (paired_trace.get('valid') or self.continuous) else [])
         if len(pair_rows)>=self.min_points:
             left=[(r['y'],r['left_x']) for r in pair_rows]
             right=[(r['y'],r['right_x']) for r in pair_rows]
-            lf,lr=self._fitted(left,to_ground)
-            rf,rr=self._fitted(right,to_ground)
-            if lf and rf:
-                k=float(paired_trace['fit'][1])
+            center=[(r['y'],.5*(r['left_x']+r['right_x'])) for r in pair_rows]
+            if self.continuous:
+                lf=self._local_fit(left,to_ground,'left',0.,reference_z_cm)
+                rf=self._local_fit(right,to_ground,'right',0.,reference_z_cm)
+                cf=self._local_fit(center,to_ground,'right',0.,reference_z_cm)
+            else:
+                lf,lr=self._fitted(left,to_ground)
+                rf,rr=self._fitted(right,to_ground)
+                cf=None
+            if lf and rf and (cf is not None or not self.continuous):
+                k=float(cf['k'] if cf is not None else paired_trace['fit'][1])
                 widths=[(to_ground(r['right_x'],r['y'])[0]
                          -to_ground(r['left_x'],r['y'])[0])/math.hypot(1.,k)
                         for r in pair_rows]
                 measured=float(np.median(widths))
-                xref,k,zref=paired_trace['fit']
-                x=float(xref+k*(reference_z_cm-zref))
-                if (self.last_mode in ('LEFT_ONLY','RIGHT_ONLY') and
+                if cf is not None:
+                    x=float(cf['b']+k*reference_z_cm)
+                else:
+                    xref,k,zref=paired_trace['fit']
+                    x=float(xref+k*(reference_z_cm-zref))
+                if (not self.continuous and self.last_mode in ('LEFT_ONLY','RIGHT_ONLY') and
                         self.last_path is not None and
                         abs(x-(self.last_path[0]+self.last_path[1]*
                                (reference_z_cm-self.last_path[2])))>8.):
@@ -287,8 +310,11 @@ class BoundaryPathTracker:
         for side in ('left','right'):
             points,reason=self._single_points(mask,collect_runs,side,now_s,initial_side,
                 bottom_y=bottom_y,top_y=top_y,step_px=step_px)
+            result[side+'_association_reason']=reason
+            result[side+'_candidate_points']=len(points)
             if points:
                 fit=self._local_fit(points,to_ground,side,width_cm,reference_z_cm)
+                result[side+'_fit_reason']='accepted' if fit else 'local_fit_unsupported'
                 if fit:
                     candidates.append((side,points,fit))
         if len(candidates)!=1:
@@ -301,12 +327,21 @@ class BoundaryPathTracker:
         side,points,fit=candidates[0]
         k,b=fit['k'],fit['b']
         old=self.left_track if side=='left' else self.right_track
-        if old is not None and now_s-old['time_s']<=self.history_age_s:
+        if not self.continuous and old is not None and now_s-old['time_s']<=self.history_age_s:
             angle_step=abs(math.degrees(math.atan(k)-math.atan(old['fit']['k'])))
             if angle_step>self.max_direction_step_deg:
                 result['reject_reason']='direction_jump'
                 return result
-        if self._width_conflict_active(now_s):
+        if self.continuous:
+            # A reliable real edge remains identified even when a separate
+            # target-path support check rejects this frame.
+            track=dict(points=points,fit=fit,time_s=now_s)
+            if side=='left':
+                self.left_track=track
+            else:
+                self.right_track=track
+            result['observed_'+side+'_age_s']=0.
+        if not self.continuous and self._width_conflict_active(now_s):
             # Preserve only the actually observed edge while the width is in
             # dispute; it cannot publish a virtual centre until the brief
             # conflicting evidence expires or a compatible pair returns.
@@ -336,11 +371,12 @@ class BoundaryPathTracker:
         target_b=b+d*(nx-k*nz)
         target_min=fit['z_min']+d*nz
         target_max=fit['z_max']+d*nz
-        if not target_min-3.<=reference_z_cm<=target_max+3.:
+        margin = 15. if self.continuous else 3.
+        if not target_min-margin<=reference_z_cm<=target_max+margin:
             result['reject_reason']='reference_unsupported'
             return result
         x=target_b+k*reference_z_cm
-        if (self.last_mode=='BOTH' and self.last_path is not None and
+        if (not self.continuous and self.last_mode=='BOTH' and self.last_path is not None and
                 now_s-self.last_path[3]<.5 and
                 abs(x-(self.last_path[0]+self.last_path[1]*
                        (reference_z_cm-self.last_path[2])))>8.):

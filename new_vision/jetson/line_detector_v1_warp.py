@@ -184,6 +184,9 @@ class LineDetector:
 
         # ── Threshold params ──
         self.preprocess_mode = "legacy"
+        self.lane_observation_mode = "strict"
+        self.lane_gap_fill = False
+        self.lane_gap_max_cm = 6.
         self.adaptive_c = -12.0
         self.photometric_mode = "legacy"
         self._photometry = None
@@ -373,7 +376,8 @@ class LineDetector:
 
         # ── Internal state ──
         self._state = self._initial_state()
-        self._boundary_path_tracker = BoundaryPathTracker()
+        self._boundary_path_tracker = BoundaryPathTracker(
+            continuous=self.lane_observation_mode == "continuous")
         self._scan_diagnostics = {}
 
     def _initial_state(self):
@@ -406,6 +410,19 @@ class LineDetector:
             "red_bar_cy": 0.0,
             "red_bar_z_cm": 0.0,
         }
+
+    def set_lane_observation_mode(self, mode):
+        if mode not in ('strict', 'continuous'):
+            raise ValueError('lane observation mode must be strict or continuous')
+        self.lane_observation_mode = mode
+        self._boundary_path_tracker = BoundaryPathTracker(continuous=mode=='continuous')
+        if not hasattr(self, '_strict_heading_scan'):
+            self._strict_heading_scan = self.heading_scan
+        from dataclasses import replace
+        self.heading_scan = (replace(self._strict_heading_scan,
+            search_radius_px=100., max_gap_rows=6, min_observed_rows=2,
+            min_span_cm=1., max_residual_cm=12., history_max_age_s=1.5)
+            if mode == 'continuous' else self._strict_heading_scan)
 
     def snapshot_tracking_state(self):
         """Save lane-tracking memory before a frame that may start a card stop.
@@ -451,7 +468,8 @@ class LineDetector:
         the same curve tracks fine, so a fresh state should behave the same.
         """
         self._state = self._initial_state()
-        self._boundary_path_tracker = BoundaryPathTracker()
+        self._boundary_path_tracker = BoundaryPathTracker(
+            continuous=self.lane_observation_mode == "continuous")
         self._scan_diagnostics = {}
 
     # ═══════════════════════════════════════════════════════════
@@ -1911,6 +1929,19 @@ class LineDetector:
             photometry=self._photometry, adaptive_c=self.adaptive_c, valid_mask=valid)
         gray_detect[~valid] = 0
         binary_clean[~valid] = 0
+        binary_observed = binary_clean.copy()
+        gray_observed = gray_detect.copy()
+        gap_added = np.zeros_like(binary_clean)
+        if self.lane_gap_fill:
+            from lane_gap_completion import complete_lane_gaps
+            binary_clean, gap_added, gap_debug = complete_lane_gaps(
+                binary_clean, valid_mask=valid,
+                max_gap_px=self.lane_gap_max_cm/self.cm_per_px)
+            gray_detect[gap_added > 0] = 255
+            preprocess_debug.update(gap_debug)
+        else:
+            preprocess_debug.update(lane_gap_bridges=0, lane_gap_added_pixels=0)
+        preprocess_debug['lane_observation_mode'] = self.lane_observation_mode
         preprocess_debug["ipm_metric_cm_per_px"] = self.cm_per_px
         preprocess_debug["ipm_valid_fraction"] = float(np.mean(valid))
         preprocess_debug.update(self._photometry.diagnostics())
@@ -1931,12 +1962,12 @@ class LineDetector:
                 gray_detect, y, 0, self.bird_w - 1, black_th, track_is_dark),
             self._px_to_ground_cm, self.cm_per_px_at,
             previous_rows=state["heading_rows"], previous_age_s=previous_heading_age,
-            config=self.heading_scan)
+            config=self.heading_scan, observed_mask=binary_observed)
         if self.single_boundary_tracking:
             boundary_path = self._boundary_path_tracker.update(
                 binary_clean,
                 lambda y: self._collect_track_runs_on_row(
-                    gray_detect, y, 0, self.bird_w-1, black_th, track_is_dark),
+                    gray_observed, y, 0, self.bird_w-1, black_th, track_is_dark),
                 self._px_to_ground_cm, now_s=self._observation_clock_s,
                 width_cm=self.lane_width_true_cm,
                 reference_z_cm=self.z_cm_at(self.NEAR_BAND_ROW),
@@ -2342,7 +2373,8 @@ class LineDetector:
         # position and heading interface when the paired band/heading path fails.
         # Its virtual path never updates paired width, lateral scale or lock data.
         if (not measurement_valid and boundary_path["measurement_valid"] and
-                boundary_path["tracking_mode"] in ("LEFT_ONLY", "RIGHT_ONLY")):
+                (boundary_path["tracking_mode"] in ("LEFT_ONLY", "RIGHT_ONLY")
+                 or self.lane_observation_mode == "continuous")):
             near_z_cm = boundary_path["near_z_cm"]
             far_dist_cm = near_z_cm
             base_err_cm = boundary_path["near_error_cm"]
@@ -2371,10 +2403,12 @@ class LineDetector:
             state["last_angle_err"] = angle_err
             state["last_lane_center_x"] = clamp(
                 self.center_x+base_err_px, 0., float(self.bird_w-1))
-            single_line = True
-            single_side = "left" if boundary_path["tracking_mode"]=="LEFT_ONLY" else "right"
-            left_seen, right_seen = single_side=="left", single_side=="right"
-            lane_fit["near_observation_paired"] = False
+            single_line = boundary_path["tracking_mode"] != "BOTH"
+            single_side = ("left" if boundary_path["tracking_mode"]=="LEFT_ONLY" else
+                           "right" if boundary_path["tracking_mode"]=="RIGHT_ONLY" else None)
+            left_seen = not single_line or single_side=="left"
+            right_seen = not single_line or single_side=="right"
+            lane_fit["near_observation_paired"] = not single_line
             lane_fit["near_observation_quality"] = measurement_quality
             preview_valid = False
             preview_error_cm = 0.
@@ -2415,6 +2449,33 @@ class LineDetector:
             state["last_accepted_tracking_time"] = previous_time
             boundary_path["tracking_mode"] = "UNKNOWN"
             boundary_path["reject_reason"] = "width_prior_not_applicable"
+
+        visible_direction = None
+        if (self.lane_observation_mode == "continuous" and not measurement_valid
+                and not duplicate_boundary_frame):
+            from visible_lane_direction import visible_lane_direction
+            visible_direction = visible_lane_direction(binary_observed, self._px_to_ground_cm)
+            if visible_direction is not None:
+                # The image supports a direction, but not an identified centre
+                # path. Publish that distinction and let the existing angular
+                # filter/control ladder process the current direction.
+                angle_err = visible_direction['heading_deg']
+                base_err_cm = base_err_px = 0.
+                near_z_cm = 0.
+                heading_valid = measurement_valid = True
+                avg_conf = measurement_quality = .15
+                heading_control.update(heading_control_deg=angle_err,
+                    heading_control_valid=True,
+                    heading_control_source="visible_line_direction",
+                    heading_control_reject_reason="accepted_direction_only",
+                    heading_control_points=visible_direction['points'],
+                    heading_control_z_span_cm=visible_direction['span_cm'])
+                state['lost_frames'] = 0
+                state['last_accepted_tracking_time'] = self._observation_clock_s
+                state['smoothed_err_cm'] = 0.
+                preview_valid = False
+                preview_error_cm = 0.
+                lookahead_z_cm = 0.
 
         accepted_time = state["last_accepted_tracking_time"]
         measurement_age_s = (self._observation_clock_s - accepted_time
@@ -2485,6 +2546,10 @@ class LineDetector:
             "bird_color": bgr_bird,
             "binary_raw": binary_raw_inv,
             "binary": binary_clean,
+            "binary_observed": binary_observed,
+            "binary_gap_added": gap_added,
+            "boundary_tracker_mode": boundary_path["tracking_mode"],
+            "boundary_tracker_reject_reason": boundary_path["reject_reason"],
             "black_th": black_th,
             "track_is_dark": track_is_dark,
             "base_err_px": base_err_px,
@@ -2512,8 +2577,12 @@ class LineDetector:
             "measurement_max_age_s": self.measurement_max_age_s,
             "measurement_stale": measurement_stale,
             "filter_dt_s": dt,
-            "near_error_cm": base_err_cm if measurement_valid else 0.0,
-            "near_z_cm": near_z_cm,
+            "near_error_cm": (None if visible_direction is not None else
+                              base_err_cm if measurement_valid else 0.0),
+            "near_z_cm": None if visible_direction is not None else near_z_cm,
+            "position_valid": measurement_valid and visible_direction is None,
+            "visible_direction_components": (visible_direction['component_count']
+                                              if visible_direction is not None else 0),
             "heading_deg": angle_err,
             "heading_valid": heading_valid and measurement_valid,
             "heading_fit_rmse_px": heading_rmse_px,
@@ -2578,7 +2647,11 @@ class LineDetector:
 
         debug["vision_speed_cm_s"] = 0.0
         debug["vision_omega_rad_s"] = 0.0
-        if measurement_valid and boundary_path["tracking_mode"] in ("LEFT_ONLY", "RIGHT_ONLY"):
+        if visible_direction is not None:
+            debug.update(tracking_mode="VISIBLE_ONLY", measurement_source="visible_line_direction",
+                         path_quality=.15, boundary_quality=.15,
+                         reject_reason="accepted_direction_only")
+        elif measurement_valid and boundary_path["tracking_mode"] in ("LEFT_ONLY", "RIGHT_ONLY"):
             debug["tracking_mode"] = boundary_path["tracking_mode"]
         elif measurement_valid:
             debug.update(tracking_mode="BOTH", measurement_source="paired",

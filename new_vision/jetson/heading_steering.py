@@ -197,6 +197,13 @@ class HeadingSteeringController:
                 return None
             angle = float(debug["angle_err_deg"])
             source = "legacy_pixel_heading"
+        if source == "visible_line_direction" and not debug.get("position_valid", True):
+            if not math.isfinite(angle) or abs(angle) >= 90:
+                return None
+            # Direction-only observations have no measured lateral position.
+            # Zero here disables position correction; demand is the measured
+            # angular direction itself, not an invented lane-centre bearing.
+            return 0., 0., angle, angle, source
         near = float(debug.get("near_error_cm", debug["base_err_cm"]))
         z = float(debug.get("near_z_cm", 0.0))
         return self._bear_from(near, z, angle, source)

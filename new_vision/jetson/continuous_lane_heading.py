@@ -44,7 +44,7 @@ def _fit_weighted(z, x, weight):
     return x_ref, k, z_ref
 
 
-def _robust_fit(z, x, weight, max_residual_cm):
+def _robust_fit(z, x, weight, max_residual_cm, min_support=4):
     """Theil-Sen seed, then bounded-residual weighted least squares."""
     slopes = [(x[j] - x[i]) / (z[j] - z[i])
               for i in range(len(z)) for j in range(i + 1, len(z))
@@ -56,7 +56,7 @@ def _robust_fit(z, x, weight, max_residual_cm):
     residual0 = np.abs(x - (b0 + k0 * z))
     scale = max(0.45, 1.4826 * _median(residual0))
     inlier = residual0 <= max(max_residual_cm, 3.0 * scale)
-    if int(np.count_nonzero(inlier)) < 4:
+    if int(np.count_nonzero(inlier)) < min_support:
         return None
     zi, xi, wi = z[inlier], x[inlier], weight[inlier].copy()
     fit = _fit_weighted(zi, xi, wi)
@@ -77,7 +77,7 @@ def _robust_fit(z, x, weight, max_residual_cm):
 
 def trace_heading(mask, collect_runs, to_ground, cm_per_px_at, *,
                   previous_rows=(), previous_age_s=float('inf'),
-                  config=HeadingScanConfig()):
+                  config=HeadingScanConfig(), observed_mask=None):
     """Return one record per actual sample row and a ground-space heading fit.
 
     ``collect_runs(y)`` supplies inclusive (left, right) foreground runs from
@@ -157,7 +157,12 @@ def trace_heading(mask, collect_runs, to_ground, cm_per_px_at, *,
             _, left, right, lane_w = min(candidates)
             record.update(left_x=left, right_x=right, center_x=(left + right) * 0.5,
                           width_px=lane_w, source='paired', confidence=1.0, valid=True)
-            paired.append(record)
+            if observed_mask is not None and not (
+                    observed_mask[y, int(round(left))] > 0 and
+                    observed_mask[y, int(round(right))] > 0):
+                record.update(source='bridge', confidence=.2, valid=False)
+            else:
+                paired.append(record)
         elif prediction and centers and (paired or history) and gap <= config.max_gap_rows:
             left_p, right_p, lane_w = prediction
             if config.min_lane_width_px <= lane_w <= config.max_lane_width_px:
@@ -177,7 +182,11 @@ def trace_heading(mask, collect_runs, to_ground, cm_per_px_at, *,
                             record.update(left_x=left, right_x=right, center_x=centre,
                                           width_px=lane_w, source=side,
                                           confidence=0.55, valid=True)
-        if record['valid']:
+        if observed_mask is not None and record['source'] in ('left', 'right'):
+            actual_x = record[record['source']+'_x']
+            if not observed_mask[y, int(round(actual_x))] > 0:
+                record.update(source='bridge', confidence=.2, valid=False)
+        if record['valid'] or record['source'] == 'bridge':
             observed.append(record)
             gap = 0
         else:
@@ -197,7 +206,8 @@ def trace_heading(mask, collect_runs, to_ground, cm_per_px_at, *,
     result = dict(rows=rows, valid=False, heading_right_deg=0.0, confidence=0.0,
                   residual_cm=0.0, observed_rows=len(fit_rows),
                   inferred_rows=sum(r['source'] in ('left', 'right', 'predicted') for r in rows),
-                  paired_rows=len(fit_pairs), span_cm=0.0, fit=None,
+                  paired_rows=len(fit_pairs), bridged_rows=sum(r['source']=='bridge' for r in rows),
+                  span_cm=0.0, fit=None,
                   reason='insufficient_observations')
     if len(fit_rows) < config.min_observed_rows or len(fit_pairs) < config.min_paired_rows:
         return result
@@ -211,7 +221,8 @@ def trace_heading(mask, collect_runs, to_ground, cm_per_px_at, *,
     if result['span_cm'] < config.min_span_cm:
         result['reason'] = 'insufficient_span'
         return result
-    fit = _robust_fit(z, x, weight, config.max_residual_cm)
+    fit = _robust_fit(z, x, weight, config.max_residual_cm,
+                      min_support=min(4, config.min_observed_rows))
     if fit is None:
         result['reason'] = 'fit_failed'
         return result
