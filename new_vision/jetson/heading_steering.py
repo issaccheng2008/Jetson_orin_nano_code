@@ -481,8 +481,8 @@ class HeadingSteeringController:
             strong_left_heading = max(2.0*self.left_tolerance_deg,
                                       self.full_scale_deg)
             severe_right_offset = near <= -right_offset_threshold
-            severe_rightward_body_heading = (heading >= strong_left_heading
-                                              and demand > 0.0)
+            severe_rightward_body_heading = (filtered_heading >= strong_left_heading
+                                              and filtered > 0.0)
             self.diagnostics.update(
                 steering_right_boundary_offset_threshold_cm=right_offset_threshold,
                 steering_right_boundary_heading_threshold_deg=strong_left_heading,

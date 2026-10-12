@@ -29,6 +29,11 @@ class BoundaryPathTracker:
         self.right_track = None
         self.width_measured_cm = None
         self.width_measured_s = None
+        self.width_prior_cm = None
+        self.width_conflict_count = 0
+        self.width_conflict_sample_cm = None
+        self.width_conflict_sample_s = None
+        self.width_conflict_until_s = None
         self.last_frame_token = None
         self.last_frame_s = None
         self.last_path = None
@@ -42,7 +47,9 @@ class BoundaryPathTracker:
                     near_error_cm=0., near_z_cm=0., heading_control_deg=0.,
                     heading_control_valid=False, boundary_quality=0., path_quality=0.,
                     width_source='unavailable', width_cm=None, width_uncertainty_cm=None,
-                    width_age_s=None, observed_left_age_s=None,
+                    width_age_s=None, width_measured_cm=None,
+                    width_conflict_count=0, width_conflict_active=False,
+                    observed_left_age_s=None,
                     observed_right_age_s=None, identity_confidence=0.,
                     boundary_rmse_cm=None, boundary_span_cm=None,
                     observed_left_points=0, observed_right_points=0,
@@ -78,6 +85,33 @@ class BoundaryPathTracker:
     def _fitted(self, points, to_ground):
         return self._fit(points,to_ground,self.min_points,self.min_span_cm,
                          self.max_rmse_cm,self.max_slope)
+
+    def _record_paired_width(self, measured, prior, now_s):
+        """A noisy single paired width must not veto an established track prior."""
+        if not 20. <= measured <= 50.:
+            self.width_conflict_count = 0
+            return
+        self.width_measured_cm = measured
+        self.width_measured_s = now_s
+        if abs(measured-prior) <= self.width_tolerance*prior:
+            self.width_conflict_count = 0
+            self.width_conflict_until_s = None
+        elif (self.width_conflict_sample_s is not None and
+              now_s-self.width_conflict_sample_s <= .4 and
+              abs(measured-self.width_conflict_sample_cm) <= 1.5):
+            self.width_conflict_count += 1
+        else:
+            self.width_conflict_count = 1
+        self.width_conflict_sample_cm = measured
+        self.width_conflict_sample_s = now_s
+        if self.width_conflict_count >= 3:
+            # A confirmed discrepancy remains actionable briefly. With no new
+            # paired evidence, a continuously observed real edge can recover.
+            self.width_conflict_until_s = now_s + .75
+
+    def _width_conflict_active(self, now_s):
+        return (self.width_conflict_until_s is not None and
+                now_s <= self.width_conflict_until_s)
 
     def _local_fit(self, points, to_ground, side, width_cm, reference_z_cm):
         """Choose short supported tangents on a bend, never a distant extrapolation."""
@@ -176,9 +210,15 @@ class BoundaryPathTracker:
                 if track is not None and math.isfinite(now_s) else None)
         result['width_age_s']=(now_s-self.width_measured_s
             if self.width_measured_s is not None and math.isfinite(now_s) else None)
+        result['width_measured_cm']=self.width_measured_cm
+        result['width_conflict_count']=self.width_conflict_count
+        result['width_conflict_active']=self._width_conflict_active(now_s)
         if (not math.isfinite(now_s) or not math.isfinite(width_cm)
                 or not 20. <= width_cm <= 50. or not math.isfinite(reference_z_cm)):
             result['reject_reason']='invalid_width_prior'
+            return result
+        if self.width_prior_cm is not None and width_cm != self.width_prior_cm:
+            result['reject_reason']='width_prior_changed'
             return result
         if self.last_frame_s is not None and now_s<=self.last_frame_s:
             result['reject_reason']='stale_frame'
@@ -188,6 +228,7 @@ class BoundaryPathTracker:
             return result
         self.last_frame_s=now_s
         self.last_frame_token=frame_token
+        self.width_prior_cm=width_cm
         pair_rows=([r for r in paired_trace['rows'] if r['source']=='paired']
                    if paired_trace is not None and paired_trace.get('valid') else [])
         if len(pair_rows)>=self.min_points:
@@ -215,9 +256,7 @@ class BoundaryPathTracker:
                         result['reject_reason']='pair_path_disagreement'
                         return result
                 self.pending_pair=None
-                if 20.<=measured<=50.:
-                    self.width_measured_cm=measured
-                    self.width_measured_s=now_s
+                self._record_paired_width(measured,width_cm,now_s)
                 self.left_track=dict(points=left,fit=lf,time_s=now_s)
                 self.right_track=dict(points=right,fit=rf,time_s=now_s)
                 result.update(tracking_mode='BOTH',measurement_source='paired',
@@ -226,7 +265,10 @@ class BoundaryPathTracker:
                     heading_control_valid=True,boundary_quality=.9,path_quality=.9,
                     width_source='paired_measured',width_cm=measured,
                     width_uncertainty_cm=max(.5,float(np.std(widths))),
-                    width_age_s=0.,observed_left_age_s=0.,
+                    width_age_s=0.,width_measured_cm=self.width_measured_cm,
+                    width_conflict_count=self.width_conflict_count,
+                    width_conflict_active=self._width_conflict_active(now_s),
+                    observed_left_age_s=0.,
                     observed_right_age_s=0.,identity_confidence=1.,
                     boundary_rmse_cm=max(lf['rmse'],rf['rmse']),
                     boundary_span_cm=min(lf['z_max']-lf['z_min'],
@@ -238,10 +280,6 @@ class BoundaryPathTracker:
                 return result
         if not width_prior_applicable:
             result['reject_reason']='width_prior_not_applicable'
-            return result
-        if (self.width_measured_cm is not None and
-                abs(self.width_measured_cm-width_cm)>self.width_tolerance*width_cm):
-            result['reject_reason']='width_prior_conflict'
             return result
         # Real side identity comes from previously paired, temporally associated
         # boundary points. Cold start requires an explicit side and one clear run.
@@ -268,6 +306,26 @@ class BoundaryPathTracker:
             if angle_step>self.max_direction_step_deg:
                 result['reject_reason']='direction_jump'
                 return result
+        if self._width_conflict_active(now_s):
+            # Preserve only the actually observed edge while the width is in
+            # dispute; it cannot publish a virtual centre until the brief
+            # conflicting evidence expires or a compatible pair returns.
+            track=dict(points=points,fit=fit,time_s=now_s)
+            if side=='left':
+                self.left_track=track
+            else:
+                self.right_track=track
+            result.update(reject_reason='width_prior_conflict',
+                          width_source='paired_conflict',
+                          width_cm=self.width_measured_cm,
+                          width_conflict_count=self.width_conflict_count,
+                          width_conflict_active=True,
+                          observed_left_points=len(points) if side=='left' else 0,
+                          observed_right_points=len(points) if side=='right' else 0,
+                          left_points=points if side=='left' else [],
+                          right_points=points if side=='right' else [])
+            result['observed_'+side+'_age_s']=0.
+            return result
         d=width_cm/2.
         normal_sign=-1 if side=='right' else 1
         # Offset BOTH X and Z, then re-intersect the offset line with the

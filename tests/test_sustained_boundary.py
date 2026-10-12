@@ -125,6 +125,31 @@ class BoundaryPathTests(unittest.TestCase):
         result=self.scan(self.mask(sides=('right',)),width=20.,token='wrong_width')
         self.assertFalse(result['measurement_valid'])
 
+    def test_one_narrow_pair_does_not_lock_out_following_real_edge(self):
+        self.assertTrue(self.scan(self.mask(width=30.), width=35.,
+                                  token='good_pair')['measurement_valid'])
+        narrow=self.scan(self.mask(width=25.), width=35., token='one_narrow_pair')
+        self.assertEqual(narrow['tracking_mode'],'BOTH')
+        single=self.scan(self.mask(sides=('right',),width=25.), width=35.,
+                         token='visible_right')
+        self.assertTrue(single['measurement_valid'],single['reject_reason'])
+        self.assertEqual(single['tracking_mode'],'RIGHT_ONLY')
+
+    def test_consistent_recent_width_conflict_still_rejects_single(self):
+        for i in range(3):
+            self.assertTrue(self.scan(self.mask(width=25.), width=35.,
+                                      token=('narrow_pair',i))['measurement_valid'])
+        single=self.scan(self.mask(sides=('right',),width=25.), width=35.,
+                         token='narrow_right')
+        self.assertFalse(single['measurement_valid'])
+        self.assertEqual(single['reject_reason'],'width_prior_conflict')
+        # A real edge remains observed while the conflicting pair ages out.
+        for i in range(9):
+            single=self.scan(self.mask(sides=('right',),width=25.), width=35.,
+                             token=('right_after_conflict',i))
+        self.assertTrue(single['measurement_valid'],single['reject_reason'])
+        self.assertEqual(single['tracking_mode'],'RIGHT_ONLY')
+
     def test_reappearing_pair_and_unproven_other_side(self):
         for side in ('left','right'):
             with self.subTest(side=side):
@@ -261,8 +286,8 @@ class DetectorControlIntegrationTests(unittest.TestCase):
 
     def test_right_boundary_uses_configured_left_search_strength_only_when_turning_left(self):
         d = self.detector
-        paired = d.process(self.frame(offset=-12.), dt=.1, frame_token=0)[-1]
-        right = d.process(self.frame(('right',), offset=-12.), dt=.1,
+        paired = d.process(self.frame(offset=-20.), dt=.1, frame_token=0)[-1]
+        right = d.process(self.frame(('right',), offset=-20.), dt=.1,
                           frame_token=1)[-1]
         self.assertEqual(right['tracking_mode'], 'RIGHT_ONLY')
         self.assertTrue(right['measurement_valid'])
@@ -274,7 +299,7 @@ class DetectorControlIntegrationTests(unittest.TestCase):
         command = controller.command(right, right['measurement_quality'], .1)
         self.assertEqual(command[1], .5)
         self.assertEqual(controller.diagnostics['steering_decision'],
-                         'right_boundary_left_floor')
+                         'right_boundary_severe_offset_left')
         self.assertEqual(controller.diagnostics['steering_heading_source'],
                          'right_boundary')
         paired_controller = HeadingSteeringController(
