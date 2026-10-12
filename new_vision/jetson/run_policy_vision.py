@@ -873,6 +873,8 @@ def main():
                                  max_edge_px=args.qr_max_edge_px,
                                  upscale=args.qr_upscale,
                                  max_side=args.qr_max_side)
+    if hasattr(controller, 'observe_published'):
+        controller.published_feedback = True
     command_window = SteeringCommandWindow(args.steering_command_window_s, args.steering_command_median)
     policy_launcher = startup_button_link = None
     if args.start_policy_on_gate:
@@ -1865,8 +1867,12 @@ def main():
                 debug['steering_window_reason'] = 'external_bypass'
             else:
                 vx, wz = command_window.update(vx, wz, processed,
-                                                valid=not line_lost(debug, confidence))
+                                                valid=not line_lost(debug, confidence),
+                    intent=debug.get('steering_control_intent', 'normal'))
                 debug.update(command_window.diagnostics)
+            debug['steering_window_input_wz'] = debug['steering_frame_wz']
+            debug['steering_window_output_wz'] = wz
+            debug['steering_final_wz'] = wz
             debug['steering_applied_wz'] = wz
             if args.wz_mode == 'segments':
                 debug['segment_applied_wz'] = wz
@@ -1900,6 +1906,11 @@ def main():
                            **event)
             udp_publish_ms = (time.perf_counter_ns() - udp_publish_start_ns) / 1_000_000.0
             command_host_time_ns = time.time_ns()
+            if hasattr(controller, 'observe_published'):
+                controller.observe_published(vx, wz, external=bool(in_card_window or gate_window_open
+                    or args.hold_still or startup_first_card_pending))
+            debug.update(steering_published_vx=vx, steering_published_wz=wz,
+                         steering_publish_time_ns=command_host_time_ns)
             if capture_metadata:
                 capture_metadata['camera_return_to_publish_ms'] = (
                     time.monotonic()-capture_metadata['camera_capture_returned_s'])*1000

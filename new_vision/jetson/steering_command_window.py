@@ -19,13 +19,27 @@ class SteeringCommandWindow:
     def reset(self):
         self.deadline = self.previous_time = None
         self.samples = []
+        self.guard_active = False
         self.ignored = 0
         self.held_wz = self.loss_wz = 0.
         self.diagnostics = dict(steering_window_reason='reset',
                                steering_window_valid_samples=0,
                                steering_window_ignored_samples=0)
 
-    def update(self, vx, wz, now, *, valid):
+    def update(self, vx, wz, now, *, valid, intent="normal"):
+        if not all(math.isfinite(v) for v in (vx, wz, now)):
+            self.reset()
+            return 0., 0.
+        if intent not in ('normal', 'boundary_guard', 'controlled_stop'):
+            raise ValueError('unknown steering control intent')
+        if intent != 'normal':
+            self.reset()
+            self.guard_active = True
+            self.diagnostics.update(steering_window_reason=intent,
+                steering_window_input_wz=wz, steering_window_output_wz=0. if intent=='controlled_stop' else wz)
+            return (0., 0.) if intent == 'controlled_stop' else (vx, wz)
+        if self.guard_active:
+            self.reset()  # Released guard starts a new ordinary window.
         if not all(math.isfinite(v) for v in (vx, wz, now)):
             self.reset()
             return 0., 0.

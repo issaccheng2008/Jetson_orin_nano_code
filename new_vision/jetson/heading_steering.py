@@ -108,6 +108,9 @@ class HeadingSteeringController:
             if self.angle_wz_table is None:
                 validate_ladder(self.left_levels, self._cap(+1), self.full_scale_deg, filter_config.hysteresis_deg)
                 validate_ladder(self.right_levels, self._cap(-1), self.full_scale_deg, filter_config.hysteresis_deg)
+        self.published_feedback = False
+        self._guard_side = 0
+        self._guard_clear_frames = 0
         self._clock = 0.0
         self._started = None
         self._samples = []
@@ -138,6 +141,7 @@ class HeadingSteeringController:
     def gap_left(self): return 0.0
 
     def reset(self, clear_hold=False):
+        self._guard_side = self._guard_clear_frames = 0
         self._position_side = self._position_frames = 0
         if self._turn_history is not None:
             self._turn_history.reset()
@@ -277,7 +281,7 @@ class HeadingSteeringController:
         turning = current != self.straight_wz and current*direction > 0
         threshold = max(gate, cfg.exit_deg if turning else cfg.enter_deg)
         if demand == 0 or abs(demand) <= threshold or (direction < 0 and not self.allow_right):
-            return self.straight_wz
+            return 0.0
         levels = self.left_levels if direction > 0 else self.right_levels
         return direction*select_level(abs(demand), abs(current) if turning else 0.,
             levels=levels, cap=self._cap(direction), full_scale=self.full_scale_deg,
@@ -337,8 +341,42 @@ class HeadingSteeringController:
                   if b[0]-a[0] >= .2]
         return median(slopes) if slopes else None
 
+    def observe_published(self, vx, wz, *, external=False):
+        """Feedback after the vision output window; not measured robot motion."""
+        pair = (vx, wz)
+        if pair != self._command:
+            self._started = self._clock
+            self._samples.clear()
+        self._command = self.inner.hold = pair
+        self.inner.last_steer = wz
+        if self._turn_history is not None:
+            if external or pair == (0., 0.):
+                self._turn_history.reset()
+            else:
+                self._turn_history.observe(self._clock, pair, 0.)
+        self.diagnostics['steering_published_wz'] = wz
+
+    def _guard_unknown(self):
+        # A missing position cannot prove that confirmed risk has cleared.
+        # Request standing, retaining the latch until fresh position releases it.
+        if self._turn_history is not None:
+            self._turn_history.reset()
+        self._samples.clear()
+        self._command = self.inner.hold = (0., 0.)
+        self.inner.last_steer = 0.
+        self.diagnostics.update(steering_reason='boundary_guard_position_unknown',
+            steering_control_intent='controlled_stop', steering_guard_side=self._guard_side,
+            steering_guard_source='near_proxy', steering_applied_wz=0.,
+            steering_guard_reason='confirmed_position_requires_fresh_release',
+            body_cross_track_valid=False, foot_clearance_valid=False)
+        return self._command
+
     def command(self, debug, confidence, dt):
-        self.diagnostics = {}
+        self.diagnostics = {'steering_control_intent': 'normal',
+                            'body_cross_track_valid': False, 'foot_clearance_valid': False,
+                            'body_cross_track_cm': None, 'body_heading_error_deg': None,
+                            'left_clearance_cm': None, 'right_clearance_cm': None,
+                            'body_geometry_reject_reason': 'body_and_foot_transform_unverified'}
         if not isinstance(dt, (int, float)) or not math.isfinite(dt) or dt <= 0:
             return self._stop("invalid_clock")
         self._clock += dt
@@ -348,6 +386,8 @@ class HeadingSteeringController:
         except (KeyError, TypeError, ValueError, OverflowError):
             geometry = None
         if geometry is None:
+            if self._guard_side:
+                return self._guard_unknown()
             self._position_side = self._position_frames = 0
             self._left_offset_frames = 0
             self._loss_s += dt
@@ -377,7 +417,22 @@ class HeadingSteeringController:
         self._loss_s = 0.0
         self.inner.lost_s = 0.0
         near, z, angle, demand, source = geometry
-        position_recovery = self._confirm_position(near)
+        position_known = debug.get('position_valid', True) and source != 'visible_line_direction'
+        if self._guard_side and not position_known:
+            return self._guard_unknown()
+        position_recovery = self._confirm_position(near) if position_known else False
+        if position_recovery:
+            self._guard_side = self._position_side
+            self._guard_clear_frames = 0
+        elif self._guard_side:
+            release = abs(near) < .75*self.position_recovery_cm
+            self._guard_clear_frames = self._guard_clear_frames+1 if release else 0
+            if self._guard_clear_frames >= self.position_confirm_frames:
+                self._guard_side = self._guard_clear_frames = 0
+        guard_active = bool(self._guard_side)
+        self.diagnostics.update(steering_guard_side=self._guard_side,
+            steering_guard_source='near_proxy' if guard_active else 'none',
+            steering_guard_reason='confirmed_position' if guard_active else 'inactive')
         filtered_geometry = (self._observation_filter.apply(geometry, self._clock)
                              if self._observation_filter is not None else None)
         # Confirm position independently of the trend samples, which are cleared
@@ -423,8 +478,8 @@ class HeadingSteeringController:
         self.diagnostics.update(steering_left_offset_confirmed=left_offset_confirmed,
                                 steering_left_offset_release_cm=LEFT_OFFSET_RELEASE_CM)
         self.inner.last_err_eff = combined  # Units explicitly renamed in entry-point logging.
-        if not position_recovery and self._started is not None and self._clock-self._started < self.min_hold_s:
-            if self._turn_history is not None:
+        if not position_recovery and not guard_active and self._started is not None and self._clock-self._started < self.min_hold_s:
+            if self._turn_history is not None and not self.published_feedback:
                 self._turn_history.observe(self._clock, self._command, dt)
             self.diagnostics.update(steering_reason="minimum_hold",
                 command_hold_remaining_s=self.turn_left, steering_applied_wz=self._command[1])
@@ -467,7 +522,7 @@ class HeadingSteeringController:
             # Keep a stronger inward target correction; only outward/straight
             # candidates are replaced by the independent position demand.
             if self._position_side > 0 and not self.allow_right:
-                candidate = self.straight_wz
+                candidate = 0.0
             else:
                 candidate = (math.copysign(max(abs(candidate), abs(recovery_level)), recovery_level)
                              if candidate*recovery_level > 0 else recovery_level)
@@ -479,7 +534,8 @@ class HeadingSteeringController:
         # clearly left of the robot, or the measured path direction itself asks
         # for a strong left correction. Positive near is a target path to the
         # robot's right; positive heading/demand point toward a left correction.
-        if (debug.get('tracking_mode') == 'RIGHT_ONLY'
+        self.diagnostics['steering_position_candidate_wz'] = candidate*self.yaw_sign
+        if (not guard_active and debug.get('tracking_mode') == 'RIGHT_ONLY'
                 and source == 'right_boundary'
                 and self._turn_history is not None
                 and self._turn_history.config.fallback_wz > 0):
@@ -504,6 +560,15 @@ class HeadingSteeringController:
                                            'right_boundary_severe_heading_left'),
                         steering_right_boundary_floor_wz=floor)
                     candidate = floor
+        self.diagnostics['steering_auxiliary_candidate_wz'] = candidate*self.yaw_sign
+        if guard_active:
+            # Final geometric veto, symmetric and later than every ordinary rule.
+            if candidate*self._guard_side > 0:
+                candidate = 0.0
+            self.diagnostics.update(steering_control_intent='boundary_guard',
+                steering_guard_candidate_wz=candidate*self.yaw_sign)
+            if self._turn_history is not None:
+                self._turn_history.reset()
         selected = (self.inner.vx, candidate*self.yaw_sign)
         changed = selected != self._command or self._started is None
         if changed:
@@ -516,7 +581,8 @@ class HeadingSteeringController:
                                   'position_recovery_right')
                      or self.diagnostics.get('steering_braked', False))):
                 self._turn_history.reset()  # Never revive a turn vetoed by latest valid geometry.
-            self._turn_history.observe(self._clock, selected, dt)
+            if not self.published_feedback:
+                self._turn_history.observe(self._clock, selected, dt)
         self.inner.last_steer = selected[1]
         self.diagnostics.update(steering_reason="new_block" if changed else "continue_block",
             command_hold_remaining_s=self.turn_left, steering_applied_wz=selected[1])

@@ -142,7 +142,7 @@ class PositionSteeringTests(unittest.TestCase):
         c = HeadingSteeringController(SteeringController(), allow_right=False, straight_wz=.05)
         frame = detection(60, near=12, z=25)
         c.command(frame, 1, .1)
-        self.assertEqual(c.command(frame, 1, .1)[1], .05)
+        self.assertEqual(c.command(frame, 1, .1)[1], 0.)
 
     def test_loss_cannot_revive_turn_vetoed_by_disabled_right_recovery(self):
         from steering_recovery import RecoveryConfig
@@ -151,8 +151,8 @@ class PositionSteeringTests(unittest.TestCase):
                 allow_right=False, straight_wz=.05, recovery_config=RecoveryConfig())
             frame = detection(60, near=12, z=25)
             c.command(frame, 1, .1)
-            self.assertEqual(c.command(frame, 1, .1)[1], .05*yaw_sign)
+            self.assertEqual(c.command(frame, 1, .1)[1], 0.)
             self.assertEqual(list(c._turn_history.samples), [])
             self.assertEqual(c.command(detection(measurement_valid=False), 0., .1),
-                             (.2, .3*yaw_sign))
-            self.assertEqual(c.diagnostics['steering_reason'], 'loss_default_left')
+                             (0., 0.))
+            self.assertEqual(c.diagnostics['steering_reason'], 'boundary_guard_position_unknown')
