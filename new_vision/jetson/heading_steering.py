@@ -90,9 +90,12 @@ class HeadingSteeringController:
             self.straight_wz = table_level(self.angle_wz_table, 0.)
             if self._turn_history is not None:
                 self._turn_history.straight_wz = self.straight_wz*inner.yaw_sign
-            # Protection and recovery use the actual configured turn magnitudes.
-            left_levels = tuple(sorted({v for _, _, v in self.angle_wz_table if v > 0}))
-            right_levels = tuple(sorted({-v for _, _, v in self.angle_wz_table if v < 0}))
+            # The zero-demand bin defines straight walking, even when its rate
+            # is nonzero. It must not become a corridor/recovery turn floor.
+            # Compare signed rates: straight +0.1 does not remove right -0.1.
+            turn_rates = {v for _, _, v in self.angle_wz_table if v != self.straight_wz}
+            left_levels = tuple(sorted(v for v in turn_rates if v > 0))
+            right_levels = tuple(sorted(-v for v in turn_rates if v < 0))
         # These are geometric left/right magnitudes; yaw_sign maps them onto
         # the robot wire convention. Caps remove levels, never create new ones.
         self.left_levels = tuple(v for v in left_levels if v <= self._cap(+1))

@@ -67,6 +67,49 @@ class SteeringConfigTests(unittest.TestCase):
         self.assertEqual(candidate, .3)
         self.assertEqual(reason, 'right_corridor')
 
+    def test_configured_straight_rate_is_excluded_from_turn_ladders(self):
+        for straight in (.1, -.1):
+            for sign in (-1, 1):
+                with self.subTest(straight=straight, sign=sign):
+                    table = [[-90, -45, -.2], [-45, -15, -.1],
+                             [-15, 15, straight], [15, 50, .25], [50, 90, .3]]
+                    c = HeadingSteeringController(SteeringController(yaw_sign=sign),
+                        angle_wz_table=table, position_gain=0, position_recovery_cm=0)
+                    self.assertEqual(c.straight_wz, straight)
+                    self.assertEqual(c.left_levels, (.25, .3))
+                    self.assertEqual(c.right_levels, (.1, .2) if straight == .1 else (.2,))
+                    self.assertEqual(c.command(detection(0), 1, .1)[1], straight*sign)
+
+    def test_corridor_uses_defined_turn_floor_not_nonzero_straight(self):
+        table = [[-90, -45, -.2], [-45, -15, -.1], [-15, 15, .1],
+                 [15, 50, .25], [50, 90, .3]]
+        c = HeadingSteeringController(SteeringController(), angle_wz_table=table,
+            corridor_cm=5, position_gain=0, position_recovery_cm=0,
+            filter_config=FilterConfig(algorithm='none', hysteresis_deg=1))
+        self.assertEqual(c._decision(9.9, -2.4, 24), (.25, 'right_corridor'))
+        # Opposite signed rate of equal magnitude is still the configured right turn.
+        self.assertEqual(c._decision(-9.9, 2.4, -24), (-.1, 'left_corridor'))
+
+    def test_confirmed_right_offset_cannot_recover_using_straight_rate(self):
+        table = [[-90, -45, -.2], [-45, -15, -.1], [-15, 15, .1],
+                 [15, 50, .25], [50, 90, .3]]
+        for sign in (-1, 1):
+            with self.subTest(sign=sign):
+                c = HeadingSteeringController(SteeringController(yaw_sign=sign),
+                    angle_wz_table=table, corridor_cm=5,
+                    filter_config=FilterConfig(algorithm='none', hysteresis_deg=1))
+                frame = detection(-5, near=-8.5, z=21)
+                c.command(frame, 1, .2)
+                self.assertEqual(c.command(frame, 1, .2)[1], .25*sign)
+                self.assertTrue(c.diagnostics['steering_position_recovery'])
+                self.assertEqual(c.diagnostics['steering_decision'], 'position_recovery_left')
+
+    def test_straight_rate_alone_cannot_supply_an_enabled_turn_direction(self):
+        for table in ([[-90, -15, -.2], [-15, 15, .1], [15, 90, .1]],
+                      [[-90, -15, -.1], [-15, 15, -.1], [15, 90, .3]]):
+            with self.subTest(table=table), self.assertRaises(ValueError):
+                HeadingSteeringController(SteeringController(), angle_wz_table=table)
+
     def test_invalid_table_is_rejected(self):
         for table in ([[0, 10, 0], [12, 90, .3]], [[0, 30, 0], [20, 90, .3]],
                       [[0, 10, 0], [10, 90, .6]], [[0, 10, 0]],
