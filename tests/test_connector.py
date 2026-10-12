@@ -75,6 +75,46 @@ class ProcessVisionOutputTests(unittest.TestCase):
         self.assertFalse(fresh)
         self.assertEqual(output, {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1})
 
+    def test_slow_card_frame_keeps_tilt_without_replaying_motion_or_event(self) -> None:
+        latest = process_vision_output({"vx": 0.2, "wz": 0.3, "qr": 4,
+                                        "card_tilt": True,
+                                        "event_id": 77, "event_action": 4})
+        output, fresh, age = select_output(latest, 1.0, 1.35, 0.25)
+        self.assertFalse(fresh)
+        self.assertAlmostEqual(age, 0.35)
+        self.assertEqual(output, {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1,
+                                  "card_tilt": True})
+        self.assertTrue(CommandSmoother(1.0, 2.0).update(output, 0.02)["card_tilt"])
+        output, fresh, _ = select_output(latest, 1.0, 2.76, 0.25)
+        self.assertFalse(fresh)
+        self.assertFalse(output.get("card_tilt", False))
+
+    def test_doubled_tilt_grace_keeps_posture_after_one_second_gap(self) -> None:
+        latest = process_vision_output({"vx": 0.2, "wz": 0.3, "qr": 4,
+                                        "card_tilt": True})
+        output, fresh, _ = select_output(latest, 1.0, 2.50, 0.25)
+        self.assertFalse(fresh)
+        self.assertEqual((output["vx"], output["wz"], output["qr"]), (0.0, 0.0, -1))
+        self.assertTrue(output["card_tilt"])
+
+    def test_explicit_tilt_release_does_not_wait_for_grace(self) -> None:
+        latest = process_vision_output({"vx": 0.0, "wz": 0.0, "card_tilt": False})
+        output, fresh, _ = select_output(latest, 1.0, 1.02, 0.25)
+        self.assertTrue(fresh)
+        self.assertFalse(output["card_tilt"])
+
+    def test_three_slow_reads_create_one_tilt_and_one_restore_edge(self) -> None:
+        active = process_vision_output({"vx": 0.0, "wz": 0.0, "card_tilt": True})
+        inactive = process_vision_output({"vx": 0.0, "wz": 0.0, "card_tilt": False})
+        samples = [(active, 1.0, 1.0), (active, 1.0, 1.349),
+                   (active, 1.349, 1.349), (active, 1.349, 1.609),
+                   (active, 1.609, 1.609), (active, 1.609, 1.917),
+                   (inactive, 1.917, 1.917)]
+        flags = [CommandSmoother(1.0, 2.0).update(
+            select_output(latest, updated, now, 0.25)[0], 0.02)["card_tilt"]
+            for latest, updated, now in samples]
+        self.assertEqual(flags, [True] * 6 + [False])
+
 
 class SlewTowardTests(unittest.TestCase):
     def test_lands_on_exactly_zero(self) -> None:

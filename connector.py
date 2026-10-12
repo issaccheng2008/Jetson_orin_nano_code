@@ -106,6 +106,7 @@ def select_output(
     last_vision_update: float,
     now: float,
     timeout_s: float,
+    card_tilt_grace_s: float = 1.5,
 ) -> tuple[dict[str, Any], bool, float]:
     """Hold the latest vision command until it becomes stale.
 
@@ -118,7 +119,13 @@ def select_output(
     fresh = age_s <= timeout_s
     if fresh:
         return latest, True, age_s
-    return {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}, False, age_s
+    stopped = {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}
+    # A slow classification frame must not turn one physical card into repeated
+    # tilt/restore edges. Keep only the posture request briefly; movement and
+    # shape events still expire at the ordinary vision watchdog deadline.
+    if latest.get("card_tilt") and age_s <= timeout_s + card_tilt_grace_s:
+        stopped["card_tilt"] = True
+    return stopped, False, age_s
 
 
 class CommandSmoother:
@@ -186,6 +193,13 @@ def parse_args() -> argparse.Namespace:
         help="Publish a zero command when vision is stale for this many seconds",
     )
     parser.add_argument(
+        "--card-tilt-stale-grace",
+        type=float,
+        default=1.5,
+        help="Keep an already active card tilt for this long after the motion "
+             "watchdog expires; motion and shape events still go to zero",
+    )
+    parser.add_argument(
         "--max-vx-accel",
         type=float,
         default=1.0,
@@ -229,6 +243,8 @@ def main() -> int:
     args = parse_args()
     if args.publish_hz <= 0.0 or args.vision_timeout <= 0.0:
         raise SystemExit("publish-hz and vision-timeout must be positive")
+    if not math.isfinite(args.card_tilt_stale_grace) or args.card_tilt_stale_grace < 0.0:
+        raise SystemExit("card-tilt-stale-grace must be finite and nonnegative")
     if not math.isfinite(args.max_vx_accel) or args.max_vx_accel <= 0.0:
         raise SystemExit("max-vx-accel must be finite and positive")
     if not math.isfinite(args.max_wz_accel) or args.max_wz_accel < 0.0:
@@ -285,6 +301,7 @@ def main() -> int:
                 last_vision_update,
                 now,
                 args.vision_timeout,
+                args.card_tilt_stale_grace,
             )
             # Measured dt, not the nominal period, so a stalled loop still ramps
             # in wall-clock time; capped at two ticks so one long stall cannot
