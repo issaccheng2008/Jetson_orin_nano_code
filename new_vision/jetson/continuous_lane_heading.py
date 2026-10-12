@@ -77,7 +77,7 @@ def _robust_fit(z, x, weight, max_residual_cm):
 
 def trace_heading(mask, collect_runs, to_ground, cm_per_px_at, *,
                   previous_rows=(), previous_age_s=float('inf'),
-                  config=HeadingScanConfig()):
+                  config=HeadingScanConfig(), observed_mask=None):
     """Return one record per actual sample row and a ground-space heading fit.
 
     ``collect_runs(y)`` supplies inclusive (left, right) foreground runs from
@@ -157,7 +157,12 @@ def trace_heading(mask, collect_runs, to_ground, cm_per_px_at, *,
             _, left, right, lane_w = min(candidates)
             record.update(left_x=left, right_x=right, center_x=(left + right) * 0.5,
                           width_px=lane_w, source='paired', confidence=1.0, valid=True)
-            paired.append(record)
+            if observed_mask is not None and not (
+                    observed_mask[y, int(round(left))] > 0 and
+                    observed_mask[y, int(round(right))] > 0):
+                record.update(source='bridge', confidence=.2, valid=False)
+            else:
+                paired.append(record)
         elif prediction and centers and (paired or history) and gap <= config.max_gap_rows:
             left_p, right_p, lane_w = prediction
             if config.min_lane_width_px <= lane_w <= config.max_lane_width_px:
@@ -177,7 +182,11 @@ def trace_heading(mask, collect_runs, to_ground, cm_per_px_at, *,
                             record.update(left_x=left, right_x=right, center_x=centre,
                                           width_px=lane_w, source=side,
                                           confidence=0.55, valid=True)
-        if record['valid']:
+        if observed_mask is not None and record['source'] in ('left', 'right'):
+            actual_x = record[record['source']+'_x']
+            if not observed_mask[y, int(round(actual_x))] > 0:
+                record.update(source='bridge', confidence=.2, valid=False)
+        if record['valid'] or record['source'] == 'bridge':
             observed.append(record)
             gap = 0
         else:
@@ -197,7 +206,8 @@ def trace_heading(mask, collect_runs, to_ground, cm_per_px_at, *,
     result = dict(rows=rows, valid=False, heading_right_deg=0.0, confidence=0.0,
                   residual_cm=0.0, observed_rows=len(fit_rows),
                   inferred_rows=sum(r['source'] in ('left', 'right', 'predicted') for r in rows),
-                  paired_rows=len(fit_pairs), span_cm=0.0, fit=None,
+                  paired_rows=len(fit_pairs), bridged_rows=sum(r['source']=='bridge' for r in rows),
+                  span_cm=0.0, fit=None,
                   reason='insufficient_observations')
     if len(fit_rows) < config.min_observed_rows or len(fit_pairs) < config.min_paired_rows:
         return result

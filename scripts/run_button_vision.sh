@@ -17,7 +17,13 @@ case "$RECORD_VIDEO" in
     0) video_flag=--no-record-video ;;
     *) printf 'RECORD_VIDEO must be 0 or 1\n' >&2; exit 2 ;;
 esac
+case "${LANE_GAP_FILL:-1}" in
+    1) gap_flag=--lane-gap-fill ;;
+    0) gap_flag=--no-lane-gap-fill ;;
+    *) printf 'LANE_GAP_FILL must be 0 or 1\n' >&2; exit 2 ;;
+esac
 command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
+    "$gap_flag" --lane-gap-max-cm "${LANE_GAP_MAX_CM:-12}"
     --camera "$CAMERA" --headless --start-gate button --start-policy-on-gate
     --start-policy-python "$POLICY_PYTHON" --start-policy-port "$STM32_PORT"
     --start-policy-model "$WALKING_MODEL"

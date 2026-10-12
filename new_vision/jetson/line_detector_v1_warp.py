@@ -366,6 +366,8 @@ class LineDetector:
         # This clock keeps advancing through card-stop snapshots. Accepted tracking
         # times below are restored, so diagnostic frames cannot rejuvenate old seeds.
         self._observation_clock_s = 0.0
+        self.lane_gap_fill = False
+        self.lane_gap_max_cm = 12.
         self._last_process_time = None
         self._pending_frame_token = None
 
@@ -1911,6 +1913,18 @@ class LineDetector:
             photometry=self._photometry, adaptive_c=self.adaptive_c, valid_mask=valid)
         gray_detect[~valid] = 0
         binary_clean[~valid] = 0
+        binary_observed = binary_clean.copy()
+        gray_observed = gray_detect.copy()
+        gap_added = np.zeros_like(binary_clean)
+        if self.lane_gap_fill:
+            from lane_gap_completion import complete_lane_gaps
+            binary_clean, gap_added, gap_debug = complete_lane_gaps(
+                binary_clean, valid_mask=valid,
+                max_gap_px=self.lane_gap_max_cm/self.cm_per_px)
+            gray_detect[gap_added > 0] = 255
+            preprocess_debug.update(gap_debug)
+        else:
+            preprocess_debug.update(lane_gap_bridges=0, lane_gap_added_pixels=0)
         preprocess_debug["ipm_metric_cm_per_px"] = self.cm_per_px
         preprocess_debug["ipm_valid_fraction"] = float(np.mean(valid))
         preprocess_debug.update(self._photometry.diagnostics())
@@ -1931,12 +1945,12 @@ class LineDetector:
                 gray_detect, y, 0, self.bird_w - 1, black_th, track_is_dark),
             self._px_to_ground_cm, self.cm_per_px_at,
             previous_rows=state["heading_rows"], previous_age_s=previous_heading_age,
-            config=self.heading_scan)
+            config=self.heading_scan, observed_mask=binary_observed)
         if self.single_boundary_tracking:
             boundary_path = self._boundary_path_tracker.update(
                 binary_clean,
                 lambda y: self._collect_track_runs_on_row(
-                    gray_detect, y, 0, self.bird_w-1, black_th, track_is_dark),
+                    gray_observed, y, 0, self.bird_w-1, black_th, track_is_dark),
                 self._px_to_ground_cm, now_s=self._observation_clock_s,
                 width_cm=self.lane_width_true_cm,
                 reference_z_cm=self.z_cm_at(self.NEAR_BAND_ROW),
@@ -2149,7 +2163,7 @@ class LineDetector:
                 )
             state["last_band_mask"] = band_mask
 
-            if near.get("observation_paired", False):
+            if near.get("observation_paired", False) and not np.any(gap_added):
                 self._update_lateral_scale(near)
 
             near_err_cm = near["center_cm"]
@@ -2485,6 +2499,8 @@ class LineDetector:
             "bird_color": bgr_bird,
             "binary_raw": binary_raw_inv,
             "binary": binary_clean,
+            "binary_observed": binary_observed,
+            "binary_gap_added": gap_added,
             "black_th": black_th,
             "track_is_dark": track_is_dark,
             "base_err_px": base_err_px,
@@ -2529,6 +2545,7 @@ class LineDetector:
                 if measurement_valid and boundary_path["tracking_mode"] in
                    ("LEFT_ONLY", "RIGHT_ONLY") else heading_trace["observed_rows"]),
             "heading_inferred_rows": heading_trace["inferred_rows"],
+            "heading_bridged_rows": heading_trace["bridged_rows"],
             "heading_span_cm": (boundary_path["boundary_span_cm"]
                 if measurement_valid and boundary_path["tracking_mode"] in
                    ("LEFT_ONLY", "RIGHT_ONLY") else heading_trace["span_cm"]),
