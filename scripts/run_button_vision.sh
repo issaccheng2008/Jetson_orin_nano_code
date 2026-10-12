@@ -3,6 +3,10 @@ set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/button_autostart_common.sh"
 load_button_config
 read -r -a left_wz <<< "$HEADING_LEFT_WZ"
+case "$SINGLE_BOUNDARY_TRACKING" in
+    1) boundary_tracking_flag=--single-boundary-tracking ;;
+    0) boundary_tracking_flag=--no-single-boundary-tracking ;;
+esac
 case "$STEERING_SEGMENT_FALLBACK" in
     1) segment_fallback_flag=--steering-segment-fallback ;;
     0) segment_fallback_flag=--no-steering-segment-fallback ;;
@@ -35,7 +39,7 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --steering-filter-position-tau-s "$STEERING_FILTER_POSITION_TAU_S"
     --steering-hysteresis-deg "$STEERING_HYSTERESIS_DEG"
     --steering-enter-deg "$STEERING_ENTER_DEG" --steering-exit-deg "$STEERING_EXIT_DEG"
-    --wz-mode "$WZ_MODE" --line-preprocess "$LINE_PREPROCESS"
+    --wz-mode "$WZ_MODE" "$boundary_tracking_flag" --line-preprocess "$LINE_PREPROCESS"
     --line-adaptive-c "$LINE_ADAPTIVE_C"
     --shape-preprocess "$SHAPE_PREPROCESS" --photometric-mode "$PHOTOMETRIC_MODE"
     --vx "$VX" --max-wz "$MAX_WZ" --wz-step "$WZ_STEP"

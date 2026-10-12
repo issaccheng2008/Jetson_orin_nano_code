@@ -12,6 +12,7 @@ load_button_config() {
     # User-owned configuration is trusted shell syntax, not a systemd EnvironmentFile.
     # Older installed configs lack this setting; preserve their heading behavior.
     WZ_MODE=heading
+    SINGLE_BOUNDARY_TRACKING=1
     LINE_PREPROCESS=legacy
     LINE_ADAPTIVE_C=-12
     SHAPE_PREPROCESS=selective
@@ -62,6 +63,10 @@ load_button_config() {
     POSITION_RECOVERY_FULL_SCALE_CM=12
     POSITION_CONFIRM_FRAMES=2
     source "$BUTTON_CONFIG"
+    case "$SINGLE_BOUNDARY_TRACKING" in
+        0|1) ;;
+        *) printf 'SINGLE_BOUNDARY_TRACKING must be 0 or 1\n' >&2; return 1 ;;
+    esac
     case "$WZ_MODE" in
         heading|segments|continuous|discrete) ;;
         *) printf 'Invalid WZ_MODE=%s; use heading, segments, continuous or discrete.\n' "$WZ_MODE" >&2; return 1 ;;
