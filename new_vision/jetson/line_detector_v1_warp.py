@@ -2603,6 +2603,13 @@ class LineDetector:
                    ("LEFT_ONLY", "RIGHT_ONLY") else heading_trace["span_cm"]),
             "heading_right_deg": (-angle_err if measurement_valid else 0.),
             "heading_rows": heading_trace["rows"],
+            "lane_scan_reject_reason": heading_trace['reason'],
+            "lane_scan_valid": heading_trace['valid'],
+            "lane_scan_observed_rows": heading_trace['observed_rows'],
+            "lane_scan_paired_rows": heading_trace['paired_rows'],
+            "lane_scan_span_cm": heading_trace['span_cm'],
+            "lane_scan_residual_cm": heading_trace['residual_cm'],
+            **{'lane_scan_gate_'+key:value for key,value in vars(self.heading_scan).items()},
             **heading_control,
             **single_edge,
             **{key: value for key, value in boundary_path.items()

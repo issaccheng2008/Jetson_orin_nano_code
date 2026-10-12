@@ -123,24 +123,42 @@ class BoundaryPathTracker:
         normal_sign=-1 if side=='right' else 1
         lengths=sorted(set((len(points),2,3,4,6,8,10,12,14)),reverse=True)
         choices=[]
+        diag=dict(input_points=len(points), fits_attempted=0,
+                  reference_rejected=0, fit_reason='insufficient_points',
+                  selected_points=None, selected_span_cm=None, selected_rmse_cm=None,
+                  selected_slope=None, target_z_min_cm=None, target_z_max_cm=None)
+        self._local_diagnostics=diag
         for length in lengths:
             if length<self.min_points or length>len(points):
                 continue
             for start in range(len(points)-length+1):
                 fit,reason=self._fitted(points[start:start+length],to_ground)
+                diag['fits_attempted']+=1
+                diag['fit_reason']=reason
                 if fit is None:
+                    key='rejected_'+reason
+                    diag[key]=diag.get(key,0)+1
                     continue
                 k=fit['k']
                 dz=-(width_cm/2)*normal_sign*k/math.hypot(1.,k)
                 target_min,target_max=fit['z_min']+dz,fit['z_max']+dz
                 margin = 15. if self.continuous else 3.
                 if not target_min-margin<=reference_z_cm<=target_max+margin:
+                    diag['reference_rejected']+=1
+                    diag['fit_reason']='reference_unsupported'
                     continue
                 target_mid=.5*(target_min+target_max)
                 score=(fit['rmse']+.025*abs(target_mid-reference_z_cm)
                        -.015*(fit['z_max']-fit['z_min']))
                 choices.append((score,fit))
-        return min(choices,key=lambda item:item[0])[1] if choices else None
+        selected=min(choices,key=lambda item:item[0])[1] if choices else None
+        if selected is not None:
+            dz=-(width_cm/2)*normal_sign*selected['k']/math.hypot(1.,selected['k'])
+            diag.update(fit_reason='accepted', selected_points=selected['points'],
+                selected_span_cm=selected['z_max']-selected['z_min'],
+                selected_rmse_cm=selected['rmse'], selected_slope=selected['k'],
+                target_z_min_cm=selected['z_min']+dz, target_z_max_cm=selected['z_max']+dz)
+        return selected
 
     @staticmethod
     def _predict(track, y):
@@ -169,6 +187,7 @@ class BoundaryPathTracker:
 
     def _single_points(self, mask, collect_runs, side, now_s, initial_side,
                        *, bottom_y, top_y, step_px):
+        self._association_diagnostics=dict(nearest_distance_px=None, search_radius_px=None, runner_up_margin_px=None)
         track=self.left_track if side=='left' else self.right_track
         fresh=(track is not None and (self.continuous or
                now_s-track['time_s']<=self.history_age_s))
@@ -203,6 +222,8 @@ class BoundaryPathTracker:
                 expected=centers[0]
                 radius=1.
             distances=sorted((abs(c-expected),c) for c in centers)
+            self._association_diagnostics.update(nearest_distance_px=distances[0][0],
+                search_radius_px=radius, runner_up_margin_px=(distances[1][0]-distances[0][0] if len(distances)>1 else None))
             if (distances[0][0]>radius or
                     (len(distances)>1 and distances[1][0]-distances[0][0]<(2. if self.continuous else 10.))):
                 if points:
@@ -217,6 +238,20 @@ class BoundaryPathTracker:
                frame_token=None, bottom_y=390, top_y=220, step_px=11,
                width_prior_applicable=True):
         result=self._empty('no_near_boundary')
+        result.update(lane_gate_mode='continuous' if self.continuous else 'strict',
+            lane_gate_min_points=self.min_points, lane_gate_min_span_cm=self.min_span_cm,
+            lane_gate_max_rmse_cm=self.max_rmse_cm, lane_gate_max_slope=self.max_slope,
+            lane_gate_frame_search_px=self.frame_search_px, lane_gate_row_search_px=self.row_search_px,
+            lane_gate_reference_margin_cm=15. if self.continuous else 3.,
+            lane_gate_reference_z_cm=reference_z_cm,
+            lane_gate_association_margin_px=2. if self.continuous else 10.,
+            lane_gate_identity_age_enforced=not self.continuous,
+            lane_gate_history_age_s=self.history_age_s,
+            lane_gate_path_jump_enforced=not self.continuous,
+            lane_gate_path_jump_cm=8., lane_gate_max_gap_rows=6 if self.continuous else 0)
+        for label in ('paired_left','paired_right','paired_center','left','right'):
+            result[label+'_fit_reason']='not_attempted'
+
         for side in ('left','right'):
             track=self.left_track if side=='left' else self.right_track
             result['observed_'+side+'_age_s']=(now_s-track['time_s']
@@ -244,14 +279,18 @@ class BoundaryPathTracker:
         self.width_prior_cm=width_cm
         pair_rows=([r for r in paired_trace['rows'] if r['source']=='paired']
                    if paired_trace is not None and (paired_trace.get('valid') or self.continuous) else [])
+        result['lane_pair_candidate_rows']=len(pair_rows)
         if len(pair_rows)>=self.min_points:
             left=[(r['y'],r['left_x']) for r in pair_rows]
             right=[(r['y'],r['right_x']) for r in pair_rows]
             center=[(r['y'],.5*(r['left_x']+r['right_x'])) for r in pair_rows]
             if self.continuous:
                 lf=self._local_fit(left,to_ground,'left',0.,reference_z_cm)
+                result.update({'paired_left_'+k:v for k,v in self._local_diagnostics.items()})
                 rf=self._local_fit(right,to_ground,'right',0.,reference_z_cm)
+                result.update({'paired_right_'+k:v for k,v in self._local_diagnostics.items()})
                 cf=self._local_fit(center,to_ground,'right',0.,reference_z_cm)
+                result.update({'paired_center_'+k:v for k,v in self._local_diagnostics.items()})
             else:
                 lf,lr=self._fitted(left,to_ground)
                 rf,rr=self._fitted(right,to_ground)
@@ -310,11 +349,12 @@ class BoundaryPathTracker:
         for side in ('left','right'):
             points,reason=self._single_points(mask,collect_runs,side,now_s,initial_side,
                 bottom_y=bottom_y,top_y=top_y,step_px=step_px)
+            result.update({side+'_association_'+k:v for k,v in self._association_diagnostics.items()})
             result[side+'_association_reason']=reason
             result[side+'_candidate_points']=len(points)
             if points:
                 fit=self._local_fit(points,to_ground,side,width_cm,reference_z_cm)
-                result[side+'_fit_reason']='accepted' if fit else 'local_fit_unsupported'
+                result.update({side+'_'+k:v for k,v in self._local_diagnostics.items()})
                 if fit:
                     candidates.append((side,points,fit))
         if len(candidates)!=1:
