@@ -186,7 +186,7 @@ class LineDetector:
         self.preprocess_mode = "legacy"
         self.lane_observation_mode = "strict"
         self.lane_gap_fill = False
-        self.lane_gap_max_cm = 6.
+        self.lane_gap_max_cm = 12.
         self.adaptive_c = -12.0
         self.photometric_mode = "legacy"
         self._photometry = None

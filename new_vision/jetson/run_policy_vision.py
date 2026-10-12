@@ -495,7 +495,7 @@ def parse_args():
                         help="Boundary association and local support acceptance; strict restores the prior gates")
     parser.add_argument("--lane-gap-fill", action=argparse.BooleanOptionalAction, default=True,
                         help="Join short tape gaps with compatible observed endpoint directions")
-    parser.add_argument("--lane-gap-max-cm", type=float, default=6.,
+    parser.add_argument("--lane-gap-max-cm", type=float, default=12.,
                         help="Maximum endpoint gap for binary completion, in ground centimetres")
     parser.add_argument("--initial-boundary-side", choices=("unknown", "left", "right"),
                         default="unknown",

@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 
-def complete_lane_gaps(mask, *, valid_mask=None, max_gap_px=30., angle_deg=40.):
+def _complete_pass(mask, *, valid_mask=None, max_gap_px=30., angle_deg=55.):
     """Return completed mask, added-only mask and diagnostic counts.
 
     A bridge requires two observed components. There is no endpoint extension,
@@ -17,7 +17,7 @@ def complete_lane_gaps(mask, *, valid_mask=None, max_gap_px=30., angle_deg=40.):
     endpoints = []
     widths = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
     for index in range(1, count):
-        if stats[index, cv2.CC_STAT_AREA] < 48:
+        if stats[index, cv2.CC_STAT_AREA] < 12:
             continue
         yy, xx = np.nonzero(labels == index)
         points = np.column_stack((xx, yy)).astype(float)
@@ -25,7 +25,7 @@ def complete_lane_gaps(mask, *, valid_mask=None, max_gap_px=30., angle_deg=40.):
         _, _, vectors = np.linalg.svd(points-center, full_matrices=False)
         axis = vectors[0]
         projection = (points-center) @ axis
-        if np.ptp(projection) < 24:
+        if np.ptp(projection) < 12:
             continue
         thickness = float(np.clip(2*np.percentile(widths[yy, xx], 80), 5., 20.))
         for sign in (-1., 1.):
@@ -73,3 +73,19 @@ def complete_lane_gaps(mask, *, valid_mask=None, max_gap_px=30., angle_deg=40.):
     return output, added, dict(lane_gap_bridges=bridges,
         lane_gap_added_pixels=int(np.count_nonzero(added)),
         lane_gap_max_px=float(max_gap_px))
+
+
+def complete_lane_gaps(mask, *, valid_mask=None, max_gap_px=30., angle_deg=55.):
+    """Three bounded joining rounds; added pixels never become real observations."""
+    output = mask.copy()
+    bridges = 0
+    for _ in range(3):
+        updated, added, info = _complete_pass(output, valid_mask=valid_mask,
+            max_gap_px=max_gap_px, angle_deg=angle_deg)
+        bridges += info['lane_gap_bridges']
+        output = updated
+        if not np.any(added):
+            break
+    added = np.where((output > 0) & (mask == 0), 255, 0).astype(np.uint8)
+    return output, added, dict(lane_gap_bridges=bridges,
+        lane_gap_added_pixels=int(np.count_nonzero(added)), lane_gap_max_px=float(max_gap_px))
