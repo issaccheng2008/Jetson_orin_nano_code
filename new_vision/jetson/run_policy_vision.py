@@ -85,8 +85,10 @@ def parse_args():
     parser.add_argument('--camera-async', action=argparse.BooleanOptionalAction, default=True,
                         help='Capture continuously in a worker; process only the latest frame')
     parser.add_argument("--camera", type=int, default=int(os.getenv("CAM_IDX", camera["index"])))
-    parser.add_argument("--card-camera", type=int, default=-1,
+    parser.add_argument("--card-camera", type=int, default=1,
                         help="Optional second /dev/videoN for stopped card classification only; -1 disables it")
+    parser.add_argument("--camera-device", default=None, help="Stable main capture path, e.g. /dev/v4l/by-path/...-video-index0")
+    parser.add_argument("--card-camera-device", default=None, help="Stable stopped-card capture path; overrides card camera index")
     parser.add_argument("--card-camera-width", type=int, default=1280)
     parser.add_argument("--card-camera-height", type=int, default=720)
     parser.add_argument("--card-camera-height-cm", type=float, default=None,
@@ -615,9 +617,9 @@ def parse_args():
         parser.error('steering-filter-mode shadow/active requires heading or segments')
     if not 1 <= args.connector_port <= 65535:
         parser.error("connector-port must be between 1 and 65535")
-    if args.card_camera < -1 or args.card_camera == args.camera:
+    if args.card_camera < -1 or (not args.camera_device and not args.card_camera_device and args.card_camera == args.camera):
         parser.error("--card-camera must be -1 or a different camera index")
-    if args.card_camera >= 0 and args.no_shape_detect:
+    if args.card_camera_device and args.no_shape_detect:
         parser.error("--card-camera requires shape detection")
     if args.card_camera_width <= 0 or args.card_camera_height <= 0:
         parser.error("second camera dimensions must be positive")
@@ -765,6 +767,8 @@ def parse_args():
                 parser.error(str(exc))
     if args.wz_mode == "segments":
         args.lane_fit_segments = True
+    if args.no_shape_detect:
+        args.card_camera = -1
     return args
 
 
@@ -874,7 +878,7 @@ def main():
               f"effective={resolve_mode(args.photometric_mode)}", flush=True)
         shape_names = {number: name for name, number in shape.action_map.items()}
         shape_numbers = dict(shape.action_map)
-        if args.card_camera >= 0:
+        if args.card_camera_device or args.card_camera >= 0:
             precision_shape = ShapeDetector(stable_frames=args.card_stable_frames,
                                             cooldown_ms=3200, debug=False)
             precision_shape.preprocess_mode = args.shape_preprocess
@@ -952,24 +956,15 @@ def main():
     camera_reader = None
     card_camera_reader = None
     try:
-        cap = open_camera(args.camera, args.width, args.height)
+        from camera_devices import resolve_devices
+        main_device, card_device = resolve_devices(args.camera, args.card_camera,
+                                                   args.camera_device, args.card_camera_device)
+        print(f"[cameras] main={main_device}; stopped-card={card_device}; secondary opens only during stopped voting", flush=True)
+        cap = open_camera(main_device, args.width, args.height)
         if not cap.isOpened():
-            raise RuntimeError(f"Cannot open camera {args.camera}")
-        if args.card_camera >= 0:
-            from latest_camera import LatestCamera
-            from card_vote_camera import CardVoteCamera
-            card_cap = open_camera(args.card_camera, args.card_camera_width,
-                                   args.card_camera_height)
-            if not card_cap.isOpened():
-                card_cap.release()
-                raise RuntimeError(f"Cannot open stopped-card camera {args.card_camera}")
-            card_camera_reader = CardVoteCamera(LatestCamera(card_cap).start())
-            print(f"[card-camera] /dev/video{args.card_camera} "
-                  f"{int(card_cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
-                  f"{int(card_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}; "
-                  "only stopped classification votes use its frames", flush=True)
+            raise RuntimeError(f"Cannot open main camera {main_device}; check capture node, permission and another process holding it")
         from camera_controls import apply_camera_controls
-        camera_control_report = apply_camera_controls(f'/dev/video{args.camera}',args)
+        camera_control_report = apply_camera_controls(main_device if isinstance(main_device,str) else f'/dev/video{main_device}',args)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or args.width
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or args.height
         detector = LineDetector(width, height, cam_height_cm=args.camera_height_cm,
@@ -1197,7 +1192,7 @@ def main():
             dump_metadata["source_sha256"] = {}
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
                                 "lane_boundary_path.py", "continuous_lane_heading.py",
-                                "shape_detector.py", "policy_bridge.py", "card_vote_camera.py",
+                                "shape_detector.py", "policy_bridge.py", "card_vote_camera.py", "camera_devices.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
                                 "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
@@ -1470,6 +1465,22 @@ def main():
                         qr_odd_seen.add(reading.payload)
                         print(f"[start-gate] ⚠️ 扫到 payload={reading.payload!r}，"
                               f"不是 {start_gate.expected_qr!r}，忽略", flush=True)
+            secondary_needed = (card_device is not None and processed < stop_until
+                                and not card_action_triggered)
+            if secondary_needed and card_camera_reader is None:
+                from latest_camera import LatestCamera
+                from card_vote_camera import CardVoteCamera
+                card_cap = open_camera(card_device, args.card_camera_width, args.card_camera_height)
+                if not card_cap.isOpened():
+                    card_cap.release()
+                    raise RuntimeError(f"Cannot open stopped-card camera {card_device}")
+                card_camera_reader = CardVoteCamera(LatestCamera(card_cap).start())
+                print(f"[card-camera] opened {card_device} for stopped recognition", flush=True)
+            elif not secondary_needed and card_camera_reader is not None:
+                if not card_camera_reader.close():
+                    raise RuntimeError('Stopped-card capture did not terminate; refusing duplicate open')
+                card_camera_reader = None
+                print('[card-camera] released after stopped recognition', flush=True)
             if shape is not None and not tilting and (frames % shape_period == 0):
                 classify_card = bool(
                     (gate_window_open and start_gate is not None

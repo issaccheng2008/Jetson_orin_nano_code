@@ -16,6 +16,18 @@ import run_policy_vision
 
 
 class CardVoteCameraTests(unittest.TestCase):
+    def test_dual_camera_enabled_by_default(self):
+        with patch('sys.argv',['vision']):
+            self.assertEqual(run_policy_vision.parse_args().card_camera,1)
+
+    def test_stable_paths_and_duplicate_device_rejected(self):
+        from camera_devices import resolve_devices
+        with patch('camera_devices.Path.exists',return_value=True):
+            self.assertEqual(resolve_devices(0,1,'/dev/v4l/by-path/main','/dev/v4l/by-path/card'),
+                             ('/dev/v4l/by-path/main','/dev/v4l/by-path/card'))
+            with self.assertRaises(ValueError):
+                resolve_devices(0,1,'/dev/video0','/dev/video0')
+
     def test_only_fresh_post_settle_frames_can_vote(self):
         reader = Mock()
         old = np.full((2, 2, 3), 1, np.uint8)
