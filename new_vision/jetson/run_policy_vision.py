@@ -1197,7 +1197,7 @@ def main():
             dump_metadata["source_sha256"] = {}
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
                                 "lane_boundary_path.py", "continuous_lane_heading.py",
-                                "shape_detector.py", "policy_bridge.py",
+                                "shape_detector.py", "policy_bridge.py", "card_vote_camera.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
                                 "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",

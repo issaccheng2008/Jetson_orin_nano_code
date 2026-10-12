@@ -51,6 +51,14 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
     --recording-root "$RECORDS_DIR/tests" "$video_flag"
     --video-source "$VIDEO_SOURCE" --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
+# Disabled by default; use only the stopped precision-vote camera.
+command+=(--card-camera "${CARD_CAMERA:--1}")
+for setting in CARD_CAMERA_WIDTH CARD_CAMERA_HEIGHT CARD_CAMERA_HEIGHT_CM CARD_CAMERA_PITCH_DEG CARD_CAMERA_VFOV_DEG CARD_CAMERA_PHOTOMETRIC_MODE; do
+    if [[ -n "${!setting:-}" ]]; then
+        flag="${setting,,}"
+        command+=("--${flag//_/-}" "${!setting}")
+    fi
+done
 for setting in HEADING_REGIONS_CM HEADING_NEAR_CM HEADING_FAR_CM STEERING_ANGLE_WZ_TABLE SEGMENT_REGIONS_CM; do
     if [[ -n "${!setting:-}" ]]; then
         flag="${setting,,}"
