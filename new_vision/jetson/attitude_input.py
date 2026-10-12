@@ -70,6 +70,8 @@ class AttitudeInput:
         """把积压的包一次读完，只留最新的那个点。返回是否收到过包。"""
         now = time.monotonic() if now is None else float(now)
         seen = False
+        had_previous = self.received > 0
+        latest_target = None
         while True:
             try:
                 payload, _address = self.socket.recvfrom(2048)
@@ -94,15 +96,20 @@ class AttitudeInput:
                     ValueError, OverflowError):
                 continue
             self._observe_execution(message.get('executed_command'), now)
-            dt = (now - self.last_packet_s) if self.received else 0.0
-            alpha = 1.0 if dt <= 0.0 else 1.0 - math.exp(-dt / self.tau_s)
-            if not self.received:
-                self.value = target
-            else:
-                self.value += alpha * (target - self.value)
+            # A poll can drain several 10 Hz packets. They share this receive
+            # timestamp, so filtering each one would give the later packets
+            # dt=0 and could bypass the low-pass entirely.
+            latest_target = target
             self.received += 1
-            self.last_packet_s = now
             seen = True
+        if seen:
+            if not had_previous:
+                self.value = latest_target
+            else:
+                dt = max(0.0, now - self.last_packet_s)
+                alpha = 1.0 - math.exp(-dt / self.tau_s)
+                self.value += alpha * (latest_target - self.value)
+            self.last_packet_s = now
         return seen
 
     def _observe_execution(self, data, now):

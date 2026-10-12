@@ -11,10 +11,12 @@ policy loop.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import socket
 import time
+from pathlib import Path
 from typing import Any
 
 # STRAIGHT_WZ = 0.1  # Fixed straight-walking compensation disabled, rad/s.
@@ -274,7 +276,10 @@ def main() -> int:
     print(
         f"Connector: vision udp://{args.vision_bind}:{args.vision_port} -> "
         f"policy udp://{args.policy_host}:{args.policy_port} at {args.publish_hz:.1f} Hz; "
-        f"wz_bias={args.wz_bias:+g} rad/s"
+        f"wz_bias={args.wz_bias:+g} rad/s; "
+        f"vision_timeout={args.vision_timeout:g}s; "
+        f"card_tilt_stale_grace={args.card_tilt_stale_grace:g}s; "
+        f"source_sha256={hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]}"
     )
 
     try:

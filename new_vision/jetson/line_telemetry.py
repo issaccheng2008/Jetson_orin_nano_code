@@ -2,17 +2,74 @@
 import json
 import math
 import numbers
+import os
 from pathlib import Path
 import time
 import numpy as np
 
 
+COUNT_FIELDS = (
+    'steering_paired_count', 'steering_single_count',
+    'card_stop_box_hit_count', 'card_stop_cue_hit_count',
+)
+
+
 class LineTelemetry:
     def __init__(self, run_directory):
         self.path = Path(run_directory) / 'line_frames.jsonl'
+        self.counts_path = self.path.with_name('counts_summary.txt')
         self._file = self.path.open('x', encoding='utf-8', buffering=65536)
         self._pending = 0
         self._previous_write_ms = None
+        self._latest_counts = None
+        self._last_counts_write_s = -math.inf
+
+    def _write_counts_summary(self):
+        if self._latest_counts is None:
+            return
+        row = self._latest_counts
+        paired = row['steering_paired_count']
+        single = row['steering_single_count']
+        box = row['card_stop_box_hit_count']
+        cue = row['card_stop_cue_hit_count']
+        steering_total = paired + single
+        card_total = box + cue
+        stop_box = row.get('card_stop_box_trigger_count')
+        stop_cue = row.get('card_stop_cue_trigger_count')
+        updated = time.strftime('%Y-%m-%d %H:%M:%S %z',
+                                time.localtime(row['host_time_ns'] / 1e9))
+        lines = [
+            '巡线与图卡停车证据计数（当前运行累计）',
+            f'运行目录: {self.path.parent.name}',
+            f'最后记录: {updated}，视觉帧 #{row["frame"]}',
+            '',
+            '巡线指令来源（帧；仅正常行走且控制器使用有效路径）',
+            f'  双边路径: {paired}',
+            f'  单边路径: {single}',
+            f'  单边占已计巡线帧: {100 * single / steering_total:.1f}%'
+            if steering_total else '  单边占已计巡线帧: —（尚无有效巡线帧）',
+            '',
+            '行走中图卡停车候选（检测命中次；不是停车次数或不同图卡数）',
+            f'  找到图卡框: {box}',
+            f'  无框但 cue 命中: {cue}',
+            f'  框占两种命中: {100 * box / card_total:.1f}%'
+            if card_total else '  框占两种命中: —（尚无候选）',
+            '',
+            '每次视觉检测调用最多给框或 cue 其中一项加 1；',
+            '这两项说明停车候选证据来源，不表示该帧已经触发停车。',
+            *((
+                '',
+                '实际行走停车触发（事件，不包含起步首卡动作）',
+                f'  依据框宽: {stop_box}',
+                f'  依据 cue 高度: {stop_cue}',
+            ) if stop_box is not None and stop_cue is not None else ()),
+            '逐帧触发条件与动作仍以 line_frames.jsonl 和 vision 日志为准。',
+            '',
+        ]
+        temporary = self.counts_path.with_suffix('.txt.tmp')
+        temporary.write_text('\n'.join(lines), encoding='utf-8')
+        os.replace(temporary, self.counts_path)
+        self._last_counts_write_s = time.monotonic()
 
     @staticmethod
     def scalar(value):
@@ -49,5 +106,18 @@ class LineTelemetry:
             self._pending = 0
         self._previous_write_ms = (time.perf_counter_ns() - write_start_ns) / 1_000_000.0
 
+        if all(key in row for key in COUNT_FIELDS) and row.get('host_time_ns') is not None:
+            self._latest_counts = {key: row[key] for key in COUNT_FIELDS}
+            for key in ('card_stop_box_trigger_count', 'card_stop_cue_trigger_count'):
+                if key in row:
+                    self._latest_counts[key] = row[key]
+            self._latest_counts.update(frame=row.get('frame', '?'),
+                                       host_time_ns=row['host_time_ns'])
+            if time.monotonic() - self._last_counts_write_s >= 1.0:
+                self._write_counts_summary()
+
     def close(self):
-        self._file.close()
+        try:
+            self._write_counts_summary()
+        finally:
+            self._file.close()

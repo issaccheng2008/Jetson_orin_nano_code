@@ -143,6 +143,27 @@ class AttitudeInputTests(unittest.TestCase):
             receiver.close()
             sender.close()
 
+    def test_burst_of_packets_is_filtered_once_using_latest_attitude(self):
+        receiver = self._input(tau_s=1.2)
+        sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        address = ("127.0.0.1", receiver.socket.getsockname()[1])
+        try:
+            sender.sendto(json.dumps({"g": gravity_for(0.0)}).encode(), address)
+            time.sleep(0.01)
+            self.assertTrue(receiver.poll(100.0))
+            self.assertAlmostEqual(receiver.value, 45.0, places=3)
+
+            sender.sendto(json.dumps({"g": gravity_for(-20.0)}).encode(), address)
+            sender.sendto(json.dumps({"g": gravity_for(20.0)}).encode(), address)
+            time.sleep(0.01)
+            self.assertTrue(receiver.poll(100.1))
+            expected = 45.0 + (1.0 - math.exp(-0.1 / 1.2)) * 20.0
+            self.assertAlmostEqual(receiver.value, expected, places=3)
+            self.assertEqual(receiver.received, 3)
+        finally:
+            receiver.close()
+            sender.close()
+
     def _follow_gait(self, tau_s, cycles=3.0):
         """按 50Hz 喂 1.7Hz、均值 10°、摆幅 ±35° 的机身俯仰，返回读到的极值。"""
         receiver = self._input(tau_s=tau_s)
@@ -167,6 +188,7 @@ class AttitudeInputTests(unittest.TestCase):
                 tail.append(receiver.value)
                 now += 0.02
                 time.sleep(0.0005)
+            sender.close()
             return receiver, tail
         except Exception:
             receiver.close()

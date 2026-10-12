@@ -1100,6 +1100,9 @@ def main():
         steering_single_count = 0
         card_stop_box_hit_count = 0
         card_stop_cue_hit_count = 0
+        card_stop_box_trigger_count = 0
+        card_stop_cue_trigger_count = 0
+        last_counts_log = -math.inf
         lateral_warned = None    # None until the lateral bound first trips
         card_window_open = False
         # 门控的"上一帧"状态。闸门关着时 window_open 为真，于是窗口关闭那套交接
@@ -1151,6 +1154,7 @@ def main():
         if args.line_log_dir:
             line_log = LineTelemetry(_new_dump_run(args.line_log_dir, run_id, dump_metadata))
             print(f"[vision] per-frame log: {line_log.path}", flush=True)
+            print(f"[vision] readable counts: {line_log.counts_path}", flush=True)
         if recording_directory is not None and args.record_video:
             try:
                 from command_video import CommandVideo
@@ -1525,6 +1529,10 @@ def main():
                     # exclude that potentially card-corrupted frame as well.
                     detector.restore_tracking_state(tracking_before_frame)
                     card_triggered = True
+                    if card_width_px is not None:
+                        card_stop_box_trigger_count += 1
+                    else:
+                        card_stop_cue_trigger_count += 1
                     card_armed = False
                     tilt_until = processed + (args.card_tilt_ms + args.card_settle_ms) / 1000.0
                     card_wait_for_tilt_done = (
@@ -1921,6 +1929,8 @@ def main():
                     steering_single_count=steering_single_count,
                     card_stop_box_hit_count=card_stop_box_hit_count,
                     card_stop_cue_hit_count=card_stop_cue_hit_count,
+                    card_stop_box_trigger_count=card_stop_box_trigger_count,
+                    card_stop_cue_trigger_count=card_stop_cue_trigger_count,
                     card_vote_total=card_vote_total,
                     card_vote_attempts=card_vote_attempts,
                     card_vote_abstentions=card_vote_abstentions,
@@ -1984,8 +1994,6 @@ def main():
                     f"age={fmt(debug.get('measurement_age_s'), '.3f')}s "
                     f"lock_w={fmt(debug.get('bottom_lock_weight'), '.2f')} "
                     f"conf={confidence:.2f} qr={visible_qr}"
-                    f" count=both:{steering_paired_count}/single:{steering_single_count}"
-                    f" stop_box:{card_stop_box_hit_count}/cue:{card_stop_cue_hit_count}"
                     # Same id the connector and policy log, so the three can be
                     # lined up by hand when an event goes missing in the middle.
                     + (f"/ev{card_action}#{card_event_id}" if card_event_id else "")
@@ -2026,6 +2034,16 @@ def main():
                        if attitude is not None and effective_pitch != attitude.value
                        else ""),
                     flush=True)
+                if processed - last_counts_log >= 5.0:
+                    print(f"[counts] {time.strftime('%H:%M:%S')} frame={frames} "
+                          f"累计有效巡线帧: 双边={steering_paired_count} "
+                          f"单边={steering_single_count} | "
+                          f"累计行走中图卡候选命中: 框={card_stop_box_hit_count} "
+                          f"cue={card_stop_cue_hit_count} "
+                          f"| 实际停车事件: 框宽={card_stop_box_trigger_count} "
+                          f"cue高度={card_stop_cue_trigger_count} "
+                          f"(候选命中不等于停车)", flush=True)
+                    last_counts_log = processed
                 last_log = processed
                 last_log_at = processed
                 log_frames = 0
