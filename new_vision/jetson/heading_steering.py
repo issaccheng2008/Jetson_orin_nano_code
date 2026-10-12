@@ -466,21 +466,37 @@ class HeadingSteeringController:
                              if candidate*recovery_level > 0 else recovery_level)
             decision = 'position_recovery_left' if self._position_side < 0 else 'position_recovery_right'
             self.diagnostics.update(steering_decision=decision, steering_braked=False)
-        # The field-tested loss fallback can also supply the left-turn strength
-        # when a *measured* right boundary is the only reliable lane evidence.
-        # Keep the geometric decision's sign: a rightward correction must not
-        # become a forced left turn merely because the opposite edge is hidden.
+        # A visible right edge alone does not mean the robot is to its right;
+        # on a straight this floor made small heading noise turn into a sustained
+        # left arc. Raise the left command only when the inferred centre path is
+        # clearly left of the robot, or the measured path direction itself asks
+        # for a strong left correction. Positive near is a target path to the
+        # robot's right; positive heading/demand point toward a left correction.
         if (debug.get('tracking_mode') == 'RIGHT_ONLY'
                 and source == 'right_boundary'
                 and self._turn_history is not None
-                and self._turn_history.config.fallback_wz > 0
-                and candidate >= self.straight_wz
-                and (near <= -self.corridor_cm or candidate > self.straight_wz)):
-            floor = min(self._turn_history.config.fallback_wz, self._cap(+1))
-            if candidate < floor:
-                self.diagnostics.update(steering_decision='right_boundary_left_floor',
-                                        steering_right_boundary_floor_wz=floor)
-                candidate = floor
+                and self._turn_history.config.fallback_wz > 0):
+            right_offset_threshold = max(2.0*self.corridor_cm,
+                                         self.position_recovery_cm)
+            strong_left_heading = max(2.0*self.left_tolerance_deg,
+                                      self.full_scale_deg)
+            severe_right_offset = near <= -right_offset_threshold
+            severe_rightward_body_heading = (heading >= strong_left_heading
+                                              and demand > 0.0)
+            self.diagnostics.update(
+                steering_right_boundary_offset_threshold_cm=right_offset_threshold,
+                steering_right_boundary_heading_threshold_deg=strong_left_heading,
+                steering_right_boundary_severe_offset=severe_right_offset,
+                steering_right_boundary_severe_heading=severe_rightward_body_heading)
+            if severe_right_offset or severe_rightward_body_heading:
+                floor = min(self._turn_history.config.fallback_wz, self._cap(+1))
+                if candidate < floor:
+                    self.diagnostics.update(
+                        steering_decision=('right_boundary_severe_offset_left'
+                                           if severe_right_offset else
+                                           'right_boundary_severe_heading_left'),
+                        steering_right_boundary_floor_wz=floor)
+                    candidate = floor
         selected = (self.inner.vx, candidate*self.yaw_sign)
         changed = selected != self._command or self._started is None
         if changed:
