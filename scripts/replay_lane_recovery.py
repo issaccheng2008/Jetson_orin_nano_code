@@ -19,8 +19,11 @@ def main():
     p.add_argument('--code-root', type=Path, required=True)
     p.add_argument('--mode', choices=('baseline', 'continuous'), default='baseline')
     p.add_argument('--gap-fill', action='store_true')
+    p.add_argument('--strictness-pct', type=float, default=0.)
     p.add_argument('--photometric-mode', default='lut')
     p.add_argument('--max-frames', type=int)
+    p.add_argument('--no-save-masks', action='store_true',
+                   help='Counts-only replay; skip per-frame PNG output')
     args = p.parse_args()
     sys.path.insert(0, str(args.code_root/'new_vision/jetson'))
     from line_detector_v1_warp import LineDetector
@@ -37,15 +40,16 @@ def main():
     detector.set_heading_regions_cm(((20.,22.),(24.,26.)))
     detector.preprocess_mode = 'contrast'
     detector.photometric_mode = args.photometric_mode
+    detector.lane_gap_fill = args.gap_fill
     if args.mode != 'baseline':
-        detector.set_lane_observation_mode(args.mode)
-        detector.lane_gap_fill = args.gap_fill
+        detector.set_lane_observation_mode(args.mode, args.strictness_pct)
     crop_w, crop_h = width//2, height-110
     detector.M = np.diag([detector.bird_w/crop_w,detector.bird_h/crop_h,1.])
     detector.M_inv = np.linalg.inv(detector.M)
     args.output.mkdir(parents=True, exist_ok=True)
     masks = args.output/'masks'
-    masks.mkdir(exist_ok=True)
+    if not args.no_save_masks:
+        masks.mkdir(exist_ok=True)
     counts, moving_counts, rejects = Counter(), Counter(), Counter()
     selected={56,62,70,86,110,124,295,347,432,454,466}
     seen = set()
@@ -85,11 +89,14 @@ def main():
             tracker_reason=debug.get('boundary_tracker_reject_reason'),
             position_valid=debug.get('position_valid',debug['measurement_valid']),
             near_cm=debug['near_error_cm'],heading_deg=debug['heading_control_deg'],
+            heading_span_cm=debug.get('heading_control_z_span_cm'),
+            heading_points=debug.get('heading_control_points'),
             bridges=debug.get('lane_gap_bridges',0),
             added_pixels=debug.get('lane_gap_added_pixels',0),process_ms=cost))
         # Preserve masks for all frames; makes any reported improvement reviewable.
-        cv2.imwrite(str(masks/f'{token:04d}.png'),debug['binary'])
-        if token in selected:
+        if not args.no_save_masks:
+            cv2.imwrite(str(masks/f'{token:04d}.png'),debug['binary'])
+        if token in selected and not args.no_save_masks:
             cv2.imwrite(str(args.output/f'{token:04d}_bird.jpg'),bird)
             cv2.imwrite(str(args.output/f'{token:04d}_view.jpg'),debug['bird'])
             if debug.get('binary_gap_added') is not None:
@@ -101,7 +108,9 @@ def main():
     cap.release()
     (args.output/'frames.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in rows))
     summary=dict(video=str(args.video),sha256=hashlib.sha256(args.video.read_bytes()).hexdigest(),
-        code_root=str(args.code_root),mode=args.mode,gap_fill=args.gap_fill,
+        code_root=str(args.code_root),mode=args.mode,
+        effective_mode=detector.lane_observation_mode,gap_fill=args.gap_fill,
+        strictness_pct=args.strictness_pct,
         unique_frames=len(rows),video_frames_read=video_i,crop=[0,0,crop_w,crop_h],
         modes=dict(counts),moving_modes=dict(moving_counts),invalid_reasons=dict(rejects),
         bridges=sum(r['bridges'] for r in rows),added_pixels=sum(r['added_pixels'] for r in rows),

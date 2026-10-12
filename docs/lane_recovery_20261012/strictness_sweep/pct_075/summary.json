@@ -1,0 +1,36 @@
+{
+  "video": "/tmp/nano_loss_audit/test_120221_007796_2d456e27/video/camera_commands.avi",
+  "sha256": "bc20d535a90dc51ffcfc1273808109df7b75d35cb5048654e25e23081d6800bb",
+  "code_root": "/mnt/d/用户/Lenovo/桌面/Github Repository/jetson_task_worktrees/lane_loss_recovery_20261012",
+  "mode": "continuous",
+  "gap_fill": true,
+  "strictness_pct": 75.0,
+  "unique_frames": 466,
+  "video_frames_read": 852,
+  "crop": [
+    0,
+    0,
+    480,
+    358
+  ],
+  "modes": {
+    "BOTH": 242,
+    "RIGHT_ONLY": 134,
+    "VISIBLE_ONLY": 66,
+    "LEFT_ONLY": 23,
+    "LOST": 1
+  },
+  "moving_modes": {
+    "BOTH": 176,
+    "RIGHT_ONLY": 116,
+    "VISIBLE_ONLY": 34,
+    "LOST": 1
+  },
+  "invalid_reasons": {
+    "no_reliable_boundary": 1
+  },
+  "bridges": 392,
+  "added_pixels": 91035,
+  "mean_process_ms": 89.03563166115396,
+  "limitations": "Compressed recorded bird view, resized to native grid; no second IPM. Repeated source frames skipped. Centimetres are replay estimates. Validity/visibility continuity does not measure driving success or geometric accuracy."
+}

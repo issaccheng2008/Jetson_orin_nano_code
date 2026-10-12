@@ -15,12 +15,26 @@ class BoundaryPathTracker:
     def __init__(self, *, min_points=6, min_span_cm=8., max_rmse_cm=2.5,
                  max_slope=1.2, frame_search_px=52., row_search_px=28.,
                  history_age_s=.6, width_tolerance=.18,
-                 max_direction_step_deg=35., continuous=False):
+                 max_direction_step_deg=35., continuous=False,
+                 strictness_pct=0.):
         self.continuous = bool(continuous)
+        if not math.isfinite(strictness_pct) or not 0. <= strictness_pct <= 100.:
+            raise ValueError('lane strictness must be between 0 and 100 percent')
+        self.strictness_pct = float(strictness_pct)
+        strictness = self.strictness_pct / 100.
+        def blend(loose, strict):
+            return loose + (strict - loose) * strictness
         if self.continuous:
-            min_points, min_span_cm, max_rmse_cm, max_slope = 2, 1., 12., 12.
-            frame_search_px, row_search_px = 200., 100.
-            history_age_s, max_direction_step_deg = 1.5, 55.
+            min_points = int(math.ceil(blend(2, 6)))
+            min_span_cm, max_rmse_cm, max_slope = (
+                blend(1., 8.), blend(12., 2.5), blend(12., 1.2))
+            frame_search_px, row_search_px = blend(200., 52.), blend(100., 28.)
+            history_age_s, max_direction_step_deg = blend(1.5, .6), blend(55., 35.)
+        self.reference_margin_cm = blend(15., 3.) if self.continuous else 3.
+        self.max_run_width_px = math.ceil(blend(128, 32)) if self.continuous else 32
+        self.near_seed_rows = round(blend(20, 2)) if self.continuous else 2
+        self.max_gap_rows = round(blend(6, 0)) if self.continuous else 0
+        self.association_margin_px = blend(2., 10.) if self.continuous else 10.
         self.min_points = min_points
         self.min_span_cm = min_span_cm
         self.max_rmse_cm = max_rmse_cm
@@ -142,7 +156,7 @@ class BoundaryPathTracker:
                 k=fit['k']
                 dz=-(width_cm/2)*normal_sign*k/math.hypot(1.,k)
                 target_min,target_max=fit['z_min']+dz,fit['z_max']+dz
-                margin = 15. if self.continuous else 3.
+                margin = self.reference_margin_cm
                 if not target_min-margin<=reference_z_cm<=target_max+margin:
                     diag['reference_rejected']+=1
                     diag['fit_reason']='reference_unsupported'
@@ -182,7 +196,7 @@ class BoundaryPathTracker:
             ys.append(top)
         for y in ys:
             centers=[.5*(a+b) for a,b in collect_runs(y)
-                     if 5 <= b-a+1 <= (128 if self.continuous else 32)]
+                     if 5 <= b-a+1 <= self.max_run_width_px]
             yield y,centers
 
     def _single_points(self, mask, collect_runs, side, now_s, initial_side,
@@ -197,12 +211,12 @@ class BoundaryPathTracker:
         gap = 0
         for y, centers in self._rows(mask,collect_runs,bottom_y=bottom_y,
                                      top_y=top_y,step_px=step_px):
-            if not points and y < min(mask.shape[0]-1,bottom_y)-(20 if self.continuous else 2)*step_px:
+            if not points and y < min(mask.shape[0]-1,bottom_y)-self.near_seed_rows*step_px:
                 break  # an isolated far object cannot seed near tracking
             if not centers:
                 if points:
                     gap += 1
-                    if not self.continuous or gap > 6:
+                    if gap > self.max_gap_rows:
                         break
                 continue
             if points:
@@ -225,7 +239,7 @@ class BoundaryPathTracker:
             self._association_diagnostics.update(nearest_distance_px=distances[0][0],
                 search_radius_px=radius, runner_up_margin_px=(distances[1][0]-distances[0][0] if len(distances)>1 else None))
             if (distances[0][0]>radius or
-                    (len(distances)>1 and distances[1][0]-distances[0][0]<(2. if self.continuous else 10.))):
+                    (len(distances)>1 and distances[1][0]-distances[0][0]<self.association_margin_px)):
                 if points:
                     break
                 return [],'association_ambiguous'
@@ -242,13 +256,16 @@ class BoundaryPathTracker:
             lane_gate_min_points=self.min_points, lane_gate_min_span_cm=self.min_span_cm,
             lane_gate_max_rmse_cm=self.max_rmse_cm, lane_gate_max_slope=self.max_slope,
             lane_gate_frame_search_px=self.frame_search_px, lane_gate_row_search_px=self.row_search_px,
-            lane_gate_reference_margin_cm=15. if self.continuous else 3.,
+            lane_gate_reference_margin_cm=self.reference_margin_cm,
+            lane_gate_strictness_pct=self.strictness_pct,
             lane_gate_reference_z_cm=reference_z_cm,
-            lane_gate_association_margin_px=2. if self.continuous else 10.,
+            lane_gate_association_margin_px=self.association_margin_px,
             lane_gate_identity_age_enforced=not self.continuous,
             lane_gate_history_age_s=self.history_age_s,
             lane_gate_path_jump_enforced=not self.continuous,
-            lane_gate_path_jump_cm=8., lane_gate_max_gap_rows=6 if self.continuous else 0)
+            lane_gate_path_jump_cm=8., lane_gate_max_gap_rows=self.max_gap_rows,
+            lane_gate_max_run_width_px=self.max_run_width_px,
+            lane_gate_near_seed_rows=self.near_seed_rows)
         for label in ('paired_left','paired_right','paired_center','left','right'):
             result[label+'_fit_reason']='not_attempted'
 
@@ -411,7 +428,7 @@ class BoundaryPathTracker:
         target_b=b+d*(nx-k*nz)
         target_min=fit['z_min']+d*nz
         target_max=fit['z_max']+d*nz
-        margin = 15. if self.continuous else 3.
+        margin = self.reference_margin_cm
         if not target_min-margin<=reference_z_cm<=target_max+margin:
             result['reject_reason']='reference_unsupported'
             return result

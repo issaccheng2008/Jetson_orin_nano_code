@@ -493,6 +493,10 @@ def parse_args():
     parser.add_argument("--lane-observation-mode", choices=("continuous", "strict"),
                         default="continuous",
                         help="Boundary association and local support acceptance; strict restores the prior gates")
+    parser.add_argument("--lane-strictness-pct", type=float, default=0.,
+                        help="Continuous mode numeric gate interpolation: 0=current permissive, "
+                             "25/50/75=intermediate; 100=original strict mode. "
+                             "Intermediate modes retain continuous categorical fallbacks")
     parser.add_argument("--lane-gap-fill", action=argparse.BooleanOptionalAction, default=True,
                         help="Join short tape gaps with compatible observed endpoint directions")
     parser.add_argument("--lane-gap-max-cm", type=float, default=12.,
@@ -566,6 +570,8 @@ def parse_args():
     from steering_command_window import add_arguments as add_window_arguments
     add_window_arguments(parser)
     args = parser.parse_args()
+    if not math.isfinite(args.lane_strictness_pct) or not 0. <= args.lane_strictness_pct <= 100.:
+        parser.error('lane-strictness-pct must be between 0 and 100')
     if not math.isfinite(args.line_adaptive_c):
         parser.error("--line-adaptive-c must be finite")
     try:
@@ -962,7 +968,7 @@ def main():
             else:
                 detector.set_heading_distances(args.heading_near_cm, args.heading_far_cm)
         detector.preprocess_mode = args.line_preprocess
-        detector.set_lane_observation_mode(args.lane_observation_mode)
+        detector.set_lane_observation_mode(args.lane_observation_mode, args.lane_strictness_pct)
         detector.lane_gap_fill = args.lane_gap_fill
         detector.lane_gap_max_cm = args.lane_gap_max_cm
         detector.straight_guard_enabled = args.straight_road_guard
@@ -973,7 +979,9 @@ def main():
               f'confirm={args.straight_confirm_s:g}s exit={args.straight_exit_s:g}s '
               f'unknown-hold={args.straight_hold_s:g}s; '
               f'allowed geometric wz={straight_guard.allowed}', flush=True)
-        print(f"[lane-observation] mode={args.lane_observation_mode}; "
+        print(f"[lane-observation] requested={args.lane_observation_mode}; "
+              f"effective={detector.lane_observation_mode}; "
+              f"strictness={args.lane_strictness_pct:g}%; "
               f"gap-fill={args.lane_gap_fill} max={args.lane_gap_max_cm:g}cm", flush=True)
         detector.initial_boundary_side = (None if args.initial_boundary_side == "unknown"
                                           else args.initial_boundary_side)

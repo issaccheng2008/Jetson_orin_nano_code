@@ -185,6 +185,7 @@ class LineDetector:
         # ── Threshold params ──
         self.preprocess_mode = "legacy"
         self.lane_observation_mode = "strict"
+        self.lane_strictness_pct = 0.
         self.lane_gap_fill = False
         self.lane_gap_max_cm = 12.
         self.adaptive_c = -12.0
@@ -414,18 +415,37 @@ class LineDetector:
             "red_bar_z_cm": 0.0,
         }
 
-    def set_lane_observation_mode(self, mode):
+    def set_lane_observation_mode(self, mode, strictness_pct=0.):
         if mode not in ('strict', 'continuous'):
             raise ValueError('lane observation mode must be strict or continuous')
-        self.lane_observation_mode = mode
-        self._boundary_path_tracker = BoundaryPathTracker(continuous=mode=='continuous')
+        if not math.isfinite(strictness_pct) or not 0. <= strictness_pct <= 100.:
+            raise ValueError('lane strictness must be between 0 and 100 percent')
+        # The old strict behaviour also contains non-numeric checks. Preserve
+        # the requested endpoint instead of calling continuous gates at 100%
+        # equivalent to the old mode.
+        effective_mode = ('strict' if mode == 'continuous' and strictness_pct == 100.
+                          else mode)
+        self.lane_observation_mode = effective_mode
+        self.lane_strictness_pct = float(strictness_pct)
+        self._boundary_path_tracker = BoundaryPathTracker(
+            continuous=effective_mode=='continuous', strictness_pct=strictness_pct)
         if not hasattr(self, '_strict_heading_scan'):
             self._strict_heading_scan = self.heading_scan
         from dataclasses import replace
-        self.heading_scan = (replace(self._strict_heading_scan,
-            search_radius_px=100., max_gap_rows=6, min_observed_rows=2,
-            min_span_cm=1., max_residual_cm=12., history_max_age_s=1.5)
-            if mode == 'continuous' else self._strict_heading_scan)
+        if effective_mode == 'continuous':
+            strictness = strictness_pct / 100.
+            def blend(loose, strict):
+                return loose + (strict - loose) * strictness
+            strict = self._strict_heading_scan
+            self.heading_scan = replace(strict,
+                search_radius_px=blend(100., strict.search_radius_px),
+                max_gap_rows=round(blend(6, strict.max_gap_rows)),
+                min_observed_rows=math.ceil(blend(2, strict.min_observed_rows)),
+                min_span_cm=blend(1., strict.min_span_cm),
+                max_residual_cm=blend(12., strict.max_residual_cm),
+                history_max_age_s=blend(1.5, strict.history_max_age_s))
+        else:
+            self.heading_scan = self._strict_heading_scan
 
     def snapshot_tracking_state(self):
         """Save lane-tracking memory before a frame that may start a card stop.
@@ -472,7 +492,8 @@ class LineDetector:
         """
         self._state = self._initial_state()
         self._boundary_path_tracker = BoundaryPathTracker(
-            continuous=self.lane_observation_mode == "continuous")
+            continuous=self.lane_observation_mode == "continuous",
+            strictness_pct=self.lane_strictness_pct)
         self._scan_diagnostics = {}
 
     # ═══════════════════════════════════════════════════════════
