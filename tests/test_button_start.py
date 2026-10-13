@@ -179,7 +179,7 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
         if sequence is not None:
             extra += ['--startup-sequence', sequence]
         timed_commands = []
-        with (patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--start-gate", "button",
+        with (patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--card-camera", "-1", "--start-gate", "button",
                                 "--start-policy-on-gate", "--shape-every", "1", "--attitude-port", "0", *extra]),
               patch.object(run_policy_vision.signal, "signal"),
               patch.object(run_policy_vision, "ConnectorClient") as client_cls,
