@@ -6,15 +6,16 @@
 
 2026-10-12 只读查询板子：两台均为 XHH-260602-KTY 2M，ID_SERIAL_SHORT 均为 01.00.00；by-id 名称冲突，无法用此序列号区分。应按物理 USB 路径绑定，角色须由安装位置确认。
 
-用户已确认：主接 2.1、副接 2.3。无需安装规则时可直接配置稳定路径：
+2026-10-13 用户最新指定：USB 2.1 为主巡线相机，另一台为副读卡相机。当前另一台在 2.2；不再固定为 2.3。
+程序配置仍使用固定设备名称，不用 video0/video2 来决定角色：
 
 ```bash
-CAMERA_DEVICE=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0
-CARD_CAMERA_DEVICE=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.3:1.0-video-index0
+CAMERA_DEVICE=/dev/robot_main_camera
+CARD_CAMERA_DEVICE=/dev/robot_card_camera
 CARD_CAMERA=1
 ```
 
-若角色相反，交换这两行路径。不能使用 video-index1 的附属节点代替视频采集节点。固定 USB 接口；接入位置改变时重新核对路径。没有自动替用户猜测主副角色。
+同一主机同时只允许一台其他采集相机；不存在或多于一台时明确报错。程序核对主名称确实指向 2.1、副名称指向另一采集设备，防止旧别名或插拔后的节点编号变化交换角色。
 
 主摄像头一直用于巡线、接近停车判断与二维码。起点门控等待第一张图卡时打开副摄像头做图卡分类，图卡确认后释放；进入后续停车精准识别准备窗口时再次打开，在 DONE+稳定等待之前的帧不投票。投票结束/动作开始或窗口结束时释放副摄像头，停车阶段打开失败明确报错，不偷偷用主摄像头代投。冷打开相机有初始化时间，尚未双摄像头硬件计时验证。
 
@@ -26,7 +27,7 @@ CARD_CAMERA=1
 
 ## 固定名称（推荐）
 
-规则文件 config/udev/99-robot-cameras.rules 将接口 2.1 命名为 /dev/robot_main_camera，接口 2.3 命名为 /dev/robot_card_camera。这是 udev 符号链接，不修改硬件序列号。模板已改用这些名字，需要先安装规则；缺少别名会明确报错。
+规则文件 config/udev/99-robot-cameras.rules 将接口 2.1 命名为 /dev/robot_main_camera，将唯一其他采集相机命名为 /dev/robot_card_camera。这是 udev 符号链接，不修改硬件序列号。模板已改用这些名字，需要先安装规则；缺少别名会明确报错。
 
 在 Nano 仓库中执行一次：
 
@@ -46,6 +47,12 @@ CARD_CAMERA_DEVICE=/dev/robot_card_camera
 CARD_CAMERA=1
 ```
 
-手动入口对应 --camera-device /dev/robot_main_camera --card-camera-device /dev/robot_card_camera。程序不会根据名字交换主副用途。拔掉设备后别名随设备消失，插回固定接口后重新创建。规则尚未在实车安装验证。
+手动入口对应 --camera-device /dev/robot_main_camera --card-camera-device /dev/robot_card_camera。程序不会根据名字交换主副用途。拔掉设备后别名随设备消失，重新插入后由规则创建。主相机须使用2.1；副相机可使用其他接口，但必须唯一。规则安装后应通过名称与by-path核对，再运行脚本 --dry-run。
 
 2026-10-12 后续更新：起点首卡也由副摄像头识别。起点没有低头 DONE 事件，因此使用副摄像头打开后取得的新帧；后续停车仍遵守 DONE+稳定时间。起点二维码、行走模糊停车判断继续使用主摄像头。新增起点副摄像头路由及释放的实际入口测试，相关 23 项通过。
+
+## 2026-10-13 三分支修正
+
+lane_loss_recovery_20261012、boundary_guard_20261012、policy49flitter-vi-gap-straight_20261012 统一采用上述规则。
+按钮脚本给没有相机路径字段的旧配置补上两个固定名称；CARD_CAMERA=-1 时清除副路径，不会意外打开副相机。
+这次没有改写硬件名称/序列号。此前连接实例命名方案未提交或部署，保留为本地草稿。

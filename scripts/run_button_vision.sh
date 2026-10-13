@@ -69,6 +69,13 @@ command+=(--straight-near-cm "${STRAIGHT_NEAR_CM:-10}"
           --straight-hold-s "${STRAIGHT_HOLD_S:-3}")
 # Enabled by default; open only for stopped precision voting.
 command+=(--card-camera "${CARD_CAMERA:-1}")
+# Installed configs predating dual-camera support also use the fixed names.
+CAMERA_DEVICE="${CAMERA_DEVICE:-/dev/robot_main_camera}"
+if [[ "${CARD_CAMERA:-1}" != -1 ]]; then
+    CARD_CAMERA_DEVICE="${CARD_CAMERA_DEVICE:-/dev/robot_card_camera}"
+else
+    CARD_CAMERA_DEVICE=''
+fi
 for setting in CAMERA_DEVICE CARD_CAMERA_DEVICE CARD_CAMERA_WIDTH CARD_CAMERA_HEIGHT CARD_CAMERA_HEIGHT_CM CARD_CAMERA_PITCH_DEG CARD_CAMERA_VFOV_DEG CARD_CAMERA_PHOTOMETRIC_MODE; do
     if [[ -n "${!setting:-}" ]]; then
         flag="${setting,,}"
