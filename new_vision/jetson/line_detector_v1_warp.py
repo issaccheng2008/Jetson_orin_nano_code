@@ -185,6 +185,8 @@ class LineDetector:
         # ── Threshold params ──
         self.preprocess_mode = "legacy"
         self.lane_observation_mode = "strict"
+        self.lane_strictness_pct = 0.
+        self.visible_direction_fallback = True
         self.lane_gap_fill = False
         self.lane_gap_max_cm = 12.
         self.adaptive_c = -12.0
@@ -369,6 +371,9 @@ class LineDetector:
         # This clock keeps advancing through card-stop snapshots. Accepted tracking
         # times below are restored, so diagnostic frames cannot rejuvenate old seeds.
         self._observation_clock_s = 0.0
+        self.straight_guard_enabled = False
+        self.straight_near_cm = 10.
+        self.straight_far_cm = 40.
         self._last_process_time = None
         self._pending_frame_token = None
 
@@ -411,18 +416,34 @@ class LineDetector:
             "red_bar_z_cm": 0.0,
         }
 
-    def set_lane_observation_mode(self, mode):
+    def set_lane_observation_mode(self, mode, strictness_pct=0.):
         if mode not in ('strict', 'continuous'):
             raise ValueError('lane observation mode must be strict or continuous')
+        if not math.isfinite(strictness_pct) or not 0. <= strictness_pct <= 100.:
+            raise ValueError('lane strictness must be between 0 and 100 percent')
+        # Percent varies numeric gates only. Categorical recovery rules must
+        # stay fixed, including at 100%, for a controlled threshold comparison.
         self.lane_observation_mode = mode
-        self._boundary_path_tracker = BoundaryPathTracker(continuous=mode=='continuous')
+        self.lane_strictness_pct = float(strictness_pct)
+        self._boundary_path_tracker = BoundaryPathTracker(
+            continuous=mode=='continuous', strictness_pct=strictness_pct)
         if not hasattr(self, '_strict_heading_scan'):
             self._strict_heading_scan = self.heading_scan
         from dataclasses import replace
-        self.heading_scan = (replace(self._strict_heading_scan,
-            search_radius_px=100., max_gap_rows=6, min_observed_rows=2,
-            min_span_cm=1., max_residual_cm=12., history_max_age_s=1.5)
-            if mode == 'continuous' else self._strict_heading_scan)
+        if mode == 'continuous':
+            strictness = strictness_pct / 100.
+            def blend(loose, strict):
+                return loose + (strict - loose) * strictness
+            strict = self._strict_heading_scan
+            self.heading_scan = replace(strict,
+                search_radius_px=blend(100., strict.search_radius_px),
+                max_gap_rows=round(blend(6, strict.max_gap_rows)),
+                min_observed_rows=math.ceil(blend(2, strict.min_observed_rows)),
+                min_span_cm=blend(1., strict.min_span_cm),
+                max_residual_cm=blend(12., strict.max_residual_cm),
+                history_max_age_s=blend(1.5, strict.history_max_age_s))
+        else:
+            self.heading_scan = self._strict_heading_scan
 
     def snapshot_tracking_state(self):
         """Save lane-tracking memory before a frame that may start a card stop.
@@ -469,7 +490,8 @@ class LineDetector:
         """
         self._state = self._initial_state()
         self._boundary_path_tracker = BoundaryPathTracker(
-            continuous=self.lane_observation_mode == "continuous")
+            continuous=self.lane_observation_mode == "continuous",
+            strictness_pct=self.lane_strictness_pct)
         self._scan_diagnostics = {}
 
     # ═══════════════════════════════════════════════════════════
@@ -1931,6 +1953,18 @@ class LineDetector:
         binary_clean[~valid] = 0
         binary_observed = binary_clean.copy()
         gray_observed = gray_detect.copy()
+        straight_evidence = {}
+        if self.straight_guard_enabled:
+            from straight_road_guard import measure_near_road
+            straight_started = time.perf_counter()
+            straight_evidence = measure_near_road(
+                binary_observed, valid, self._px_to_ground_cm,
+                near_cm=self.straight_near_cm, far_cm=self.straight_far_cm,
+                lane_width_cm=self.lane_width_true_cm,
+                row_z_cm=self._lut_z_cm,
+                row_x_scale_cm=self._lut_cm_per_px*self.lateral_scale,
+                center_x=self.center_x)
+            straight_evidence['straight_analysis_ms'] = (time.perf_counter()-straight_started)*1000.
         gap_added = np.zeros_like(binary_clean)
         if self.lane_gap_fill:
             from lane_gap_completion import complete_lane_gaps
@@ -2439,6 +2473,9 @@ class LineDetector:
         ng_enter_z = obstacle["ng_enter_z"]
         inside_narrow = obstacle["inside_narrow"]
         state["inside_narrow"] = inside_narrow
+        if inside_narrow and straight_evidence:
+            straight_evidence.update(straight_evidence='UNKNOWN',
+                                     straight_reject_reason='narrow_gate')
         if inside_narrow and single_line and measurement_valid:
             # The equal-width prior does not describe the narrowed gate.
             measurement_valid = heading_valid = False
@@ -2451,7 +2488,8 @@ class LineDetector:
             boundary_path["reject_reason"] = "width_prior_not_applicable"
 
         visible_direction = None
-        if (self.lane_observation_mode == "continuous" and not measurement_valid
+        if (self.lane_observation_mode == "continuous" and self.visible_direction_fallback
+                and not measurement_valid
                 and not duplicate_boundary_frame):
             from visible_lane_direction import visible_lane_direction
             visible_direction = visible_lane_direction(binary_observed, self._px_to_ground_cm)
@@ -2547,6 +2585,7 @@ class LineDetector:
             "binary_raw": binary_raw_inv,
             "binary": binary_clean,
             "binary_observed": binary_observed,
+            **straight_evidence,
             "binary_gap_added": gap_added,
             "boundary_tracker_mode": boundary_path["tracking_mode"],
             "boundary_tracker_reject_reason": boundary_path["reject_reason"],

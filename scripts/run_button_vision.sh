@@ -24,6 +24,7 @@ case "${LANE_GAP_FILL:-1}" in
 esac
 command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --lane-observation-mode "${LANE_OBSERVATION_MODE:-continuous}" "$gap_flag"
+    --lane-strictness-pct "${LANE_STRICTNESS_PCT:-50}"
     --lane-gap-max-cm "${LANE_GAP_MAX_CM:-12}"
     --camera "$CAMERA" --headless --start-gate button --start-policy-on-gate
     --start-policy-python "$POLICY_PYTHON" --start-policy-port "$STM32_PORT"
@@ -58,6 +59,29 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
     --recording-root "$RECORDS_DIR/tests" "$video_flag"
     --video-source "$VIDEO_SOURCE" --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
+case "${LANE_VISIBLE_DIRECTION_FALLBACK:-1}" in
+    1) command+=(--lane-visible-direction-fallback) ;;
+    0) command+=(--no-lane-visible-direction-fallback) ;;
+    *) printf 'LANE_VISIBLE_DIRECTION_FALLBACK must be 0 or 1\n' >&2; exit 2 ;;
+esac
+case "${STRAIGHT_ROAD_GUARD:-1}" in
+    1) command+=(--straight-road-guard) ;;
+    0) command+=(--no-straight-road-guard) ;;
+    *) printf 'STRAIGHT_ROAD_GUARD must be 0 or 1\n' >&2; exit 2 ;;
+esac
+command+=(--straight-near-cm "${STRAIGHT_NEAR_CM:-10}"
+          --straight-far-cm "${STRAIGHT_FAR_CM:-40}"
+          --straight-confirm-s "${STRAIGHT_CONFIRM_S:-1}"
+          --straight-exit-s "${STRAIGHT_EXIT_S:-0.6}"
+          --straight-hold-s "${STRAIGHT_HOLD_S:-3}")
+# Enabled by default; open only for stopped precision voting.
+command+=(--card-camera "${CARD_CAMERA:-1}")
+for setting in CAMERA_DEVICE CARD_CAMERA_DEVICE CARD_CAMERA_WIDTH CARD_CAMERA_HEIGHT CARD_CAMERA_HEIGHT_CM CARD_CAMERA_PITCH_DEG CARD_CAMERA_VFOV_DEG CARD_CAMERA_PHOTOMETRIC_MODE; do
+    if [[ -n "${!setting:-}" ]]; then
+        flag="${setting,,}"
+        command+=("--${flag//_/-}" "${!setting}")
+    fi
+done
 for setting in HEADING_REGIONS_CM HEADING_NEAR_CM HEADING_FAR_CM STEERING_ANGLE_WZ_TABLE SEGMENT_REGIONS_CM; do
     if [[ -n "${!setting:-}" ]]; then
         flag="${setting,,}"

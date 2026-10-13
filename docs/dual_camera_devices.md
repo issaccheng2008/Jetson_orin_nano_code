@@ -1,0 +1,51 @@
+# 双摄像头设备绑定与生命周期
+
+本分支默认 CARD_CAMERA=1、主 CAMERA=0，-1 显式关闭副摄像头。旧的本机配置不会被模板覆盖；若实际启动命令仍有 --card-camera -1，仍是单摄像头。
+
+新增 CAMERA_DEVICE / CARD_CAMERA_DEVICE（命令参数 --camera-device / --card-camera-device）优先于数字编号，支持 /dev/v4l/by-id 或 /dev/v4l/by-path。启动输出实际选择路径；缺失路径或主副解析为同一个设备会报错，不会交换角色或静默回退。数字编号只是兼容选择，不保证插拔后身份稳定。
+
+2026-10-12 只读查询板子：两台均为 XHH-260602-KTY 2M，ID_SERIAL_SHORT 均为 01.00.00；by-id 名称冲突，无法用此序列号区分。应按物理 USB 路径绑定，角色须由安装位置确认。
+
+用户已确认：主接 2.1、副接 2.3。无需安装规则时可直接配置稳定路径：
+
+```bash
+CAMERA_DEVICE=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0
+CARD_CAMERA_DEVICE=/dev/v4l/by-path/platform-3610000.usb-usb-0:2.3:1.0-video-index0
+CARD_CAMERA=1
+```
+
+若角色相反，交换这两行路径。不能使用 video-index1 的附属节点代替视频采集节点。固定 USB 接口；接入位置改变时重新核对路径。没有自动替用户猜测主副角色。
+
+主摄像头一直用于巡线、接近停车判断与二维码。起点门控等待第一张图卡时打开副摄像头做图卡分类，图卡确认后释放；进入后续停车精准识别准备窗口时再次打开，在 DONE+稳定等待之前的帧不投票。投票结束/动作开始或窗口结束时释放副摄像头，停车阶段打开失败明确报错，不偷偷用主摄像头代投。冷打开相机有初始化时间，尚未双摄像头硬件计时验证。
+
+主副摄像头应分别配置安装几何。副摄像头默认 raw，不共享主相机 LUT。没有修改模型或电机逻辑。
+
+现场 video0 查询时被视觉进程11208占用，该进程后来能运行说明节点可用；不能仅凭事后进程状态确认17:49那次失败的唯一原因，不要同时启动第二个视觉进程抢占它。
+
+验证：摄像头默认值、稳定路径/重复节点、投票帧时间与真实入口路由，加原单摄像头入口回归共22项通过。旧单摄像头回归用例显式添加 --card-camera -1。仅查询了设备与进程，没有开启摄像头、重启服务或使能电机。
+
+## 固定名称（推荐）
+
+规则文件 config/udev/99-robot-cameras.rules 将接口 2.1 命名为 /dev/robot_main_camera，接口 2.3 命名为 /dev/robot_card_camera。这是 udev 符号链接，不修改硬件序列号。模板已改用这些名字，需要先安装规则；缺少别名会明确报错。
+
+在 Nano 仓库中执行一次：
+
+```bash
+sudo install -m 0644 config/udev/99-robot-cameras.rules /etc/udev/rules.d/99-robot-cameras.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=video4linux --action=add
+sudo udevadm settle
+ls -l /dev/robot_main_camera /dev/robot_card_camera
+```
+
+然后修改现有按钮配置（不是仅改模板）：
+
+```bash
+CAMERA_DEVICE=/dev/robot_main_camera
+CARD_CAMERA_DEVICE=/dev/robot_card_camera
+CARD_CAMERA=1
+```
+
+手动入口对应 --camera-device /dev/robot_main_camera --card-camera-device /dev/robot_card_camera。程序不会根据名字交换主副用途。拔掉设备后别名随设备消失，插回固定接口后重新创建。规则尚未在实车安装验证。
+
+2026-10-12 后续更新：起点首卡也由副摄像头识别。起点没有低头 DONE 事件，因此使用副摄像头打开后取得的新帧；后续停车仍遵守 DONE+稳定时间。起点二维码、行走模糊停车判断继续使用主摄像头。新增起点副摄像头路由及释放的实际入口测试，相关 23 项通过。
