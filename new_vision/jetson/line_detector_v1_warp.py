@@ -186,6 +186,7 @@ class LineDetector:
         self.preprocess_mode = "legacy"
         self.lane_observation_mode = "strict"
         self.lane_strictness_pct = 0.
+        self.visible_direction_fallback = True
         self.lane_gap_fill = False
         self.lane_gap_max_cm = 12.
         self.adaptive_c = -12.0
@@ -420,19 +421,16 @@ class LineDetector:
             raise ValueError('lane observation mode must be strict or continuous')
         if not math.isfinite(strictness_pct) or not 0. <= strictness_pct <= 100.:
             raise ValueError('lane strictness must be between 0 and 100 percent')
-        # The old strict behaviour also contains non-numeric checks. Preserve
-        # the requested endpoint instead of calling continuous gates at 100%
-        # equivalent to the old mode.
-        effective_mode = ('strict' if mode == 'continuous' and strictness_pct == 100.
-                          else mode)
-        self.lane_observation_mode = effective_mode
+        # Percent varies numeric gates only. Categorical recovery rules must
+        # stay fixed, including at 100%, for a controlled threshold comparison.
+        self.lane_observation_mode = mode
         self.lane_strictness_pct = float(strictness_pct)
         self._boundary_path_tracker = BoundaryPathTracker(
-            continuous=effective_mode=='continuous', strictness_pct=strictness_pct)
+            continuous=mode=='continuous', strictness_pct=strictness_pct)
         if not hasattr(self, '_strict_heading_scan'):
             self._strict_heading_scan = self.heading_scan
         from dataclasses import replace
-        if effective_mode == 'continuous':
+        if mode == 'continuous':
             strictness = strictness_pct / 100.
             def blend(loose, strict):
                 return loose + (strict - loose) * strictness
@@ -2490,7 +2488,8 @@ class LineDetector:
             boundary_path["reject_reason"] = "width_prior_not_applicable"
 
         visible_direction = None
-        if (self.lane_observation_mode == "continuous" and not measurement_valid
+        if (self.lane_observation_mode == "continuous" and self.visible_direction_fallback
+                and not measurement_valid
                 and not duplicate_boundary_frame):
             from visible_lane_direction import visible_lane_direction
             visible_direction = visible_lane_direction(binary_observed, self._px_to_ground_cm)

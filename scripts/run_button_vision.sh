@@ -59,6 +59,11 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
     --recording-root "$RECORDS_DIR/tests" "$video_flag"
     --video-source "$VIDEO_SOURCE" --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
+case "${LANE_VISIBLE_DIRECTION_FALLBACK:-1}" in
+    1) command+=(--lane-visible-direction-fallback) ;;
+    0) command+=(--no-lane-visible-direction-fallback) ;;
+    *) printf 'LANE_VISIBLE_DIRECTION_FALLBACK must be 0 or 1\n' >&2; exit 2 ;;
+esac
 case "${STRAIGHT_ROAD_GUARD:-1}" in
     1) command+=(--straight-road-guard) ;;
     0) command+=(--no-straight-road-guard) ;;

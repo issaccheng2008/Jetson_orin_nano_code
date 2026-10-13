@@ -495,10 +495,14 @@ def parse_args():
                         help="Boundary association and local support acceptance; strict restores the prior gates")
     parser.add_argument("--lane-strictness-pct", type=float, default=0.,
                         help="Continuous mode numeric gate interpolation: 0=current permissive, "
-                             "25/50/75=intermediate; 100=original strict mode. "
-                             "Intermediate modes retain continuous categorical fallbacks")
+                             "100=old strict numeric values. All percentages retain "
+                             "the same categorical fallbacks; use observation mode strict separately")
     parser.add_argument("--lane-gap-fill", action=argparse.BooleanOptionalAction, default=True,
                         help="Join short tape gaps with compatible observed endpoint directions")
+    parser.add_argument('--lane-visible-direction-fallback',
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help='In continuous mode, allow direction-only recovery after BOTH/single '
+                             'paths fail. Independent of numeric lane-strictness-pct')
     parser.add_argument("--lane-gap-max-cm", type=float, default=12.,
                         help="Maximum endpoint gap for binary completion, in ground centimetres")
     parser.add_argument('--straight-road-guard', action=argparse.BooleanOptionalAction, default=True,
@@ -969,6 +973,7 @@ def main():
                 detector.set_heading_distances(args.heading_near_cm, args.heading_far_cm)
         detector.preprocess_mode = args.line_preprocess
         detector.set_lane_observation_mode(args.lane_observation_mode, args.lane_strictness_pct)
+        detector.visible_direction_fallback = args.lane_visible_direction_fallback
         detector.lane_gap_fill = args.lane_gap_fill
         detector.lane_gap_max_cm = args.lane_gap_max_cm
         detector.straight_guard_enabled = args.straight_road_guard
@@ -982,6 +987,7 @@ def main():
         print(f"[lane-observation] requested={args.lane_observation_mode}; "
               f"effective={detector.lane_observation_mode}; "
               f"strictness={args.lane_strictness_pct:g}%; "
+              f"direction-fallback={detector.lane_observation_mode == 'continuous' and detector.visible_direction_fallback}; "
               f"gap-fill={args.lane_gap_fill} max={args.lane_gap_max_cm:g}cm", flush=True)
         detector.initial_boundary_side = (None if args.initial_boundary_side == "unknown"
                                           else args.initial_boundary_side)

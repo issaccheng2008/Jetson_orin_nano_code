@@ -20,6 +20,7 @@ def main():
     p.add_argument('--mode', choices=('baseline', 'continuous'), default='baseline')
     p.add_argument('--gap-fill', action='store_true')
     p.add_argument('--strictness-pct', type=float, default=0.)
+    p.add_argument('--visible-direction-fallback', action=argparse.BooleanOptionalAction, default=True)
     p.add_argument('--photometric-mode', default='lut')
     p.add_argument('--max-frames', type=int)
     p.add_argument('--no-save-masks', action='store_true',
@@ -28,6 +29,13 @@ def main():
     sys.path.insert(0, str(args.code_root/'new_vision/jetson'))
     from line_detector_v1_warp import LineDetector
     from photometric_thresholds import load_lut_mapping
+    # Record the exact code/data shared by a same-frame sweep. Revision alone
+    # does not identify an uncommitted detector used during development.
+    code_hashes = {name: hashlib.sha256((args.code_root/'new_vision/jetson'/name).read_bytes()).hexdigest()
+        for name in ('line_detector_v1_warp.py', 'continuous_lane_heading.py',
+                     'lane_boundary_path.py', 'visible_lane_direction.py',
+                     'lane_gap_completion.py', 'line_preprocess.py',
+                     'masked_ground.py', 'camera_config.py', 'photometric_thresholds.py')}
     if args.photometric_mode == 'lut':
         load_lut_mapping(args.code_root/'new_vision/config/photometric_mapping')
     cap = cv2.VideoCapture(str(args.video))
@@ -41,6 +49,7 @@ def main():
     detector.preprocess_mode = 'contrast'
     detector.photometric_mode = args.photometric_mode
     detector.lane_gap_fill = args.gap_fill
+    detector.visible_direction_fallback = args.visible_direction_fallback
     if args.mode != 'baseline':
         detector.set_lane_observation_mode(args.mode, args.strictness_pct)
     crop_w, crop_h = width//2, height-110
@@ -87,6 +96,8 @@ def main():
             moving=meta['vx']>0,valid=bool(debug['measurement_valid']),
             mode=mode,reason=debug['reject_reason'],
             tracker_reason=debug.get('boundary_tracker_reject_reason'),
+            scan_valid=debug.get('lane_scan_valid'),
+            scan_reason=debug.get('lane_scan_reject_reason'),
             position_valid=debug.get('position_valid',debug['measurement_valid']),
             near_cm=debug['near_error_cm'],heading_deg=debug['heading_control_deg'],
             heading_span_cm=debug.get('heading_control_z_span_cm'),
@@ -110,6 +121,19 @@ def main():
     summary=dict(video=str(args.video),sha256=hashlib.sha256(args.video.read_bytes()).hexdigest(),
         code_root=str(args.code_root),mode=args.mode,
         effective_mode=detector.lane_observation_mode,gap_fill=args.gap_fill,
+        code_sha256=code_hashes,
+        index_sha256=(hashlib.sha256(index_path.read_bytes()).hexdigest() if index_path.exists() else None),
+        fixed_settings=dict(line_preprocess=detector.preprocess_mode,
+            photometric_mode=detector.photometric_mode,
+            lut_sha256=({f.name:hashlib.sha256(f.read_bytes()).hexdigest()
+                for f in sorted((args.code_root/'new_vision/config/photometric_mapping').glob('*'))
+                if f.is_file()} if args.photometric_mode == 'lut' else {}),
+            heading_regions_cm=[[20.,22.],[24.,26.]],
+            bird_dimensions=[detector.bird_w,detector.bird_h],
+            gap_max_cm=detector.lane_gap_max_cm,
+            visible_direction_fallback=(detector.lane_observation_mode=='continuous'
+                                        and detector.visible_direction_fallback),
+            tracker_continuous=detector._boundary_path_tracker.continuous),
         strictness_pct=args.strictness_pct,
         unique_frames=len(rows),video_frames_read=video_i,crop=[0,0,crop_w,crop_h],
         modes=dict(counts),moving_modes=dict(moving_counts),invalid_reasons=dict(rejects),

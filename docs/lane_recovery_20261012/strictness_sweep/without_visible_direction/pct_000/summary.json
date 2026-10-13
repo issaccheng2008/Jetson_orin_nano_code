@@ -1,0 +1,78 @@
+{
+  "video": "/tmp/nano_loss_audit/test_120221_007796_2d456e27/video/camera_commands.avi",
+  "sha256": "bc20d535a90dc51ffcfc1273808109df7b75d35cb5048654e25e23081d6800bb",
+  "code_root": "/mnt/d/用户/Lenovo/桌面/Github Repository/jetson_task_worktrees/lane_loss_recovery_20261012",
+  "mode": "continuous",
+  "effective_mode": "continuous",
+  "gap_fill": true,
+  "code_sha256": {
+    "line_detector_v1_warp.py": "4be965501294dbfe4e904104b2e010ac0a39a34d21f737bc63499b7f973fec43",
+    "continuous_lane_heading.py": "fcbddbd2882c98db41e02c3d16df9214613dbe4188cc9f5e3f807c69c53f4400",
+    "lane_boundary_path.py": "2a537cea90f4577a3559716ea24feaffa5d99ec33961c12898dce7c44d1708fa",
+    "visible_lane_direction.py": "261ca1b52dda410986fe4526cc2af318f1cb968342fcb9ee489d16fef8d9c5d4",
+    "lane_gap_completion.py": "ddc6039e704b5985b271fca06973b447bdecd8333487bfeeac52cb7265c4d172",
+    "line_preprocess.py": "4f3cdee22c98596c6a655c2fc95b6e629040a8da1c326bee130c70e46dac150f",
+    "masked_ground.py": "376419d80aa085220b2dbcdf3842b1b5cfd0bb5e166e3a3367a84682aef63649",
+    "camera_config.py": "566d443d9750ef2583d659dc383d875667ec08d1bb6ebb6c5fcc34fe735a7aa3",
+    "photometric_thresholds.py": "0af0d53c9e6d81493e53c8bfe55cf63ed146bdf7659df62ff3b5fc83a7bb533f"
+  },
+  "index_sha256": "403721dc413adf4ab1a852854cc48a980380eff4d77b67ec519fe094b1ad4b29",
+  "fixed_settings": {
+    "line_preprocess": "contrast",
+    "photometric_mode": "lut",
+    "lut_sha256": {
+      "lut_bgr.npy": "9d539367a4e1d3f5d336f9ea254e76fb5c15b5a4e60bd518dddc1a33927e91e8",
+      "lut_gray.npy": "fd93e92ef7b250c9a72149700b8ea679fecf7d5b692a7bcc882637dde9bbc7d7",
+      "lut_max.npy": "67647b0f5b12d319c106178fd64c807f3cb9f453adf9195af8595e2eb6928fe8",
+      "mapping.json": "9a5ea763d94ff1f445d4cc5d57f0104aa992bad7a4076052f0e11a6e67135a8b"
+    },
+    "heading_regions_cm": [
+      [
+        20.0,
+        22.0
+      ],
+      [
+        24.0,
+        26.0
+      ]
+    ],
+    "bird_dimensions": [
+      623,
+      466
+    ],
+    "gap_max_cm": 12.0,
+    "visible_direction_fallback": false,
+    "tracker_continuous": true
+  },
+  "strictness_pct": 0.0,
+  "unique_frames": 466,
+  "video_frames_read": 852,
+  "crop": [
+    0,
+    0,
+    480,
+    358
+  ],
+  "modes": {
+    "BOTH": 286,
+    "UNKNOWN": 126,
+    "RIGHT_ONLY": 32,
+    "LOST": 8,
+    "LEFT_ONLY": 14
+  },
+  "moving_modes": {
+    "BOTH": 206,
+    "RIGHT_ONLY": 31,
+    "UNKNOWN": 69,
+    "LOST": 8,
+    "LEFT_ONLY": 13
+  },
+  "invalid_reasons": {
+    "side_ambiguous": 126,
+    "no_reliable_boundary": 8
+  },
+  "bridges": 392,
+  "added_pixels": 91035,
+  "mean_process_ms": 102.54397902906524,
+  "limitations": "Compressed recorded bird view, resized to native grid; no second IPM. Repeated source frames skipped. Centimetres are replay estimates. Validity/visibility continuity does not measure driving success or geometric accuracy."
+}
