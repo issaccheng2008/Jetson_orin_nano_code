@@ -29,6 +29,7 @@ from policy_bridge import ConnectorClient, SteeringController
 from line_telemetry import LineTelemetry
 from command_video import line_lost
 from steering_command_window import SteeringCommandWindow, effective_policy_hold
+from start_gate import resolve_card_shapes
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
 CARD_NAMES_ZH = {
@@ -85,6 +86,21 @@ def parse_args():
     parser.add_argument('--camera-async', action=argparse.BooleanOptionalAction, default=True,
                         help='Capture continuously in a worker; process only the latest frame')
     parser.add_argument("--camera", type=int, default=int(os.getenv("CAM_IDX", camera["index"])))
+    parser.add_argument("--card-camera", type=int, default=1,
+                        help="Optional second /dev/videoN for stopped card classification only; -1 disables it")
+    parser.add_argument("--camera-device", default=None, help="Stable main capture path, e.g. /dev/v4l/by-path/...-video-index0")
+    parser.add_argument("--card-camera-device", default=None, help="Stable stopped-card capture path; overrides card camera index")
+    parser.add_argument("--card-camera-width", type=int, default=1280)
+    parser.add_argument("--card-camera-height", type=int, default=720)
+    parser.add_argument("--card-camera-height-cm", type=float, default=None,
+                        help="Second camera mount height; defaults to --camera-height-cm")
+    parser.add_argument("--card-camera-pitch-deg", type=float, default=None,
+                        help="Second camera optical downward pitch; defaults to --camera-pitch-deg")
+    parser.add_argument("--card-camera-vfov-deg", type=float, default=None,
+                        help="Second camera vertical field of view; defaults to --camera-vfov-deg")
+    parser.add_argument("--card-camera-photometric-mode",
+                        choices=("raw", "threshold", "match", "normalize", "legacy"),
+                        default="raw", help="Photometry for stopped-card camera only; primary-camera LUT is not shared")
     parser.add_argument("--width", type=int, default=camera["width"])
     parser.add_argument("--height", type=int, default=camera["height"])
     parser.add_argument("--camera-height-cm", type=float,
@@ -623,6 +639,18 @@ def parse_args():
             or min(args.straight_confirm_s,args.straight_exit_s) <= 0
             or args.straight_hold_s < max(args.straight_confirm_s,args.straight_exit_s)):
         parser.error('invalid straight road region or confirmation/hold durations')
+    if args.card_camera < -1 or (not args.camera_device and not args.card_camera_device and args.card_camera == args.camera):
+        parser.error("--card-camera must be -1 or a different camera index")
+    if args.card_camera_device and args.no_shape_detect:
+        parser.error("--card-camera requires shape detection")
+    if args.card_camera_width <= 0 or args.card_camera_height <= 0:
+        parser.error("second camera dimensions must be positive")
+    for name, lo, hi in (("card_camera_height_cm", 0., float("inf")),
+                         ("card_camera_pitch_deg", 0., 90.),
+                         ("card_camera_vfov_deg", 0., 180.)):
+        value = getattr(args, name)
+        if value is not None and not (math.isfinite(value) and lo < value < hi):
+            parser.error(f"--{name.replace('_', '-')} is outside its valid range")
     if args.width <= 0 or args.height <= 0:
         parser.error("camera dimensions must be positive")
     if (not all(math.isfinite(v) for v in (args.camera_height_cm, args.camera_pitch_deg,
@@ -761,6 +789,8 @@ def parse_args():
                 parser.error(str(exc))
     if args.wz_mode == "segments":
         args.lane_fit_segments = True
+    if args.no_shape_detect:
+        args.card_camera = -1
     return args
 
 
@@ -856,6 +886,11 @@ def main():
     card_trigger_frac = (args.card_trigger_frac if args.card_trigger_frac is not None
                          else trigger_frac_at_dist(args.card_trigger_dist_cm))
     card_trigger_width = trigger_width_at_dist(args.card_trigger_dist_cm)
+    print(f"[card-stop] configured distance={args.card_trigger_dist_cm:g}cm; "
+          f"box width>={card_trigger_width:.1f}px; "
+          f"no-box cue cy>={card_trigger_frac:.3f}"
+          f"{' (explicit cy override)' if args.card_trigger_frac is not None else ' (distance-derived)'}; "
+          "cue score only confirms presence, it does not set stop distance", flush=True)
 
     from photometric_thresholds import load_lut_mapping, resolve_mode
     if resolve_mode(args.photometric_mode) == "lut":
@@ -866,7 +901,9 @@ def main():
                              f"{args.photometric_lut_dir}: {exc}")
         print(f"[photometric] lut fixed->auto mapping: {args.photometric_lut_dir} "
               "(fixed camera settings must match the calibration)", flush=True)
-    shape = shape_names = None
+    shape = precision_shape = shape_names = None
+    card_camera_mount_pitch = (args.card_camera_pitch_deg
+        if args.card_camera_pitch_deg is not None else args.camera_pitch_deg)
     if not args.no_shape_detect:
         from shape_detector import ShapeDetector
         # run_robot.py's cooldown, so a card cannot re-fire while it is still in view.
@@ -878,6 +915,18 @@ def main():
               f"effective={resolve_mode(args.photometric_mode)}", flush=True)
         shape_names = {number: name for name, number in shape.action_map.items()}
         shape_numbers = dict(shape.action_map)
+        if args.card_camera_device or args.card_camera >= 0:
+            precision_shape = ShapeDetector(stable_frames=args.card_stable_frames,
+                                            cooldown_ms=3200, debug=False)
+            precision_shape.preprocess_mode = args.shape_preprocess
+            precision_shape.photometric_mode = args.card_camera_photometric_mode
+            precision_shape.cfg["cam_height_cm"] = (args.card_camera_height_cm
+                if args.card_camera_height_cm is not None else args.camera_height_cm)
+            precision_shape.cfg["cam_pitch_deg"] = card_camera_mount_pitch
+            precision_shape.cfg["cam_vfov_deg"] = (args.card_camera_vfov_deg
+                if args.card_camera_vfov_deg is not None else args.camera_vfov_deg)
+            precision_shape.cfg["area_min"] = int(precision_shape._card_area_at_dist(
+                precision_shape.cfg["max_dist_cm"]))
 
     # 起跑门控。--help 依旧不碰 cv2：QrReader 只在真的要用二维码时才 import。
     start_gate = qr_reader = None
@@ -942,12 +991,17 @@ def main():
     client = ConnectorClient(args.connector_host, args.connector_port)
     cap = None
     camera_reader = None
+    card_camera_reader = None
     try:
-        cap = open_camera(args.camera, args.width, args.height)
+        from camera_devices import resolve_devices
+        main_device, card_device = resolve_devices(args.camera, args.card_camera,
+                                                   args.camera_device, args.card_camera_device)
+        print(f"[cameras] main={main_device}; stopped-card={card_device}; secondary opens only during stopped voting", flush=True)
+        cap = open_camera(main_device, args.width, args.height)
         if not cap.isOpened():
-            raise RuntimeError(f"Cannot open camera {args.camera}")
+            raise RuntimeError(f"Cannot open main camera {main_device}; check capture node, permission and another process holding it")
         from camera_controls import apply_camera_controls
-        camera_control_report = apply_camera_controls(f'/dev/video{args.camera}',args)
+        camera_control_report = apply_camera_controls(main_device if isinstance(main_device,str) else f'/dev/video{main_device}',args)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or args.width
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or args.height
         detector = LineDetector(width, height, cam_height_cm=args.camera_height_cm,
@@ -1189,7 +1243,7 @@ def main():
                                 "lane_gap_completion.py",
                                 "lane_boundary_path.py", "continuous_lane_heading.py",
                                 "straight_road_guard.py",
-                                "shape_detector.py", "policy_bridge.py",
+                                "shape_detector.py", "policy_bridge.py", "card_vote_camera.py", "camera_devices.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
                                 "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
@@ -1324,6 +1378,9 @@ def main():
                     effective_pitch = attitude.value
             if shape is not None:
                 shape.set_camera_pitch_deg(effective_pitch)
+            if precision_shape is not None:
+                precision_shape.set_camera_pitch_deg(
+                    card_camera_mount_pitch + effective_pitch - args.camera_pitch_deg)
             if args.line_pitch:
                 # 巡线也吃俯角，条件是"车没在走"：停车窗口、窗口关掉之后的
                 # --line-pitch-hold-s（机身要走回站姿）、以及任何发出去的
@@ -1435,6 +1492,14 @@ def main():
             card_dbg = None
             card_detection_mode = None
             card_vote_decision = None
+            card_frame_source = None
+            card_camera_status = None
+            card_camera_meta = {}
+            card_primary_shape = None
+            card_secondary_shape = None
+            startup_shape_candidate = None
+            startup_shape_source = None
+            card_shape_source = None
             # ── 阀1：二维码 ──
             # 只在还没扫到时跑，而且每 --qr-every 帧才解一次：detectAndDecode 是纯
             # CPU 的，1280x720 raw 十几毫秒、再放大一倍几十毫秒，逐帧跑会把主循环
@@ -1457,6 +1522,28 @@ def main():
                         qr_odd_seen.add(reading.payload)
                         print(f"[start-gate] ⚠️ 扫到 payload={reading.payload!r}，"
                               f"不是 {start_gate.expected_qr!r}，忽略", flush=True)
+            startup_shape_needed = bool(
+                gate_window_open and start_gate is not None
+                and start_gate.require_shape and not start_gate.shape_passed
+                and not (args.start_gate == 'button' and start_gate.button_passed))
+            stopped_vote_needed = processed < stop_until and not card_action_triggered
+            secondary_needed = card_device is not None and (
+                startup_shape_needed or stopped_vote_needed)
+            if secondary_needed and card_camera_reader is None:
+                from latest_camera import LatestCamera
+                from card_vote_camera import CardVoteCamera
+                card_cap = open_camera(card_device, args.card_camera_width, args.card_camera_height)
+                if not card_cap.isOpened():
+                    card_cap.release()
+                    raise RuntimeError(f"Cannot open stopped-card camera {card_device}")
+                card_camera_reader = CardVoteCamera(LatestCamera(card_cap).start())
+                print(f"[card-camera] opened {card_device} for "
+                      f"{'startup shape gate' if startup_shape_needed else 'stopped recognition'}", flush=True)
+            elif not secondary_needed and card_camera_reader is not None:
+                if not card_camera_reader.close():
+                    raise RuntimeError('Stopped-card capture did not terminate; refusing duplicate open')
+                card_camera_reader = None
+                print('[card-camera] released after stopped recognition', flush=True)
             if shape is not None and not tilting and (frames % shape_period == 0):
                 classify_card = bool(
                     (gate_window_open and start_gate is not None
@@ -1464,10 +1551,53 @@ def main():
                     or (processed < stop_until and not card_action_triggered))
                 card_detection_mode = "classify" if classify_card else "presence"
                 shape_update_start_ns = time.perf_counter_ns()
-                action, card_dbg = shape.update(
-                    frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
-                    classify=classify_card, issue_action=False,
-                    proposal_mode=(args.shape_proposal_mode if classify_card else "all"))
+                shape_frame = frame
+                card_frame_source = "primary"
+                dual_vote = startup_shape_needed or stopped_vote_needed
+                primary_card_dbg = None
+                if dual_vote:
+                    # Each camera owns its classifier state. Fuse the two
+                    # results into at most one vote for this capture cycle.
+                    action, card_dbg = shape.update(
+                        frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
+                        classify=True, issue_action=False,
+                        proposal_mode=args.shape_proposal_mode)
+                    primary_card_dbg = card_dbg
+                    card_primary_shape = card_dbg.get("shape")
+                if dual_vote and card_camera_reader is not None:
+                    # The startup gate has no body re-pose: the newly opened
+                    # capture supplies its own fresh frames. Normal stops wait
+                    # for the re-pose DONE + settle timestamp.
+                    vote_start = (card_vote_ready_at or tilt_until) if stopped_vote_needed else 0.0
+                    shape_frame, card_camera_meta, card_camera_status = (
+                        card_camera_reader.sample(vote_start))
+                    if shape_frame is not None:
+                        card_frame_source = "secondary"
+                    else:
+                        shape_frame = frame
+                if dual_vote and card_frame_source == "secondary":
+                    action, card_dbg = precision_shape.update(
+                        shape_frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
+                        classify=True, issue_action=False,
+                        proposal_mode=args.shape_proposal_mode)
+                    card_secondary_shape = card_dbg.get("shape")
+                    if primary_card_dbg.get("presence"):
+                        # A card visible to either camera remains present while
+                        # the stopped vote is active.
+                        card_dbg = dict(card_dbg, presence=True)
+                elif not dual_vote:
+                    action, card_dbg = shape.update(
+                        frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
+                        classify=classify_card, issue_action=False,
+                        proposal_mode=(args.shape_proposal_mode if classify_card else "all"))
+                if dual_vote:
+                    fused_shape, card_shape_source = resolve_card_shapes(
+                        card_primary_shape, card_secondary_shape)
+                    if startup_shape_needed:
+                        startup_shape_candidate = fused_shape
+                        startup_shape_source = card_shape_source
+                    else:
+                        card_dbg = dict(card_dbg, shape=fused_shape)
                 shape_update_ms = (time.perf_counter_ns() - shape_update_start_ns) / 1_000_000.0
                 # Count this call's two independent stop-gate evidence paths,
                 # including early cue hits that have not filled its vote window.
@@ -1499,7 +1629,7 @@ def main():
                         f"{dumped:04d}_{card_dbg.get('shape')}"
                         f"_cy{card_dbg.get('presence_cy_frac')}"
                         f"_g{card_dbg.get('card_found') and 1 or 0}")
-                    cv2.imwrite(stem + ".jpg", frame)
+                    cv2.imwrite(stem + ".jpg", shape_frame)
                     with open(stem + ".json", "w", encoding="utf-8") as handle:
                         json.dump({"t": processed, **card_dbg}, handle,
                                   indent=1, default=str)
@@ -1652,7 +1782,8 @@ def main():
                         f"rej={' '.join(f'{k}:{n}' for k, n in rej) or '-'} "
                         f"armed={int(bool(card_armed))} "
                         f"mode={card_detection_mode} "
-                        f"source={card_dbg.get('shape_proposal_source') or '-'}",
+                        f"source={card_dbg.get('shape_proposal_source') or '-'} "
+                        f"cameras={card_shape_source or '-'}",
                         flush=True)
             # ── 阀2：认出第一张图卡的形状 ──
             # 放在停车触发之后是故意的：释放那一帧仍然算在门控里（card_armed 这一帧
@@ -1661,8 +1792,14 @@ def main():
             if start_gate is not None:
                 if (start_gate.require_shape and not start_gate.shape_passed
                         and not (args.start_gate == "button" and start_gate.button_passed)
-                        and card_dbg and card_dbg.get("shape")):
-                    if start_gate.observe_shape(card_dbg["shape"]):
+                        and startup_shape_source == "conflict"):
+                    start_gate.reject_shape_conflict()
+                    print(f"[start-gate] 图卡双摄冲突：主={card_primary_shape} "
+                          f"副={card_secondary_shape}；本帧弃票并清除旧票", flush=True)
+                if (start_gate.require_shape and not start_gate.shape_passed
+                        and not (args.start_gate == "button" and start_gate.button_passed)
+                        and startup_shape_candidate):
+                    if start_gate.observe_shape(startup_shape_candidate):
                         evidence = (f"最近 {len(start_gate.shape_votes)} 票 "
                                     f"{start_gate.vote_tally()}"
                                     if start_gate.shape_voting else
@@ -1671,7 +1808,7 @@ def main():
                         print(f"  ◆◆◆  阀2 通过：图卡 "
                               f"{CARD_NAMES_ZH.get(start_gate.last_shape, '?')}"
                               f"（{start_gate.last_shape}）"
-                              f"    {evidence}", flush=True)
+                              f"    {evidence} 来源={startup_shape_source}", flush=True)
                         print("=" * 68 + "\n", flush=True)
                 if (startup_button_link is not None
                         and start_gate.observe_button(startup_button_link.poll(start_gate.shape_passed))):
@@ -1744,8 +1881,9 @@ def main():
                     _name = card_dbg["shape"]
                     card_votes[_name] = card_votes.get(_name, 0) + 1
                     card_vote_total += 1
-                    if (card_dbg.get("shape_local_candidate") == _name
-                            and card_dbg.get("shape_legacy_candidate") == _name):
+                    if (card_shape_source == "both" or
+                            (card_dbg.get("shape_local_candidate") == _name
+                             and card_dbg.get("shape_legacy_candidate") == _name)):
                         card_agreement_streak = (
                             card_agreement_streak + 1
                             if card_agreement_shape == _name else 1)
@@ -1984,6 +2122,14 @@ def main():
                     line_process_ms=line_process_ms, qr_decode_ms=qr_decode_ms,
                     shape_update_ms=shape_update_ms, decision_ms=decision_ms,
                     card_detection_mode=card_detection_mode,
+                    card_frame_source=card_frame_source,
+                    card_primary_shape=card_primary_shape,
+                    card_secondary_shape=card_secondary_shape,
+                    startup_shape_source=startup_shape_source,
+                    card_shape_source=card_shape_source,
+                    card_camera_status=card_camera_status,
+                    card_camera_sequence=card_camera_meta.get('camera_sequence'),
+                    card_camera_frame_age_ms=card_camera_meta.get('camera_frame_age_ms'),
                     steering_paired_count=steering_paired_count,
                     steering_single_count=steering_single_count,
                     card_stop_box_hit_count=card_stop_box_hit_count,
@@ -2164,6 +2310,9 @@ def main():
                 policy_launcher.close()
             if attitude is not None:
                 attitude.close()
+            if card_camera_reader is not None:
+                if not card_camera_reader.close():
+                    print('[card-camera] capture read still blocked', flush=True)
             if camera_reader is not None:
                 if not camera_reader.close():
                     print('[camera] capture read still blocked; worker will release on return', flush=True)

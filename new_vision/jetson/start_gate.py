@@ -18,6 +18,19 @@ from collections import Counter, deque
 MODES = ("off", "qr", "shape", "both", "button")
 
 
+def resolve_card_shapes(primary_shape, secondary_shape):
+    """Fuse two independent cameras into one vote for this capture cycle."""
+    if primary_shape and secondary_shape:
+        if primary_shape != secondary_shape:
+            return None, "conflict"
+        return primary_shape, "both"
+    if primary_shape:
+        return primary_shape, "primary"
+    if secondary_shape:
+        return secondary_shape, "secondary"
+    return None, "none"
+
+
 class StartGate:
     def __init__(self, mode="both", expected_qr="1", shape_confirm=2,
                  *, shape_vote_min=8, shape_vote_window=24, shape_voting=False):
@@ -102,6 +115,13 @@ class StartGate:
             return False
         self.shape_passed = True
         return True
+
+    def reject_shape_conflict(self):
+        """Do not carry votes across a simultaneous two-camera disagreement."""
+        if not self.shape_passed:
+            self.last_shape = None
+            self.shape_streak = 0
+            self.shape_votes.clear()
 
     def status(self):
         if self.mode == "button":

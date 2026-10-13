@@ -67,6 +67,14 @@ command+=(--straight-near-cm "${STRAIGHT_NEAR_CM:-10}"
           --straight-confirm-s "${STRAIGHT_CONFIRM_S:-1}"
           --straight-exit-s "${STRAIGHT_EXIT_S:-0.6}"
           --straight-hold-s "${STRAIGHT_HOLD_S:-3}")
+# Enabled by default; open only for stopped precision voting.
+command+=(--card-camera "${CARD_CAMERA:-1}")
+for setting in CAMERA_DEVICE CARD_CAMERA_DEVICE CARD_CAMERA_WIDTH CARD_CAMERA_HEIGHT CARD_CAMERA_HEIGHT_CM CARD_CAMERA_PITCH_DEG CARD_CAMERA_VFOV_DEG CARD_CAMERA_PHOTOMETRIC_MODE; do
+    if [[ -n "${!setting:-}" ]]; then
+        flag="${setting,,}"
+        command+=("--${flag//_/-}" "${!setting}")
+    fi
+done
 for setting in HEADING_REGIONS_CM HEADING_NEAR_CM HEADING_FAR_CM STEERING_ANGLE_WZ_TABLE SEGMENT_REGIONS_CM; do
     if [[ -n "${!setting:-}" ]]; then
         flag="${setting,,}"
