@@ -1551,6 +1551,8 @@ def main():
             if secondary_needed and card_camera_reader is None:
                 from latest_camera import LatestCamera
                 from card_vote_camera import CardVoteCamera
+                from camera_devices import verify_camera_roles
+                verify_camera_roles(main_device, card_device)
                 card_cap = open_camera(card_device, args.card_camera_width, args.card_camera_height)
                 if not card_cap.isOpened():
                     card_cap.release()

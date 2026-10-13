@@ -1,3 +1,4 @@
-# Identical camera serials: identify capture node by fixed USB port instead.
+# Main camera is USB 2.1; the other capture camera is the card camera.
+# Application startup verifies that there is exactly one other camera.
 SUBSYSTEM=="video4linux", ATTR{index}=="0", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.1:1.0", SYMLINK+="robot_main_camera"
-SUBSYSTEM=="video4linux", ATTR{index}=="0", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.3:1.0", SYMLINK+="robot_card_camera"
+SUBSYSTEM=="video4linux", ATTR{index}=="0", ENV{ID_PATH}=="platform-3610000.usb-usb-0:*", ENV{ID_PATH}!="platform-3610000.usb-usb-0:2.1:1.0", SYMLINK+="robot_card_camera"
