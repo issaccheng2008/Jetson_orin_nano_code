@@ -24,7 +24,7 @@ case "${LANE_GAP_FILL:-1}" in
 esac
 command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --lane-observation-mode "${LANE_OBSERVATION_MODE:-continuous}" "$gap_flag"
-    --lane-strictness-pct "${LANE_STRICTNESS_PCT:-0}"
+    --lane-strictness-pct "${LANE_STRICTNESS_PCT:-50}"
     --lane-gap-max-cm "${LANE_GAP_MAX_CM:-12}"
     --camera "$CAMERA" --headless --start-gate button --start-policy-on-gate
     --start-policy-python "$POLICY_PYTHON" --start-policy-port "$STM32_PORT"

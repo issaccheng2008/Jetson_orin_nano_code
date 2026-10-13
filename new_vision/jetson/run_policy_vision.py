@@ -493,7 +493,7 @@ def parse_args():
     parser.add_argument("--lane-observation-mode", choices=("continuous", "strict"),
                         default="continuous",
                         help="Boundary association and local support acceptance; strict restores the prior gates")
-    parser.add_argument("--lane-strictness-pct", type=float, default=0.,
+    parser.add_argument("--lane-strictness-pct", type=float, default=50.,
                         help="Continuous mode numeric gate interpolation: 0=current permissive, "
                              "100=old strict numeric values. All percentages retain "
                              "the same categorical fallbacks; use observation mode strict separately")
