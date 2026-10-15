@@ -26,6 +26,29 @@ def legacy_hold():
 
 
 class WalkingCommandHoldTests(unittest.TestCase):
+    def test_packet_hold_is_restored_after_stop_and_legacy_restart(self):
+        seen, _ = self.run_main([0., .1, .2, .3],
+            [[.2,0,.3], [0,0,0], [.2,0,-.2], [.2,0,.1]],
+            command_min_hold_s=0., command_hold=WalkingCommandHold(0.),
+            snapshot_extra=[{'command_min_hold_s': .5}, {}, {}, {}])
+        np.testing.assert_allclose([row[1][10] for row in seen], [.3,0.,-.2,.1])
+
+    def test_changing_config_does_not_shorten_a_promised_block(self):
+        hold = WalkingCommandHold(.5)
+        hold.apply([.2,0,.3], 10.)
+        hold.min_hold_s = 0.
+        np.testing.assert_allclose(hold.apply([.2,0,-.2], 10.1), [.2,0,.3])
+        np.testing.assert_allclose(hold.apply([.2,0,-.2], 10.5), [.2,0,-.2])
+        np.testing.assert_allclose(hold.apply([.2,0,.1], 10.6), [.2,0,.1])
+
+    def test_window_duration_from_udp_reaches_actual_model_without_cli_hold(self):
+        harness = WalkingCommandHoldTests()
+        seen, _ = harness.run_main([0., .1, .499, .5, .51],
+            [[.2,0,.3], [.2,0,-.2], [.2,0,-.2], [.2,0,-.2], [0,0,0]],
+            command_min_hold_s=0., command_hold=WalkingCommandHold(0.),
+            snapshot_extra={'command_min_hold_s': .5})
+        np.testing.assert_allclose([row[1][10] for row in seen], [.3,.3,.3,-.2,0.])
+
     def test_fixed_duration_pair_latest_request_and_exact_boundary(self):
         self.assertEqual(legacy_hold().min_hold_s, .5)
         hold = legacy_hold()
@@ -86,7 +109,7 @@ class WalkingCommandHoldTests(unittest.TestCase):
         np.testing.assert_array_equal(stopped, np.zeros(3))
         self.assertIsNone(hold.applied)
 
-    def run_main(self, times, requests, *, hold_upright=None, onefoot_at=None, command_hold=None, command_min_hold_s=None, feedback=False):
+    def run_main(self, times, requests, *, hold_upright=None, onefoot_at=None, command_hold=None, command_min_hold_s=None, feedback=False, snapshot_extra=None):
         seen = []
         clock = SimpleNamespace(now=9.)
         hold = legacy_hold() if command_hold is None else command_hold
@@ -108,6 +131,9 @@ class WalkingCommandHoldTests(unittest.TestCase):
                         event_action=3 if index == onefoot_at else -1,
                         hold_upright=bool(hold_upright and hold_upright[index]))
                      for index, request in enumerate(requests)]
+        if snapshot_extra:
+            snapshots = [SimpleNamespace(**(vars(s) | (snapshot_extra[i]
+                if isinstance(snapshot_extra, list) else snapshot_extra))) for i,s in enumerate(snapshots)]
         source.get_snapshot.side_effect = snapshots
         ticks = iter(times)
         def get_state(**unused):
@@ -128,8 +154,8 @@ class WalkingCommandHoldTests(unittest.TestCase):
                 argv.append('--enable-motors')
             if onefoot_at is not None:
                 argv += ["--one-foot-model", "foot.onnx"]
-            if command_min_hold_s is not None:
-                argv += ['--command-min-hold-s', str(command_min_hold_s)]
+            argv += ['--command-min-hold-s', str(hold.min_hold_s
+                if command_min_hold_s is None else command_min_hold_s)]
             with patch("sys.argv", argv):
                 args = main.parse_args()
             shape, foot = Mock(), Mock()

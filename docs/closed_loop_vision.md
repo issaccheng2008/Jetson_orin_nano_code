@@ -39,6 +39,49 @@ Bar crossing is not signalled. The original CPU/GPU `run_robot.py`
 entry points still produce V2 serial messages and are not the policy bridge.
 Only the policy process should open the STM32 serial device.
 
+## Timed yaw windows (heading and segments)
+
+With `STEERING_COMMAND_WINDOW_S=0.5`, each completed visual frame sends a
+candidate `wz` mapped from the filtered steering demand, including geometric
+protection and the straight-road restriction. The packet includes
+`steering_window: {seconds: 0.5, median: "lower", valid: true, origin_s: ...}`.
+`origin_s` is the start of normal walking collection on the host monotonic
+clock; samples are assigned by their receipt time after visual processing,
+not by a frame's earlier capture/processing timestamp.
+
+The connector closes half-open bins `[t0,t0+0.5)`, `[t0+0.5,t0+1.0)`, etc.
+on its existing 50 Hz clock, even if vision is busy processing the next image.
+The first bin continues publishing zero while collecting. A candidate at
+0.12 s, 0.30 s and 0.40 s with rates 0.12, 0.30 and 0.30 produces 0.30 at
+the first boundary; a candidate finishing at 0.52 s belongs to the next bin.
+`STEERING_COMMAND_MEDIAN=lower|upper` chooses the actual lower/upper middle
+sample for even counts, including signed rates; it never averages two gears.
+Invalid/lost observations do not enter the median. A bin with only loss
+compensation uses its latest fallback, while an entirely empty bin extends
+the preceding command.
+
+Every connector tick publishes a command. Each applied result lasts at least
+one window; late ticks can extend a block but cannot shorten it or send a
+burst of old results. The window duration also travels to the policy as
+`command_min_hold_s`, enforcing the minimum at actual model input even for a
+separately started policy with CLI hold set to zero. The automatically launched
+policy uses at least the window duration as its CLI minimum too. These are
+minimum durations on a general-purpose OS: scheduling and the 20 ms control
+cycle may delay a change beyond exactly 0.500 s.
+
+Card stops (`vx=0`), posture/action requests, capture failures and shutdown
+bypass collection immediately and clear pending motion. Resuming starts a
+fresh collection session. `WINDOW_VISION_TIMEOUT_S=1` configures the connector's
+`--window-vision-timeout`; no candidate for that duration stops the robot and
+clears the window. The effective timeout is at least one window. Legacy and
+continuous packets retain the separate `--vision-timeout=0.25` behavior.
+Set `STEERING_COMMAND_WINDOW_S=0` to disable aggregation.
+
+In new recordings, **VISION** shows the per-frame candidate, while **ROBOT CMD**
+shows the actual model command after median scheduling, holding and takeovers.
+Only the latter represents the applied yaw block; neither is measured body
+velocity. Update/restart vision, connector and policy together for this protocol.
+
 ## How a card is handled, and in what order
 
 Detection is split in two because the two halves have very different difficulty.

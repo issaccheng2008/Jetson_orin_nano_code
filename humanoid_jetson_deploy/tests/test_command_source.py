@@ -96,6 +96,22 @@ class ScriptedCommandSourceTests(unittest.TestCase):
 
 
 class CommandSourceTests(unittest.TestCase):
+    def test_window_hold_duration_arrives_over_udp_and_expires(self):
+        source = UdpCommandSource(0, timeout_s=.1)
+        publisher = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            publisher.sendto(json.dumps(dict(vx=.2, wz=.3, command_min_hold_s=.5,
+                event_id=99, event_action=3)).encode(), source.sock.getsockname())
+            deadline = time.monotonic()+.5
+            while source.get_snapshot().event_id != 99 and time.monotonic() < deadline:
+                time.sleep(.005)
+            self.assertEqual(getattr(source.get_snapshot(), 'command_min_hold_s', None), .5)
+            time.sleep(.12)
+            self.assertEqual(source.get_snapshot().command_min_hold_s, 0.)
+        finally:
+            publisher.close()
+            source.close()
+
     def test_shape_event_snapshot_survives_repeated_udp_packets_and_expires(self) -> None:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         probe.bind(("127.0.0.1", 0))

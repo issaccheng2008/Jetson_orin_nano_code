@@ -20,6 +20,7 @@ class CommandSnapshot:
     event_action: int = -1
     hold_upright: bool = False
     card_tilt: bool = False
+    command_min_hold_s: float = 0.0
 
 
 # 偏航指令的硬上限。原来写死 0.5：视觉那条路自己会夹（--max-wz 默认 0.5），
@@ -156,6 +157,7 @@ class UdpCommandSource:
         self.event_action = -1
         self.hold_upright = False
         self.card_tilt = False
+        self.command_min_hold_s = 0.0
         self.last_update = 0.0
         self.lock = threading.Lock()
         self.stop = threading.Event()
@@ -185,6 +187,9 @@ class UdpCommandSource:
                     raise ValueError("invalid shape event")
                 hold_upright = bool(message.get("hold_upright", False))
                 card_tilt = bool(message.get("card_tilt", False))
+                command_min_hold_s = float(message.get('command_min_hold_s', 0.))
+                if not math.isfinite(command_min_hold_s) or command_min_hold_s < 0:
+                    raise ValueError('invalid minimum command hold')
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError):
                 continue
             with self.lock:
@@ -194,6 +199,7 @@ class UdpCommandSource:
                 self.event_action = event_action if event_id else -1
                 self.hold_upright = hold_upright
                 self.card_tilt = card_tilt
+                self.command_min_hold_s = command_min_hold_s
                 self.last_update = time.monotonic()
 
     def get(self) -> np.ndarray:
@@ -205,11 +211,12 @@ class UdpCommandSource:
             qr, event_id, event_action = self.qr, self.event_id, self.event_action
             hold_upright = self.hold_upright
             card_tilt = self.card_tilt
+            command_min_hold_s = getattr(self, 'command_min_hold_s', 0.)
             age = time.monotonic() - self.last_update
         if age > self.timeout_s:
             return CommandSnapshot(np.zeros(3, dtype=np.float32))
         return CommandSnapshot(command, qr, event_id, event_action, hold_upright,
-                               card_tilt)
+                               card_tilt, command_min_hold_s)
 
     def close(self) -> None:
         self.stop.set()

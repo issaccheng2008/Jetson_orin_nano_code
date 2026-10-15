@@ -221,7 +221,7 @@ class CommandVideo:
                                   if self.frame_source == 'bird_pair' else
                                   'detector birdseye final lane candidate mask; white on black; HUD below'
                                   if self.frame_source == 'binary' else 'original camera BGR; HUD overlay'),
-                    command_source='vision publish -> connector; before connector bias/model hold',
+                    command_source='vision per-frame candidate -> connector median window/bias -> model hold; VISION is not the held execution block',
                     executed_command_source='policy feedback after model hold/takeovers and serial send; not measured body motion',
                     colour='BGR blue for tracking, red for lost line; STOP has no direction arrow',
                     clock='video_time_s + origin_monotonic_s; ceil to next tick; repeated source frames allowed',

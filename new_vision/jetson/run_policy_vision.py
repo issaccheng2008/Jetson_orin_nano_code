@@ -227,8 +227,8 @@ def parse_args():
                         help='Optional JSON array of duration_s/vx/wz steps before first card action; '
                              'overrides startup-first-walk-s; empty uses a single straight step.')
     parser.add_argument('--command-min-hold-s', type=float, default=0.0,
-                        help='Legacy minimum walking command duration in launched policy; '
-                             'used only when steering-command-window-s is 0; median window disables it')
+                        help='Minimum actual walking command duration in launched policy; '
+                             'heading/segments use at least steering-command-window-s. Stops preempt.')
     parser.add_argument("--qr-every", type=int, default=5,
                         help="Decode a QR every N frames while the first valve is "
                              "still waiting. The decoder is CPU-only and costs tens "
@@ -957,7 +957,6 @@ def main():
                                  max_edge_px=args.qr_max_edge_px,
                                  upscale=args.qr_upscale,
                                  max_side=args.qr_max_side)
-    command_window = SteeringCommandWindow(args.steering_command_window_s, args.steering_command_median)
     policy_launcher = startup_button_link = None
     if args.start_policy_on_gate:
         from policy_gate_launcher import PolicyGateLauncher
@@ -1114,7 +1113,7 @@ def main():
             if args.heading_regions_cm is not None:
                 print(f'[heading-regions] {json.dumps(args.heading_regions_cm)} cm; '
                       'eight rows per region; centre settings overridden', flush=True)
-            print(f"[wz] 视觉逐帧选档；窗口 {args.steering_command_window_s:g}s，"
+            print(f"[wz] 视觉逐帧提交候选；connector 独立窗口 {args.steering_command_window_s:g}s，"
                   f"中位数 {args.steering_command_median}；自动启动模型保持 {effective_policy_hold(args):g}s；"
                   f"近端观测中心 {args.heading_near_cm if args.heading_near_cm is not None else 25.07:g}cm，"
                   f"远端观测中心 {args.heading_far_cm:g}cm，"
@@ -1189,6 +1188,7 @@ def main():
         stop_until = 0.0
         line_pitch_until = 0.0       # 窗口关掉之后，还要继续喂巡线俯角到什么时候
         last_cmd_vx = 0.0            # 上一帧发出去的速度，判"车在不在走"
+        window_origin_s = None
         tilt_until = 0.0
         card_wait_for_tilt_done = False
         card_tilt_event_before_stop = 0
@@ -1326,6 +1326,7 @@ def main():
             camera_read_ms = (read_return_ns - loop_start_ns) / 1_000_000.0
             if not ok:
                 controller.reset()
+                window_origin_s = None
                 event = ({"event_id": card_event_id, "event_action": card_action}
                          if card_event_id and now < card_until else {})
                 client.publish(0.0, 0.0, -1, hold_upright=gate_window_open, **event)
@@ -2047,14 +2048,11 @@ def main():
                                  segment_shadow_reason="external_stop",
                                  segment_gate_reason="external_stop", segment_confirm_frames=0)
             debug['steering_frame_wz'] = wz
-            if in_card_window or gate_window_open or args.hold_still or startup_first_card_pending:
-                # Stops and explicit startup/card actions own the command now.
-                command_window.reset()
-                debug['steering_window_reason'] = 'external_bypass'
-            else:
-                vx, wz = command_window.update(vx, wz, processed,
-                                                valid=not line_lost(debug, confidence))
-                debug.update(command_window.diagnostics)
+            window_bypass = (in_card_window or gate_window_open or args.hold_still
+                             or startup_first_card_pending)
+            debug.update(steering_window_reason='external_bypass' if window_bypass else 'connector_collection',
+                         steering_window_duration_s=args.steering_command_window_s,
+                         steering_window_median_side=args.steering_command_median)
             road_before = straight_guard.state
             straight_guard.update(debug.get('straight_evidence','UNKNOWN'), processed,
                 line_frame_token, paused=in_card_window or args.hold_still)
@@ -2091,6 +2089,19 @@ def main():
             # 永远不走。释放那帧仍然按着（gate_window_open 是上一帧的值），下一帧
             # 才落，card_tilt 那条线上不会和它撞在同一帧。
             udp_publish_start_ns = time.perf_counter_ns()
+            # One completed visual frame = one candidate. Collection happens on
+            # the connector clock, after all geometric limits, never backdated to
+            # this frame's pre-detection timestamp. Card/startup stops bypass it.
+            window_metadata = ({'steering_window': dict(seconds=args.steering_command_window_s,
+                median=args.steering_command_median, valid=not line_lost(debug, confidence))}
+                if args.wz_mode in ('heading', 'segments') and args.steering_command_window_s > 0
+                and not window_bypass and vx > 0 else {})
+            if window_metadata:
+                if window_origin_s is None:
+                    window_origin_s = processed
+                window_metadata['steering_window']['origin_s'] = window_origin_s
+            else:
+                window_origin_s = None
             client.publish(vx, wz, visible_qr,
                            hold_upright=((args.hold_upright and in_card_window)
                                          or (gate_window_open
@@ -2098,6 +2109,7 @@ def main():
                                              and start_gate.require_shape)),
                            card_tilt=(in_card_window and card_event_id == 0),
                            **({"command_mode": "held"} if args.wz_mode in ("heading", "segments") else {}),
+                           **window_metadata,
                            **event)
             udp_publish_ms = (time.perf_counter_ns() - udp_publish_start_ns) / 1_000_000.0
             command_host_time_ns = time.time_ns()

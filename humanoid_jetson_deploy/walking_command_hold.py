@@ -19,6 +19,7 @@ class WalkingCommandHold:
         self.applied = None
         self.latest_request = None
         self.applied_at = None
+        self.applied_min_hold_s = 0.
 
     @staticmethod
     def _time(now):
@@ -29,7 +30,7 @@ class WalkingCommandHold:
 
     def remaining(self, now):
         now = self._time(now)
-        return (max(0., self.applied_at + self.min_hold_s - now)
+        return (max(0., self.applied_at + self.applied_min_hold_s - now)
                 if self.applied_at is not None else 0.)
 
     def apply(self, requested, now):
@@ -49,5 +50,6 @@ class WalkingCommandHold:
                                     not np.array_equal(self.latest_request, self.applied)):
             self.applied = self.latest_request.copy()
             self.applied_at = now
+            self.applied_min_hold_s = self.min_hold_s
         # Repeated identical packets do not extend the minimum duration.
         return self.applied.copy()

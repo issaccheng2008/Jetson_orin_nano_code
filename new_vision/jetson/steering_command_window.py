@@ -1,10 +1,16 @@
-"""Select a discrete yaw from every valid vision frame in a fixed time window."""
+"""Window settings and legacy offline replay helper.
+
+Runtime collection/publication is driven by connector.CommandWindowScheduler;
+SteeringCommandWindow remains available for replaying older recordings.
+"""
 import math
 
 
 def effective_policy_hold(args):
-    """The vision window owns timing; do not hold its result a second time."""
-    return 0. if args.steering_command_window_s > 0 else args.command_min_hold_s
+    """Protect actual model use as well as the connector's publication blocks."""
+    return (max(args.command_min_hold_s, args.steering_command_window_s)
+            if getattr(args, 'wz_mode', 'heading') in ('heading', 'segments')
+            else args.command_min_hold_s)
 
 
 class SteeringCommandWindow:
@@ -81,6 +87,6 @@ class SteeringCommandWindow:
 
 def add_arguments(parser):
     parser.add_argument('--steering-command-window-s', type=float, default=.5,
-                        help='Median of mapped valid frame yaw commands per window; 0 disables it')
+                        help='Connector-timed median and actual model minimum duration; 0 disables aggregation')
     parser.add_argument('--steering-command-median', choices=('lower', 'upper'), default='lower',
                         help='Even sample count selects lower/upper middle; never averages levels')

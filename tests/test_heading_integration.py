@@ -216,6 +216,9 @@ class HeadingIntegrationTests(unittest.TestCase):
             self.assertTrue(all('steering_filter_shadow_wz' in r['measurement'] for r in rows))
         walking = [s for s in sent if s[1] != 0]
         self.assertTrue(all(s[3].get("command_mode") == "held" for s in walking))
+        self.assertTrue(all(s[3]['steering_window']['seconds'] == .5 for s in walking))
+        self.assertTrue(all(s[3]['steering_window']['median'] == 'lower' for s in walking))
+        self.assertEqual(len({s[3]['steering_window']['origin_s'] for s in walking}), 1)
         levels = {round(s[2],6) for s in walking}
         self.assertGreaterEqual(len(levels), 3, levels)
         self.assertTrue(levels <= ({.1,.3,-.2} if custom_config else {0., .37, .43, .5, -.3, -.5}), levels)

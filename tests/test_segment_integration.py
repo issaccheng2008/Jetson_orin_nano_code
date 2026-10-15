@@ -74,6 +74,7 @@ class SegmentIntegrationTests(unittest.TestCase):
         self.assertGreater(rows[-1]['measurement']['segment_shadow_wz'], 0.)
         walking = [p for p in packets if p['vx'] > 0]
         self.assertTrue(all(p['command_mode'] == 'held' for p in walking))
+        self.assertTrue(all(p['steering_window']['seconds'] == .5 for p in walking))
         self.assertTrue(any(p['wz'] > 0 for p in walking))
         self.assertEqual(walking[-1]['wz'], 0.)
         self.assertEqual((packets[-1]['vx'], packets[-1]['wz']), (0., 0.))
@@ -135,6 +136,7 @@ class SegmentIntegrationTests(unittest.TestCase):
         for row, (vx, wz, kw) in zip(rows, held):
             self.assertEqual((vx, wz), (0., 0.))
             self.assertEqual(kw['command_mode'], 'held')
+            self.assertNotIn('steering_window', kw)
             measurement = row['measurement']
             self.assertFalse(measurement['segment_control_active'])
             self.assertEqual(measurement['segment_applied_wz'], 0.)

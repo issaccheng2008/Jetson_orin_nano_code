@@ -93,6 +93,24 @@ def process_vision_output(message: dict[str, Any], wz_bias: float = 0.0) -> dict
         result["wz"] = clamp(wz + wz_bias, -0.5, 0.5)
     if mode is not None:
         result["command_mode"] = mode
+    if "steering_window" in message:
+        window = message["steering_window"]
+        if not isinstance(window, dict):
+            raise ValueError("steering_window must be an object")
+        seconds = window.get("seconds")
+        if (isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+                or not math.isfinite(seconds) or seconds <= 0
+                or window.get("median") not in ("lower", "upper")
+                or not isinstance(window.get("valid"), bool)):
+            raise ValueError("invalid steering window seconds/median/valid")
+        result["steering_window"] = dict(seconds=float(seconds),
+            median=window["median"], valid=window["valid"])
+        if 'origin_s' in window:
+            origin = window['origin_s']
+            if (isinstance(origin, bool) or not isinstance(origin, (int, float))
+                    or not math.isfinite(origin) or origin < 0):
+                raise ValueError('invalid steering window origin')
+            result['steering_window']['origin_s'] = float(origin)
     if "event_id" in message or "event_action" in message:
         event_id = int(message["event_id"])
         event_action = int(message["event_action"])
@@ -128,6 +146,107 @@ def select_output(
     if latest.get("card_tilt") and age_s <= timeout_s + card_tilt_grace_s:
         stopped["card_tilt"] = True
     return stopped, False, age_s
+
+
+class CommandWindowScheduler:
+    """Collect once per received vision frame; apply on the connector clock.
+
+    Collection windows are [start, end). Output blocks start at actual publication
+    ticks and last at least one window, even when a tick is late. No catch-up burst
+    is sent. Stops/posture/actions clear collection and bypass it immediately.
+    """
+
+    def __init__(self, vision_timeout_s=.25, window_vision_timeout_s=1.,
+                 card_tilt_grace_s=1.5):
+        self.vision_timeout_s = vision_timeout_s
+        self.window_vision_timeout_s = window_vision_timeout_s
+        self.card_tilt_grace_s = card_tilt_grace_s
+        self.latest = dict(vx=0., vy=0., wz=0., qr=-1)
+        self.last_update = None
+        self._reset_window()
+
+    def _reset_window(self):
+        self.settings = None
+        self.origin = None
+        self.deadline = None
+        self.samples = []
+        self.loss = None
+        self.pending = None
+        self.applied = (0., 0.)
+        self.applied_at = None
+        self.sample_vx = 0.
+
+    def _timeout(self):
+        return (max(self.vision_timeout_s, self.window_vision_timeout_s,
+                    self.settings[0]) if self.settings else self.vision_timeout_s)
+
+    def _close_windows(self, now):
+        if self.deadline is None or now < self.deadline:
+            return
+        if self.samples:
+            ordered = sorted(self.samples)
+            index = ((len(ordered)-1)//2 if self.settings[1] == 'lower'
+                     else len(ordered)//2)
+            self.pending = (self.sample_vx, ordered[index])
+        elif self.loss is not None:
+            self.pending = (self.sample_vx, self.loss)
+        # Empty intervals extend the last result, without an artificial zero.
+        self.samples = []
+        self.loss = None
+        seconds = self.settings[0]
+        missed = math.floor((now-self.deadline)/seconds)+1
+        self.deadline += missed*seconds
+
+    def receive(self, target, now):
+        restart = self.last_update is not None and (now < self.last_update
+                   or now-self.last_update > self._timeout())
+        if restart:
+            self._reset_window()
+        self.latest = dict(target)
+        self.last_update = now
+        window = target.get('steering_window')
+        bypass = (window is None or target['vx'] == 0.
+                  or target.get('hold_upright') or target.get('card_tilt')
+                  or target.get('event_id'))
+        if bypass:
+            self._reset_window()
+            return
+        settings = (window['seconds'], window['median'])
+        if (self.settings != settings or ('origin_s' in window
+                and window['origin_s'] != self.origin)):
+            self._reset_window()
+            self.settings = settings
+            self.origin = window.get('origin_s', now)
+            self.deadline = (now if restart else min(now, self.origin))+settings[0]
+        # Close the preceding interval BEFORE admitting a boundary/late frame.
+        self._close_windows(now)
+        self.sample_vx = target['vx']
+        if window['valid']:
+            self.samples.append(target['wz'])
+        else:
+            self.loss = target['wz']
+
+    def output(self, now):
+        if self.last_update is None:
+            return dict(vx=0., vy=0., wz=0., qr=-1), False, math.inf
+        target, fresh, age = select_output(self.latest, self.last_update, now,
+                                          self._timeout(), self.card_tilt_grace_s)
+        if not fresh:
+            self._reset_window()
+            return target, fresh, age
+        target = dict(target)
+        target.pop('steering_window', None)
+        if self.settings:
+            self._close_windows(now)
+            seconds = self.settings[0]
+            if self.pending is not None and (self.applied_at is None
+                    or now-self.applied_at >= seconds):
+                self.applied = self.pending
+                self.applied_at = now
+                self.pending = None
+            target.update(vx=self.applied[0], wz=self.applied[1],
+                          command_mode='held', command_min_hold_s=seconds)
+        return target, fresh, age
 
 
 class CommandSmoother:
@@ -175,6 +294,8 @@ class CommandSmoother:
                   "card_tilt": bool(target.get("card_tilt", False))}
         if mode is not None:
             output["command_mode"] = mode
+        if "command_min_hold_s" in target:
+            output["command_min_hold_s"] = target["command_min_hold_s"]
         if "event_id" in target:
             output["event_id"] = int(target["event_id"])
             output["event_action"] = int(target["event_action"])
@@ -193,6 +314,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.25,
         help="Publish a zero command when vision is stale for this many seconds",
+    )
+    parser.add_argument(
+        "--window-vision-timeout", type=float, default=1.0,
+        help="Windowed candidates may arrive slower than the execution window; "
+             "stop after this many seconds without a frame (default 1). "
+             "The effective timeout is at least one window.",
     )
     parser.add_argument(
         "--card-tilt-stale-grace",
@@ -245,6 +372,8 @@ def main() -> int:
     args = parse_args()
     if args.publish_hz <= 0.0 or args.vision_timeout <= 0.0:
         raise SystemExit("publish-hz and vision-timeout must be positive")
+    if not math.isfinite(args.window_vision_timeout) or args.window_vision_timeout <= 0:
+        raise SystemExit("window-vision-timeout must be finite and positive")
     if not math.isfinite(args.card_tilt_stale_grace) or args.card_tilt_stale_grace < 0.0:
         raise SystemExit("card-tilt-stale-grace must be finite and nonnegative")
     if not math.isfinite(args.max_vx_accel) or args.max_vx_accel <= 0.0:
@@ -266,6 +395,8 @@ def main() -> int:
     next_tick = time.monotonic()
     last_tick = next_tick
     smoother = CommandSmoother(args.max_vx_accel, args.max_wz_accel)
+    scheduler = CommandWindowScheduler(args.vision_timeout, args.window_vision_timeout,
+                                       args.card_tilt_stale_grace)
     step = 0
     vision_update = 0
     # Rate counters for the log line, reset on every print so the numbers say
@@ -278,6 +409,7 @@ def main() -> int:
         f"policy udp://{args.policy_host}:{args.policy_port} at {args.publish_hz:.1f} Hz; "
         f"wz_bias={args.wz_bias:+g} rad/s; "
         f"vision_timeout={args.vision_timeout:g}s; "
+        f"window_vision_timeout={args.window_vision_timeout:g}s; "
         f"card_tilt_stale_grace={args.card_tilt_stale_grace:g}s; "
         f"source_sha256={hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]}"
     )
@@ -296,18 +428,13 @@ def main() -> int:
                         raise ValueError("message must be a JSON object")
                     latest = process_vision_output(decoded, wz_bias=args.wz_bias)
                     last_vision_update = time.monotonic()
+                    scheduler.receive(latest, last_vision_update)
                     vision_update += 1
                 except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError) as exc:
                     print(f"[connector] ignored invalid vision message: {exc}")
 
             now = time.monotonic()
-            target, vision_fresh, vision_age_s = select_output(
-                latest,
-                last_vision_update,
-                now,
-                args.vision_timeout,
-                args.card_tilt_stale_grace,
-            )
+            target, vision_fresh, vision_age_s = scheduler.output(now)
             # Measured dt, not the nominal period, so a stalled loop still ramps
             # in wall-clock time; capped at two ticks so one long stall cannot
             # buy a bigger jump than the configured rate allows.

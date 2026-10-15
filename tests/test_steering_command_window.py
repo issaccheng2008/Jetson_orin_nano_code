@@ -104,7 +104,7 @@ class CommandWindowTests(unittest.TestCase):
         self.assertEqual(w.update(.2, .3, .1, valid=False), (.2, .3))
         with patch('sys.argv', ['run_policy_vision.py', '--command-min-hold-s', '.5']):
             args = run_policy_vision.parse_args()
-        self.assertEqual(effective_policy_hold(args), 0.)
+        self.assertEqual(effective_policy_hold(args), .5)
         args.steering_command_window_s = 0.
         self.assertEqual(effective_policy_hold(args), .5)
 

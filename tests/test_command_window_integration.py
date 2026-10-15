@@ -11,6 +11,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'new_vision/jetson'))
 import run_policy_vision
+from connector import CommandWindowScheduler, process_vision_output
 
 
 class WindowPublicationTests(unittest.TestCase):
@@ -20,6 +21,21 @@ class WindowPublicationTests(unittest.TestCase):
         camera.get.side_effect = [1280, 720]
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         clock, count, sent = [0.], [0], []
+        scheduler = CommandWindowScheduler()
+        next_tick = [.02]
+
+        def publish(vx, wz, qr=-1, **kw):
+            now = clock[0]+10.
+            while next_tick[0]+10. < now-1e-8:
+                scheduler.output(next_tick[0]+10.)
+                next_tick[0] += .02
+            packet = dict(vx=vx, wz=wz, qr=qr, **kw)
+            if 'steering_window' in packet:
+                packet['steering_window'] = dict(packet['steering_window'])
+                packet['steering_window']['origin_s'] += 10.
+            scheduler.receive(process_vision_output(packet), now)
+            applied = scheduler.output(now)[0]
+            sent.append((applied['vx'], applied['wz']))
         def read():
             count[0] += 1
             clock[0] = count[0]*.05
@@ -57,7 +73,7 @@ class WindowPublicationTests(unittest.TestCase):
             patch.object(run_policy_vision.time, 'monotonic', lambda: clock[0]),
             contextlib.redirect_stdout(io.StringIO()),
         ):
-            client.return_value.publish.side_effect = lambda vx,wz,*a,**kw: sent.append((vx,wz))
+            client.return_value.publish.side_effect = publish
             self.assertEqual(run_policy_vision.main(), 0)
             rows = [json.loads(line) for path in Path(tmp).rglob('line_frames.jsonl')
                     for line in path.read_text().splitlines()]
@@ -65,23 +81,22 @@ class WindowPublicationTests(unittest.TestCase):
 
     def test_median_of_mapped_frames_excludes_lost_tail_and_all_lost_uses_recovery(self):
         sent, rows = self.run_frames('lower')
-        self.assertEqual(sent[:10], [(.2, .1)]*10)
+        self.assertEqual(sent[:10], [(0., 0.)]*10)
         self.assertEqual(sent[10:20], [(.2, .25)]*10)
-        self.assertEqual(sent[20:30], [(.2, .3)]*10)
+        self.assertEqual(sent[20:30], [(.2, -.2)]*10)
         self.assertEqual(sent[30], (.2, .1))
         self.assertEqual(sent[-1], (0., 0.))
         completed = rows[10]['measurement']
-        self.assertEqual(completed['steering_window_valid_samples'], 7)
-        self.assertEqual(completed['steering_window_ignored_samples'], 3)
+        self.assertEqual(completed['steering_window_reason'], 'connector_collection')
         self.assertEqual(completed['steering_frame_wz'], -.2)
-        self.assertEqual(completed['steering_applied_wz'], .25)
-        self.assertEqual(rows[20]['measurement']['steering_window_reason'], 'loss_compensation')
+        self.assertEqual(completed['steering_applied_wz'], -.2)  # Raw candidate in vision telemetry.
 
     def test_zero_command_bypasses_window_and_discards_pre_stop_samples(self):
         sent, rows = self.run_frames('upper', stop_frame=3)
         self.assertEqual(sent[2], (0., 0.))
-        self.assertEqual(sent[3], (.2, .25))
-        self.assertEqual(rows[2]['measurement']['steering_window_reason'], 'stop')
+        self.assertEqual(sent[3:13], [(0., 0.)]*10)
+        self.assertEqual(sent[13], (.2, .25))
+        self.assertEqual(rows[2]['vx'], 0.)
 
 
 if __name__ == '__main__':

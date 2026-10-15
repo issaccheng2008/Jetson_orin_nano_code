@@ -843,6 +843,8 @@ def main() -> int:
                         # Timestamp the actual first use at the model boundary,
                         # rather than consuming time spent receiving/processing.
                         command_now = time.monotonic_ns() * 1e-9
+                        packet_hold = getattr(snapshot, 'command_min_hold_s', 0.)
+                        walking_command_hold.min_hold_s = max(args.command_min_hold_s, packet_hold)
                         velocity_command = walking_command_hold.apply(velocity_command, command_now)
                         command_values = {"velocity_command": velocity_command}
                         command_hold_remaining = walking_command_hold.remaining(command_now)
