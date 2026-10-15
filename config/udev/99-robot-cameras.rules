@@ -1,4 +1,6 @@
-# Main camera is USB 2.1; the other capture camera is the card camera.
-# Application startup verifies that there is exactly one other camera.
-SUBSYSTEM=="video4linux", ATTR{index}=="0", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.1:1.0", SYMLINK+="robot_main_camera"
-SUBSYSTEM=="video4linux", ATTR{index}=="0", ENV{ID_PATH}=="platform-3610000.usb-usb-0:*", ENV{ID_PATH}!="platform-3610000.usb-usb-0:2.1:1.0", SYMLINK+="robot_card_camera"
+# Main camera may use USB 2.3 or 2.4; the card camera uses another port.
+# Only video capture nodes receive aliases; STM32/tty devices are unaffected.
+# Application startup rejects cameras on both main ports or ambiguous card roles.
+SUBSYSTEM=="video4linux", ATTR{index}=="0", ENV{ID_V4L_CAPABILITIES}=="*:capture:*", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.3:1.0", SYMLINK+="robot_main_camera"
+SUBSYSTEM=="video4linux", ATTR{index}=="0", ENV{ID_V4L_CAPABILITIES}=="*:capture:*", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.4:1.0", SYMLINK+="robot_main_camera"
+SUBSYSTEM=="video4linux", ATTR{index}=="0", ENV{ID_V4L_CAPABILITIES}=="*:capture:*", ENV{ID_PATH}=="platform-3610000.usb-usb-0:*", ENV{ID_PATH}!="platform-3610000.usb-usb-0:2.3:1.0", ENV{ID_PATH}!="platform-3610000.usb-usb-0:2.4:1.0", SYMLINK+="robot_card_camera"
