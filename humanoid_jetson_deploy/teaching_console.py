@@ -16,7 +16,8 @@ from urllib.request import Request, urlopen
 import numpy as np
 
 from protocol import (COMMAND_ENABLE, COMMAND_ESTOP, STATE_ENCODERS_VALID,
-                      STATE_MOTORS_ENABLED, STATE_TEACHING_READY, StatePacket)
+                      STATE_MOTORS_ENABLED, STATE_TEACHING_READY, STATE_CAN_DIAGNOSTICS,
+                      StatePacket, CanDiagnostics)
 from teaching import TeachingController, TeachingStore
 
 WEB = Path(__file__).with_name("teaching_web")
@@ -34,6 +35,8 @@ class SimulatedLink:
         self.target = self.q.copy()
         self.enabled, self.free, self.sequence = False, False, 0
         self.started = time.monotonic()
+        self.last_command_sequence = 0
+        self.gain_mode = 0
 
     def drain_states(self):
         now = time.monotonic()
@@ -42,17 +45,22 @@ class SimulatedLink:
         elif self.enabled:
             self.q += (self.target-self.q) * 0.75
         self.sequence = (self.sequence + 1) & 0xffff
-        flags = STATE_TEACHING_READY | STATE_ENCODERS_VALID
+        flags = STATE_TEACHING_READY | STATE_ENCODERS_VALID | STATE_CAN_DIAGNOSTICS
         if self.enabled:
             flags |= STATE_MOTORS_ENABLED
         return [(StatePacket(self.sequence, int((now-self.started)*1e6) & 0xffffffff,
                              self.q.copy(), np.zeros(12), np.zeros(3), np.zeros(3),
-                             np.array([1., 0, 0, 0]), flags), now)]
+                             np.array([1., 0, 0, 0]), flags, self.last_command_sequence, self.sequence,
+                             CanDiagnostics((0,)*12, (self.sequence,)*12,
+                                            applied_command_sequence=self.last_command_sequence,
+                                            applied_gain_mode=self.gain_mode)), now)]
 
     def send_command(self, timestamp_us, joint_target, kp_scale, kd_scale, command_flags, **kwargs):
         self.target = np.asarray(joint_target).copy()
         self.enabled = bool(command_flags & COMMAND_ENABLE and not command_flags & COMMAND_ESTOP)
         self.free = kp_scale == kd_scale == 0
+        self.last_command_sequence = (self.last_command_sequence+1)&0xffff
+        self.gain_mode = 0 if not self.enabled else 1 if self.free else 2
         return True
 
     def close(self):
@@ -172,6 +180,16 @@ def assert_port_unused(port):
             continue
 
 
+def resolve_port(port):
+    if port != "auto":
+        return port
+    # Persistent identity prevents ttyACM0 -> ttyACM1 enumeration changes.
+    candidates = sorted({str(p.resolve()) for p in Path('/dev/serial/by-id').glob('*STM32*') if p.exists()})
+    if len(candidates) != 1:
+        raise RuntimeError(f"找到 {len(candidates)} 个 STM32 USB 设备；请检查连接或用 --port 指定唯一设备")
+    return candidates[0]
+
+
 def serve(args):
     store = TeachingStore(args.data_dir)
     # Bind before opening serial: a second server must not touch motor state.
@@ -181,12 +199,16 @@ def serve(args):
     try:
         if args.simulate:
             link = SimulatedLink()
+            factory = SimulatedLink
         else:
-            assert_port_unused(args.port)
             from serial_link import SerialLink
-            link = SerialLink(args.port, args.baud, queue_states=True)
+            def factory():
+                port = resolve_port(args.port)
+                assert_port_unused(port)
+                return SerialLink(port, args.baud, queue_states=True)
+            link = factory()
         controller = TeachingController(link, store, enable_motors=args.enable_motors or args.simulate,
-                                        max_speed=args.max_speed_rad_s)
+                                        max_speed=args.max_speed_rad_s, reconnect_factory=factory)
         server.RequestHandlerClass = make_handler(controller, secrets.token_urlsafe(32), args.simulate)
         controller.start()
         print(f"{'SIMULATION — ' if args.simulate else ''}http://127.0.0.1:{args.http_port}", flush=True)
@@ -212,7 +234,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="operation", required=True)
     run = sub.add_parser("serve", help="启动 Jetson 本地示教服务")
-    run.add_argument("--port", default="/dev/ttyACM0")
+    run.add_argument("--port", default="auto", help="auto selects the unique STM32 by persistent USB identity")
     run.add_argument("--baud", type=int, default=921600)
     run.add_argument("--http-port", type=int, default=8765)
     run.add_argument("--data-dir", type=Path, default=DEFAULT_DATA)
@@ -222,7 +244,7 @@ def main():
     cli = sub.add_parser("command", help="通过 SSH 向已启动服务发送命令")
     cli.add_argument("action", choices=["status", "files", "release", "hold", "disable", "estop", "reset",
                                        "start-recording", "stop-recording", "checkpoint", "new-checkpoints",
-                                       "load-checkpoints", "play-log", "play-checkpoints", "stop-playback"] + list(ALIASES))
+                                       "load-checkpoints", "play-log", "play-checkpoints", "stop-playback", "reconnect"] + list(ALIASES))
     cli.add_argument("--http-port", type=int, default=8765)
     cli.add_argument("--name")
     cli.add_argument("--label", default="")

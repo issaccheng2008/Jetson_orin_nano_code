@@ -47,6 +47,8 @@ STATE_COMMAND_FRESH = 1 << 4
 STATE_START_BUTTON = 1 << 5
 STATE_STARTUP_ACTIVE = 1 << 6
 STATE_TEACHING_READY = 1 << 7
+STATE_CAN_DIAGNOSTICS = 1 << 8
+STATE_CAN_FAULT = 1 << 9
 
 STARTUP_ARM = 1 << 0
 STARTUP_CARD_READY = 1 << 1
@@ -57,11 +59,25 @@ STATE_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "f" * NUM_JOINTS + "3f3f
 # The STM32 diagnostic branch appends two counters to the version-2 state
 # payload. Accept both lengths so Nano can be deployed before STM32 is flashed.
 STATE_PAYLOAD_WITH_COUNTERS = struct.Struct(STATE_PAYLOAD.format + "II")
+STATE_PAYLOAD_WITH_CAN = struct.Struct(STATE_PAYLOAD_WITH_COUNTERS.format + "12H12I2I2I2I2I2III")
 # Absolute PD values in joint_target wire order. Old 64-byte commands are rejected.
 COMMAND_PAYLOAD = struct.Struct("<I" + "f" * (3 * NUM_JOINTS) + "I")
 ACTION_REQUEST_PAYLOAD = struct.Struct("<IB")
 ACTION_STATUS_PAYLOAD = struct.Struct("<IBB")
 STARTUP_CONTROL_PAYLOAD = struct.Struct("<B")
+
+
+@dataclass(frozen=True)
+class CanDiagnostics:
+    feedback_age_ms: tuple
+    feedback_count: tuple
+    can_psr: tuple = (0, 0)
+    can_ecr: tuple = (0, 0)
+    can_tx_failures: tuple = (0, 0)
+    can_recoveries: tuple = (0, 0)
+    can_pending: tuple = (0, 0)
+    applied_command_sequence: int = 0
+    applied_gain_mode: int = 0
 
 
 @dataclass(frozen=True)
@@ -76,6 +92,7 @@ class StatePacket:
     status_flags: int
     command_rx_count: int | None = None
     system_control_cycle: int | None = None
+    can_diagnostics: CanDiagnostics | None = None
 
 
 @dataclass(frozen=True)
@@ -145,7 +162,16 @@ def pack_state(packet: StatePacket) -> bytes:
         *orientation,
         packet.status_flags & 0xFFFFFFFF,
     )
-    if has_counters:
+    if packet.can_diagnostics is not None:
+        if not has_counters:
+            raise ValueError("CAN diagnostics require the two state counters")
+        d = packet.can_diagnostics
+        payload = STATE_PAYLOAD_WITH_CAN.pack(
+            *values, packet.command_rx_count & 0xffffffff, packet.system_control_cycle & 0xffffffff,
+            *d.feedback_age_ms, *d.feedback_count, *d.can_psr, *d.can_ecr,
+            *d.can_tx_failures, *d.can_recoveries, *d.can_pending,
+            d.applied_command_sequence, d.applied_gain_mode)
+    elif has_counters:
         payload = STATE_PAYLOAD_WITH_COUNTERS.pack(
             *values, packet.command_rx_count & 0xFFFFFFFF,
             packet.system_control_cycle & 0xFFFFFFFF)
@@ -204,6 +230,9 @@ def decode_state(sequence: int, payload: bytes) -> StatePacket:
     elif len(payload) == STATE_PAYLOAD_WITH_COUNTERS.size:
         values = STATE_PAYLOAD_WITH_COUNTERS.unpack(payload)
         has_counters = True
+    elif len(payload) == STATE_PAYLOAD_WITH_CAN.size:
+        values = STATE_PAYLOAD_WITH_CAN.unpack(payload)
+        has_counters = True
     else:
         raise ValueError("Unknown state payload size")
     i = 1
@@ -217,9 +246,15 @@ def decode_state(sequence: int, payload: bytes) -> StatePacket:
     i += 3
     orientation = np.array(values[i : i + 4], dtype=np.float32)
     i += 4
+    diagnostics = None
+    if len(payload) == STATE_PAYLOAD_WITH_CAN.size:
+        j = i + 3
+        diagnostics = CanDiagnostics(tuple(values[j:j+12]), tuple(values[j+12:j+24]),
+                                     *(tuple(values[k:k+2]) for k in range(j+24, j+34, 2)),
+                                     values[j+34], values[j+35])
     return StatePacket(sequence, values[0], q, qd, accel, gyro, orientation, values[i],
                        values[i + 1] if has_counters else None,
-                       values[i + 2] if has_counters else None)
+                       values[i + 2] if has_counters else None, diagnostics)
 
 
 def decode_command(sequence: int, payload: bytes) -> CommandPacket:
@@ -281,7 +316,7 @@ class FrameDecoder:
             payload = frame[HEADER.size : HEADER.size + payload_len]
             try:
                 if message_type == MSG_STATE and payload_len in (
-                        STATE_PAYLOAD.size, STATE_PAYLOAD_WITH_COUNTERS.size):
+                        STATE_PAYLOAD.size, STATE_PAYLOAD_WITH_COUNTERS.size, STATE_PAYLOAD_WITH_CAN.size):
                     decoded.append(decode_state(sequence, payload))
                 elif message_type == MSG_COMMAND and payload_len == COMMAND_PAYLOAD.size:
                     decoded.append(decode_command(sequence, payload))

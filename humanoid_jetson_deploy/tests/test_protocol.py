@@ -19,6 +19,22 @@ from protocol import (
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_can_diagnostics_roundtrip_and_wire_offsets(self):
+        from protocol import CanDiagnostics, STATE_PAYLOAD_WITH_CAN
+        d = CanDiagnostics(tuple(range(12)), tuple(range(100,112)),
+                           (128,0),(0x0705,0x0102),(3,4),(5,6),(7,8),65535,1)
+        state = StatePacket(9,123,np.zeros(12),np.zeros(12),np.zeros(3),np.zeros(3),
+                            np.array([1,0,0,0]),0x19d,99,100,d)
+        frame=pack_state(state)
+        self.assertEqual(STATE_PAYLOAD_WITH_CAN.size,272)
+        self.assertEqual(len(frame),282)
+        result=list(FrameDecoder().feed(frame))[0]
+        self.assertEqual(result.can_diagnostics,d)
+        self.assertEqual(result.command_rx_count,99)
+        import struct
+        self.assertEqual(struct.unpack_from('<H',frame,8+152)[0],0)
+        self.assertEqual(struct.unpack_from('<I',frame,8+268)[0],1)
+
     def test_action_request_and_status_round_trip_without_changing_existing_frames(self):
         request = ActionRequestPacket(sequence=7, event_id=123456, action_id=5)
         status = ActionStatusPacket(sequence=8, event_id=123456, action_id=5, status=2)

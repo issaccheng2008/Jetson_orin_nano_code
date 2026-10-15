@@ -15,7 +15,7 @@ def main():
         "teaching.py", "teaching_console.py")]
     files += sorted((DEPLOY / "teaching_web").glob("*"))
     files += [DEPLOY / "tests" / name for name in (
-        "test_teaching.py", "test_teaching_serial_pty.py", "test_teaching_http.py")]
+        "test_teaching.py", "test_teaching_serial_pty.py", "test_teaching_http.py", "test_protocol.py")]
     with tarfile.open(archive, "w:gz") as tar:
         for path in files:
             if path.is_file():

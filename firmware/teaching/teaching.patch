@@ -1,5 +1,17 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7d427ca..a080cb8 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -57,6 +57,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+     Core/Src/jetson_protocol.c
+     Core/Src/jetson_usb_cdc.c
+     Core/Src/jetson_robot_bridge.c
++    Core/Src/leg_can_health.c
+ )
+ 
+ # Add include paths
 diff --git a/Core/Inc/jetson_protocol.h b/Core/Inc/jetson_protocol.h
-index 53a328c..0a6bbe7 100644
+index 53a328c..1713b97 100644
 --- a/Core/Inc/jetson_protocol.h
 +++ b/Core/Inc/jetson_protocol.h
 @@ -34,6 +34,7 @@
@@ -10,15 +22,42 @@ index 53a328c..0a6bbe7 100644
  
  #define STATE_MOTORS_ENABLED        (1UL << 0)
  #define STATE_FAULT                 (1UL << 1)
-@@ -42,6 +43,8 @@
+@@ -42,6 +43,10 @@
  #define STATE_COMMAND_FRESH         (1UL << 4)
  #define STATE_START_BUTTON          (1UL << 5)
  #define STATE_STARTUP_ACTIVE        (1UL << 6)
 +/* Firmware capability: raw encoder teaching + stop without reboot. */
 +#define STATE_TEACHING_READY        (1UL << 7)
++#define STATE_CAN_DIAGNOSTICS       (1UL << 8)
++#define STATE_CAN_FAULT             (1UL << 9)
  
  #pragma pack(push, 1)
  typedef struct {
+@@ -64,6 +69,15 @@ typedef struct {
+     uint32_t command_rx_count;
+     /* Calls that submitted all 12 leg targets to the motor CAN buses. */
+     uint32_t system_control_cycle;
++    uint16_t feedback_age_ms[12]; /* wire order; 65535 means never received */
++    uint32_t feedback_count[12];
++    uint32_t can_psr[2];          /* CAN1 right, CAN2 left */
++    uint32_t can_ecr[2];
++    uint32_t can_tx_failures[2];
++    uint32_t can_recoveries[2];
++    uint32_t can_pending[2];
++    uint32_t applied_command_sequence;
++    uint32_t applied_gain_mode;   /* 0 stopped, 1 zero PD, 2 nonzero PD */
+ } RobotStatePayload;
+ 
+ typedef struct {
+@@ -98,7 +112,7 @@ extern volatile uint32_t g_debug_startup_received_ms;
+ #pragma pack(pop)
+ 
+ _Static_assert(sizeof(ProtocolHeader) == 8U, "ProtocolHeader wire size must be 8 bytes");
+-_Static_assert(sizeof(RobotStatePayload) == 152U, "RobotStatePayload wire size must be 152 bytes");
++_Static_assert(sizeof(RobotStatePayload) == 272U, "RobotStatePayload wire size must be 272 bytes");
+ _Static_assert(sizeof(RobotCommandPayload) == 152U, "RobotCommandPayload wire size must be 152 bytes");
+ _Static_assert(sizeof(ActionRequestPayload) == 5U, "ActionRequestPayload wire size must be 5 bytes");
+ _Static_assert(sizeof(ActionStatusPayload) == 6U, "ActionStatusPayload wire size must be 6 bytes");
 diff --git a/Core/Inc/jetson_robot_bridge.h b/Core/Inc/jetson_robot_bridge.h
 index 5dcacc1..76e5e52 100644
 --- a/Core/Inc/jetson_robot_bridge.h
@@ -32,11 +71,121 @@ index 5dcacc1..76e5e52 100644
  /* Local interpolation/leg action owns the motors; COMMAND still stays live. */
  extern volatile uint8_t g_debug_local_leg_active;
  extern volatile uint32_t g_debug_watchdog_trip_count;
+diff --git a/Core/Inc/leg_can_health.h b/Core/Inc/leg_can_health.h
+new file mode 100644
+index 0000000..39a4f8b
+--- /dev/null
++++ b/Core/Inc/leg_can_health.h
+@@ -0,0 +1,16 @@
++#ifndef LEG_CAN_HEALTH_H
++#define LEG_CAN_HEALTH_H
++#include <fdcan.h>
++#include <stdbool.h>
++
++#define LEG_FEEDBACK_TIMEOUT_MS 100U
++/* All joint arrays use protocol order: left six, then right six. */
++extern volatile uint32_t g_leg_rx_ms[12];
++extern volatile uint32_t g_leg_rx_count[12];
++extern volatile uint32_t g_leg_tx_failures[2]; /* CAN1=right, CAN2=left */
++extern volatile uint32_t g_leg_recoveries[2];
++void LegCan_Service(void);
++void LegCan_BeginBatch(void);
++bool LegCan_Healthy(uint32_t now);
++uint16_t LegCan_FreshMask(uint32_t now);
++#endif
+diff --git a/Core/Src/fdcan.c b/Core/Src/fdcan.c
+index d3e5ee1..a182890 100644
+--- a/Core/Src/fdcan.c
++++ b/Core/Src/fdcan.c
+@@ -26,6 +26,7 @@
+ #include "motor_el05.h"
+ #include "imu.h"
+ #include <stdint.h>
++#include "leg_can_health.h"
+ /* USER CODE END 0 */
+ 
+ FDCAN_HandleTypeDef hfdcan1;
+@@ -430,27 +431,8 @@ void HAL_FDCAN_MspDeInit(FDCAN_HandleTypeDef* fdcanHandle)
+ 
+ /* USER CODE BEGIN 1 */
+ // FDCAN发送扩展帧：id=29位扩展ID，data=数据，len=长度(1-8)
+-uint8_t FDCAN_Send_ExtFrame(FDCAN_HandleTypeDef *hfdcan, uint32_t id, uint8_t *data, uint8_t len)
+-{
+-  FDCAN_TxHeaderTypeDef tx_header;
+-  if(len > 8 || len < 1) return 1;
+-
+-  tx_header.Identifier = id;
+-  tx_header.IdType = FDCAN_EXTENDED_ID;       // 扩展ID
+-  tx_header.TxFrameType = FDCAN_DATA_FRAME;   // 数据帧
+-  tx_header.DataLength = len;
+-  tx_header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+-  tx_header.BitRateSwitch = FDCAN_BRS_OFF;    // 无波特率切换
+-  tx_header.FDFormat = FDCAN_CLASSIC_CAN;    // 普通CAN模式
+-  tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+-  tx_header.MessageMarker = 0;
+-
+-  if(HAL_FDCAN_AddMessageToTxFifoQ(hfdcan, &tx_header, data) == HAL_OK)
+-  {
+-    return 0;
+-  }
+-  return 1;
+-}
++/* FDCAN_Send_ExtFrame is implemented in leg_can_health.c with bounded FIFO
++ * handling and explicit per-bus failure counters. */
+ 
+ // FDCAN轮询接收扩展帧：返回0成功，id=接收到的扩展ID，data=数据，len=长度
+ // uint8_t FDCAN_Recv_ExtFrame(FDCAN_HandleTypeDef *hfdcan, uint32_t *id, uint8_t *data, uint8_t *len)
+@@ -478,7 +460,10 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+   {
+     while(HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &rx_header, data) == HAL_OK)
+     {
+-      if(rx_header.IdType == FDCAN_EXTENDED_ID)  // 只处理扩展ID
++      if(rx_header.IdType == FDCAN_EXTENDED_ID &&
++         rx_header.RxFrameType == FDCAN_DATA_FRAME &&
++         rx_header.DataLength == FDCAN_DLC_BYTES_8 &&
++         ((rx_header.Identifier >> 24) & 0x1FU) == CMD_STATUS)
+       {
+         uint8_t id = (uint8_t)((rx_header.Identifier >> 8) & 0xFF); // 提取电机ID（位于ID的特定位）
+         // 解析电机状态
+@@ -492,6 +477,9 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+         if (hfdcan->Instance == FDCAN1) {
+           // 处理FDCAN1接收到的电机状态
+           if (id >= r_leg_pitch && id <= r_ankle_roll) {
++          uint8_t wire = (uint8_t)(id - r_leg_pitch + 6U);
++          g_leg_rx_ms[wire] = HAL_GetTick();
++          ++g_leg_rx_count[wire];
+           MotorIMU_Packet_float[(id-r_leg_pitch)*2+12]= (float)u_pos * (P_MAX - P_MIN) / 65535.0f + P_MIN;
+           MotorIMU_Packet_float[(id-r_leg_pitch)*2+1+12]= (float)u_vel * (V_MAX - V_MIN) / 65535.0f + V_MIN;
+           motor_torque_float[(id-r_leg_pitch)] = (float)u_tor * (T_MAX - T_MIN) / 65535.0f + T_MIN;
+@@ -506,6 +494,9 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+         } else if (hfdcan->Instance == FDCAN2) {
+           // 处理FDCAN2接收到的数据
+           if (id >= l_leg_pitch && id <= l_ankle_roll) {
++          uint8_t wire = (uint8_t)(id - l_leg_pitch);
++          g_leg_rx_ms[wire] = HAL_GetTick();
++          ++g_leg_rx_count[wire];
+           MotorIMU_Packet_float[(id-l_leg_pitch)*2]= (float)u_pos * (P_MAX - P_MIN) / 65535.0f + P_MIN;
+           MotorIMU_Packet_float[(id-l_leg_pitch)*2+1]= (float)u_vel * (V_MAX - V_MIN) / 65535.0f + V_MIN;
+           memcpy(&motor_status_buf[(id-l_leg_pitch)*4+24], data, 4); // 将接收到的数据复制到对应电机的状态缓冲区
 diff --git a/Core/Src/jetson_robot_bridge.c b/Core/Src/jetson_robot_bridge.c
-index 608c1d8..40628db 100644
+index 608c1d8..8658b5f 100644
 --- a/Core/Src/jetson_robot_bridge.c
 +++ b/Core/Src/jetson_robot_bridge.c
-@@ -81,6 +81,7 @@ static uint32_t last_send_tick_ms;
+@@ -6,6 +6,7 @@
+ #include "jetson_usb_cdc.h"
+ #include "motor_el05.h"
+ #include "protocol.h"
++#include "leg_can_health.h"
+ 
+ #include <math.h>
+ #include <stdbool.h>
+@@ -78,9 +79,13 @@ static float frozen_imu[10];        /* accel(3) + gyro(3) + quat(4) */
+ /* Nano 下发的目标位置，用作平滑参考（无滞后、无噪声） */
+ static float target_position[PROTOCOL_NUM_JOINTS];
+ static uint32_t last_send_tick_ms;
++static uint32_t applied_command_sequence;
++static uint32_t applied_gain_mode;
++static uint32_t processing_command_sequence;
  
  volatile float g_debug_motor_target[PROTOCOL_NUM_JOINTS];
  volatile uint8_t g_debug_jetson_control_active;
@@ -44,7 +193,47 @@ index 608c1d8..40628db 100644
  volatile uint32_t g_debug_watchdog_trip_count;
  volatile uint32_t g_debug_estop_trip_count;
  volatile uint32_t g_debug_invalid_command_count;
-@@ -385,6 +386,7 @@ void JetsonRobotBridge_Init(void)
+@@ -160,11 +165,17 @@ bool JetsonRobotBridge_ServiceStartupButton(void)
+ static void stop_all_motors(void)
+ {
+     uint8_t index;
++    uint32_t failures = g_leg_tx_failures[0] + g_leg_tx_failures[1];
++    LegCan_BeginBatch();
+ 
+     for (index = 0U; index < 6U; ++index) {
+         EL05_Motor_Stop(&hfdcan1, (uint8_t)(r_leg_pitch + index));
+         EL05_Motor_Stop(&hfdcan2, (uint8_t)(l_leg_pitch + index));
+     }
++    if (failures == g_leg_tx_failures[0] + g_leg_tx_failures[1]) {
++        applied_gain_mode = 0U;
++        applied_command_sequence = processing_command_sequence;
++    }
+ }
+ 
+ /* 前倾角按斜率爬向目标，避免站立状态下力矩瞬间打满 */
+@@ -277,6 +288,8 @@ static bool command_targets_are_valid(const RobotCommandPayload *command)
+ 
+ static void apply_position_targets(const RobotCommandPayload *command)
+ {
++    uint32_t failures = g_leg_tx_failures[0] + g_leg_tx_failures[1];
++    bool zero_pd = true;
+     static const uint8_t left_motor_id[6] = {
+         l_leg_pitch, l_leg_roll, l_leg_yaw,
+         l_knee_pitch, l_ankle_pitch, l_ankle_roll
+@@ -338,6 +351,12 @@ static void apply_position_targets(const RobotCommandPayload *command)
+             command->kd[protocol_index]);
+     }
+     system_control_cycle ++;
++    if (failures == g_leg_tx_failures[0] + g_leg_tx_failures[1]) {
++        for (index = 0U; index < PROTOCOL_NUM_JOINTS; ++index)
++            if (command->kp[index] != 0.0f || command->kd[index] != 0.0f) zero_pd = false;
++        applied_gain_mode = zero_pd ? 1U : 2U;
++        applied_command_sequence = processing_command_sequence;
++    }
+ }
+ 
+ void JetsonRobotBridge_CaptureFrozenState(void)
+@@ -385,6 +404,7 @@ void JetsonRobotBridge_Init(void)
      last_applied_command_count = 0U;
      memset((void *)g_debug_motor_target, 0, sizeof(g_debug_motor_target));
      g_debug_jetson_control_active = 0U;
@@ -52,7 +241,23 @@ index 608c1d8..40628db 100644
      g_debug_watchdog_trip_count = 0U;
      g_debug_estop_trip_count = 0U;
      g_debug_invalid_command_count = 0U;
-@@ -430,6 +432,11 @@ void JetsonRobotBridge_ProcessCommand(void)
+@@ -415,6 +435,7 @@ void JetsonRobotBridge_ProcessCommand(void)
+     uint32_t command_count_before;
+     uint32_t command_count_after;
+     bool fresh;
++    LegCan_Service();
+ 
+     /* Ensure the copied payload and its debug counter refer to the same frame. */
+     do {
+@@ -423,6 +444,7 @@ void JetsonRobotBridge_ProcessCommand(void)
+             now_ms,
+             JETSON_COMMAND_WATCHDOG_MS,
+             &command);
++        processing_command_sequence = g_debug_command_sequence;
+         command_count_after = g_debug_command_count;
+     } while (command_count_before != command_count_after);
+ 
+@@ -430,6 +452,11 @@ void JetsonRobotBridge_ProcessCommand(void)
          if (g_debug_jetson_control_active != 0U) {
              ++g_debug_watchdog_trip_count;
  
@@ -64,7 +269,7 @@ index 608c1d8..40628db 100644
              HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
          }
          return;
-@@ -440,6 +447,40 @@ void JetsonRobotBridge_ProcessCommand(void)
+@@ -440,6 +467,40 @@ void JetsonRobotBridge_ProcessCommand(void)
      }
      last_applied_command_count = command_count_after;
  
@@ -105,7 +310,40 @@ index 608c1d8..40628db 100644
      if (((command.command_flags & COMMAND_ENABLE) == 0U) ||
          ((command.command_flags & COMMAND_ESTOP) != 0U)) {
          if (g_debug_jetson_control_active != 0U || g_debug_local_leg_active != 0U) {
-@@ -527,7 +568,7 @@ uint8_t JetsonRobotBridge_SendState(void)
+@@ -464,6 +525,7 @@ void JetsonRobotBridge_ProcessCommand(void)
+     if (g_debug_startup_active != 0U) {
+         clear_startup();
+     }
++    LegCan_BeginBatch();
+     if (g_debug_jetson_control_active == 0U) {
+         motor_enable();
+         g_debug_jetson_control_active = 1U;
+@@ -496,6 +558,24 @@ uint8_t JetsonRobotBridge_SendState(void)
+     imu_flags = imu_data_ready;
+     state.command_rx_count = g_debug_command_count;
+     state.system_control_cycle = system_control_cycle;
++    for (index = 0U; index < 12U; ++index) {
++        uint32_t age = (uint32_t)(HAL_GetTick() - g_leg_rx_ms[index]);
++        state.feedback_count[index] = g_leg_rx_count[index];
++        state.feedback_age_ms[index] = (g_leg_rx_count[index] == 0U || age > 65535U)
++            ? 65535U : (uint16_t)age;
++    }
++    state.can_psr[0] = hfdcan1.Instance->PSR;
++    state.can_psr[1] = hfdcan2.Instance->PSR;
++    state.can_ecr[0] = hfdcan1.Instance->ECR;
++    state.can_ecr[1] = hfdcan2.Instance->ECR;
++    state.can_pending[0] = hfdcan1.Instance->TXBRP;
++    state.can_pending[1] = hfdcan2.Instance->TXBRP;
++    for (index = 0U; index < 2U; ++index) {
++        state.can_tx_failures[index] = g_leg_tx_failures[index];
++        state.can_recoveries[index] = g_leg_recoveries[index];
++    }
++    state.applied_command_sequence = applied_command_sequence;
++    state.applied_gain_mode = applied_gain_mode;
+     __enable_irq();
+ 
+     state.timestamp_us = HAL_GetTick() * 1000U;
+@@ -527,7 +607,7 @@ uint8_t JetsonRobotBridge_SendState(void)
  
          /* 3. 单帧限幅 —— 反馈偏离目标不超过限制值，过滤跳变 */
          float delta = corrected - target_position[index];
@@ -114,7 +352,7 @@ index 608c1d8..40628db 100644
              if (delta > FRAME_ANGLE_LIMIT)  delta = FRAME_ANGLE_LIMIT;
              if (delta < -FRAME_ANGLE_LIMIT) delta = -FRAME_ANGLE_LIMIT;
              corrected = target_position[index] + delta;
-@@ -542,7 +583,7 @@ uint8_t JetsonRobotBridge_SendState(void)
+@@ -542,7 +622,7 @@ uint8_t JetsonRobotBridge_SendState(void)
  
      /* 冻结期间回放前倾前的快照：上位机拿假数据做识别，电机侧闭环不受影响。
       * timestamp_us 不冻——它是"新一帧"的单调时钟，冻掉会让上位机误判过期。 */
@@ -123,7 +361,7 @@ index 608c1d8..40628db 100644
          memcpy(state.joint_position, frozen_joint_position, sizeof(state.joint_position));
          memcpy(state.joint_velocity, frozen_joint_velocity, sizeof(state.joint_velocity));
          memcpy(state.accel_m_s2, &frozen_imu[0], sizeof(state.accel_m_s2));
-@@ -553,6 +594,7 @@ uint8_t JetsonRobotBridge_SendState(void)
+@@ -553,6 +633,7 @@ uint8_t JetsonRobotBridge_SendState(void)
      if (mode_flags == 0x0FFFU) {
          state.status_flags |= STATE_MOTORS_ENABLED;
      }
@@ -131,8 +369,123 @@ index 608c1d8..40628db 100644
      if (fault_flags != 0U) {
          state.status_flags |= STATE_FAULT;
      }
+@@ -560,9 +641,15 @@ uint8_t JetsonRobotBridge_SendState(void)
+         IMU_DataIsFresh(HAL_GetTick(), IMU_FRESHNESS_MS)) {
+         state.status_flags |= STATE_IMU_VALID;
+     }
+-    if (ready_flags == 0x0FFFU) {
++    /* Ever-received bits do NOT establish that the encoder data is fresh. */
++    bool all_fresh = ready_flags == 0x0FFFU;
++    for (index = 0U; index < 12U; ++index)
++        if (state.feedback_age_ms[index] > LEG_FEEDBACK_TIMEOUT_MS) all_fresh = false;
++    if (all_fresh) {
+         state.status_flags |= STATE_ENCODERS_VALID;
+     }
++    state.status_flags |= STATE_CAN_DIAGNOSTICS;
++    if (!LegCan_Healthy(HAL_GetTick())) state.status_flags |= STATE_CAN_FAULT;
+     if (Protocol_CommandIsFresh(HAL_GetTick(), JETSON_COMMAND_WATCHDOG_MS)) {
+         state.status_flags |= STATE_COMMAND_FRESH;
+     }
+diff --git a/Core/Src/leg_can_health.c b/Core/Src/leg_can_health.c
+new file mode 100644
+index 0000000..033d922
+--- /dev/null
++++ b/Core/Src/leg_can_health.c
+@@ -0,0 +1,92 @@
++#include "leg_can_health.h"
++
++volatile uint32_t g_leg_rx_ms[12];
++volatile uint32_t g_leg_rx_count[12];
++volatile uint32_t g_leg_tx_failures[2];
++volatile uint32_t g_leg_recoveries[2];
++static uint32_t failure_ms[2];
++static uint32_t recovery_ms[2];
++static uint8_t recovery_started[2];
++
++uint16_t LegCan_FreshMask(uint32_t now)
++{
++    uint16_t mask = 0U;
++    for (uint8_t i = 0; i < 12; ++i) {
++        if (g_leg_rx_count[i] != 0U && (uint32_t)(now - g_leg_rx_ms[i]) <= LEG_FEEDBACK_TIMEOUT_MS)
++            mask |= (uint16_t)(1U << i);
++    }
++    return mask;
++}
++
++bool LegCan_Healthy(uint32_t now)
++{
++    FDCAN_HandleTypeDef *buses[2] = {&hfdcan1, &hfdcan2};
++    for (uint8_t b = 0; b < 2; ++b) {
++        if ((buses[b]->Instance->PSR & FDCAN_PSR_BO) != 0U ||
++            (buses[b]->Instance->CCCR & FDCAN_CCCR_INIT) != 0U ||
++            (g_leg_tx_failures[b] != 0U && (uint32_t)(now - failure_ms[b]) < 100U)) return false;
++    }
++    return true;
++}
++
++void LegCan_Service(void)
++{
++    FDCAN_HandleTypeDef *buses[2] = {&hfdcan1, &hfdcan2};
++    uint32_t now = HAL_GetTick();
++    for (uint8_t b = 0; b < 2; ++b) {
++        FDCAN_HandleTypeDef *bus = buses[b];
++        if ((bus->Instance->PSR & FDCAN_PSR_BO) == 0U) continue;
++        if (!recovery_started[b] || (uint32_t)(now - recovery_ms[b]) >= 250U) {
++            /* Cancel obsolete PD/position requests BEFORE recovery. FDCAN does
++             * not implement bxCAN's automatic bus-off recovery: clear INIT to
++             * start the hardware's 129 x 11 recessive-bit recovery sequence. */
++            uint32_t pending = bus->Instance->TXBRP;
++            if (pending != 0U) (void)HAL_FDCAN_AbortTxRequest(bus, pending);
++            CLEAR_BIT(bus->Instance->CCCR, FDCAN_CCCR_INIT);
++            recovery_ms[b] = now;
++            recovery_started[b] = 1U;
++            ++g_leg_recoveries[b];
++        }
++    }
++}
++
++void LegCan_BeginBatch(void)
++{
++    FDCAN_HandleTypeDef *buses[2] = {&hfdcan1, &hfdcan2};
++    /* A normal six-frame batch drains well before the next 20 ms COMMAND.
++     * Never let an old held-position command sit ahead of a new zero-PD one. */
++    for (uint8_t b = 0; b < 2; ++b) {
++        uint32_t pending = buses[b]->Instance->TXBRP;
++        if (pending != 0U) (void)HAL_FDCAN_AbortTxRequest(buses[b], pending);
++    }
++}
++
++uint8_t FDCAN_Send_ExtFrame(FDCAN_HandleTypeDef *bus, uint32_t id, uint8_t *data, uint8_t len)
++{
++    FDCAN_TxHeaderTypeDef header = {0};
++    int b = bus == &hfdcan1 ? 0 : bus == &hfdcan2 ? 1 : -1;
++    if (len < 1U || len > 8U) return 1U;
++    header.Identifier = id;
++    header.IdType = FDCAN_EXTENDED_ID;
++    header.TxFrameType = FDCAN_DATA_FRAME;
++    header.DataLength = len; /* This project's HAL uses unshifted DLC values. */
++    header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
++    header.BitRateSwitch = FDCAN_BRS_OFF;
++    header.FDFormat = FDCAN_CLASSIC_CAN;
++    header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
++    if (b >= 0) {
++        uint32_t start = HAL_GetTick();
++        uint32_t spins = 0;
++        /* Bounded wait handles ENABLE + position bursts without dropping the
++         * latter when the six-entry hardware FIFO is still occupied. */
++        while (HAL_FDCAN_GetTxFifoFreeLevel(bus) == 0U &&
++               (uint32_t)(HAL_GetTick() - start) < 2U && ++spins < 100000U) { }
++    }
++    if ((b < 0 || (bus->Instance->PSR & FDCAN_PSR_BO) == 0U) &&
++        HAL_FDCAN_AddMessageToTxFifoQ(bus, &header, data) == HAL_OK) return 0U;
++    if (b >= 0) {
++        ++g_leg_tx_failures[b];
++        failure_ms[b] = HAL_GetTick();
++    }
++    return 1U;
++}
 diff --git a/Core/Src/main.c b/Core/Src/main.c
-index 0e6b9b5..da30c8b 100644
+index 0e6b9b5..26481b9 100644
 --- a/Core/Src/main.c
 +++ b/Core/Src/main.c
 @@ -516,6 +516,11 @@ static void Handle_Action_Request(const ActionRequestPayload *request)
@@ -147,7 +500,26 @@ index 0e6b9b5..da30c8b 100644
    if (request->event_id == active_event_id && active_event_id != 0U) {         // 如果当前动作的事件 ID 与上位机请求的事件 ID 相同，说明上位机重复发送了请求
      Queue_Action_Status(request->event_id, request->action_id,
          request->action_id == active_action_id ? active_action_status : ACTION_STATUS_INVALID);
-@@ -954,8 +959,8 @@ void BUTTON_CHANGE(void)
+@@ -654,17 +659,13 @@ void ROBOT_Comms_Service(void)
+   //   imu_request_quat();
+   // }
+   //汇总电机状态和IMU数据，使用与通信测试工程相同的帧协议上传Nano
+-  __disable_irq();
+-  uint16_t motor_status_ready_copy = motor_status_ready;
+-  __enable_irq();
+   /* 发送触发改成纯时间节流：距上次成功发送满 g_state_send_interval_ms 就发。
+    * 不再依赖 imu_data_ready / IMU_DataIsFresh 做门控——IMU 掉数据/掉电时
+    * 那个锁存永远凑不齐，门控恒假会导致一帧都不发、Nano 100ms 超时掉线。
+    * 帧里的 STATE_IMU_VALID 仍由 SendState() 依 imu_data_ready + 新鲜度计算，
+    * 所以 IMU 坏了 Nano 看得出来，但链路本身不会断。 */
+   uint32_t now_ms = HAL_GetTick();
+-  if (motor_status_ready_copy == 0x0FFF &&
+-      (uint32_t)(now_ms - g_state_send_last_ms) >= g_state_send_interval_ms) {
++  if ((uint32_t)(now_ms - g_state_send_last_ms) >= g_state_send_interval_ms) {
+     if (JetsonRobotBridge_SendState() == USBD_OK) { // USB发送成功
+       g_state_send_last_ms = now_ms;
+       g_state_send_ok_count++;
+@@ -954,8 +955,8 @@ void BUTTON_CHANGE(void)
    uint8_t pressed = buttons & ~previous_buttons;
    previous_buttons = buttons;
    (void)JetsonRobotBridge_ServiceStartupButton();
@@ -158,7 +530,7 @@ index 0e6b9b5..da30c8b 100644
    if (pressed & 1U) robot_state = ROBOT_STATE_LLEG;
    else if (pressed & 2U) robot_state = ROBOT_STATE_RLEG;
    else if (pressed & 4U) {
-@@ -1031,6 +1036,17 @@ static void Action_Goto_Cancel(void)
+@@ -1031,6 +1032,17 @@ static void Action_Goto_Cancel(void)
    local_release_pending = 0U;
  }
  
@@ -176,3 +548,176 @@ index 0e6b9b5..da30c8b 100644
  /* One motor batch every 20 ms, including the three-second hold. */
  static void Action_Goto_Service(void)
  {
+diff --git a/docs/can_teaching_fix.md b/docs/can_teaching_fix.md
+new file mode 100644
+index 0000000..f79e00a
+--- /dev/null
++++ b/docs/can_teaching_fix.md
+@@ -0,0 +1,52 @@
++# Teaching CAN freeze / PD transition fix
++
++This change addresses two silent-failure paths: STATE frames can continue over
++USB while a leg's cached encoder values stop updating; and a full CAN TX FIFO
++can discard a new zero-PD command while a previous held-position command remains.
++
++Changes:
++
++- Validate extended feedback type, data-frame format, and eight-byte DLC before
++  updating encoder values. Track each joint's last CAN reception tick and count.
++- Derive STATE_ENCODERS_VALID from all twelve feedback ages (100 ms maximum),
++  rather than the sticky ever-received mask. Continue USB telemetry even when
++  feedback is missing, so a host can distinguish USB loss from CAN loss.
++- Add bounded TX FIFO waiting and explicit per-bus send-failure counters. Cancel
++  obsolete pending frames before a new batch or stop; do not replay stale PD
++  requests after recovery.
++- Service FDCAN bus-off recovery by cancelling pending requests and clearing
++  CCCR.INIT, rate limited to 250 ms per bus. CAN auto-retransmission by itself
++  does not recover bus-off. This does not reset the MCU or run its startup pose.
++- Report actual fully-enqueued COMMAND sequence and PD category (stopped,
++  zero PD, nonzero PD), plus per-bus PSR/ECR/pending/error/recovery diagnostics.
++
++Protocol v2 COMMAND remains 152 bytes. STATE now has a **272-byte payload**:
++the old 152-byte prefix followed by `12H 12I 2I 2I 2I 2I 2I I I` (little endian).
++These fields are feedback_age_ms, feedback_count, can_psr, can_ecr,
++can_tx_failures, can_recoveries, can_pending, applied_command_sequence,
++applied_gain_mode. Joint arrays are left six then right six; two-bus arrays
++are CAN1/right then CAN2/left. Capability is STATE bit 8; CAN fault is bit 9.
++Use the matching updated Jetson protocol decoder before running this firmware.
++The PD category confirms submission to all twelve CAN transmit queues; it is
++not a readback of the motor controller's internal KP/KD registers.
++
++Validation:
++
++```sh
++cmake --preset Debug
++cmake --build --preset Debug -j 4
++gcc -std=c11 -Wall -Wextra -Werror -Itests/stubs -ICore/Inc \
++    tests/test_leg_can_health.c Core/Src/leg_can_health.c -o test_leg_can
++./test_leg_can
++```
++
++ARM firmware builds successfully. The production CAN transport module was also
++compiled and tested on the Jetson against a mock HAL: per-leg stale feedback,
++tick wrap, bounded FIFO retry, send failures, stale request cancellation, and
++bus-off recovery all pass. Real-hardware verification after flashing is pending.
++The matching Jetson code passed 39 protocol/teaching/PTY tests on the Jetson.
++
++Flashing/reset still executes the original startup pose. Support the robot
++before flashing. Initial live evidence was 100 API samples with 4–23 ms USB
++age and identical values on all twelve joints; the old firmware had no CAN
++ages/PSR/ECR diagnostics, so a specific physical bus-off event was not proven.
+diff --git a/tests/stubs/fdcan.h b/tests/stubs/fdcan.h
+new file mode 100644
+index 0000000..3b012ce
+--- /dev/null
++++ b/tests/stubs/fdcan.h
+@@ -0,0 +1,26 @@
++#ifndef TEST_FDCAN_H
++#define TEST_FDCAN_H
++#include <stdint.h>
++typedef struct { uint32_t PSR, CCCR, TXBRP; } Registers;
++typedef struct { Registers *Instance; } FDCAN_HandleTypeDef;
++typedef struct {
++    uint32_t Identifier, IdType, TxFrameType, DataLength, ErrorStateIndicator;
++    uint32_t BitRateSwitch, FDFormat, TxEventFifoControl;
++} FDCAN_TxHeaderTypeDef;
++extern FDCAN_HandleTypeDef hfdcan1, hfdcan2, hfdcan3;
++#define FDCAN_PSR_BO 0x80U
++#define FDCAN_CCCR_INIT 1U
++#define CLEAR_BIT(reg, mask) ((reg) &= ~(mask))
++#define FDCAN_EXTENDED_ID 1
++#define FDCAN_DATA_FRAME 0
++#define FDCAN_ESI_ACTIVE 0
++#define FDCAN_BRS_OFF 0
++#define FDCAN_CLASSIC_CAN 0
++#define FDCAN_NO_TX_EVENTS 0
++#define HAL_OK 0
++uint32_t HAL_GetTick(void);
++uint32_t HAL_FDCAN_GetTxFifoFreeLevel(FDCAN_HandleTypeDef *);
++int HAL_FDCAN_AddMessageToTxFifoQ(FDCAN_HandleTypeDef *, const FDCAN_TxHeaderTypeDef *, uint8_t *);
++int HAL_FDCAN_AbortTxRequest(FDCAN_HandleTypeDef *, uint32_t);
++uint8_t FDCAN_Send_ExtFrame(FDCAN_HandleTypeDef *, uint32_t, uint8_t *, uint8_t);
++#endif
+diff --git a/tests/test_leg_can_health.c b/tests/test_leg_can_health.c
+new file mode 100644
+index 0000000..c408ab6
+--- /dev/null
++++ b/tests/test_leg_can_health.c
+@@ -0,0 +1,77 @@
++/* Host tests against the production transport module; no physical CAN device.
++ * gcc -std=c11 -Wall -Wextra -Werror -Itests/stubs -ICore/Inc
++ *     tests/test_leg_can_health.c Core/Src/leg_can_health.c -o test_leg_can
++ */
++#include "leg_can_health.h"
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++
++static Registers regs[3];
++FDCAN_HandleTypeDef hfdcan1 = {&regs[0]}, hfdcan2 = {&regs[1]}, hfdcan3 = {&regs[2]};
++static uint32_t now = 1000, free_level = 6, free_after, polls, sends, aborts;
++static int fail_enqueue;
++uint32_t HAL_GetTick(void) { return now++; }
++uint32_t HAL_FDCAN_GetTxFifoFreeLevel(FDCAN_HandleTypeDef *bus)
++{
++    (void)bus;
++    if (free_after && ++polls >= free_after) return 1;
++    return free_level;
++}
++int HAL_FDCAN_AddMessageToTxFifoQ(FDCAN_HandleTypeDef *bus, const FDCAN_TxHeaderTypeDef *header, uint8_t *data)
++{
++    (void)bus; (void)data;
++    assert(header->DataLength == 8);
++    ++sends;
++    return fail_enqueue || (!free_level && (!free_after || polls < free_after));
++}
++int HAL_FDCAN_AbortTxRequest(FDCAN_HandleTypeDef *bus, uint32_t pending)
++{
++    assert(pending != 0);
++    ++aborts;
++    bus->Instance->TXBRP &= ~pending;
++    return HAL_OK;
++}
++int main(void)
++{
++    uint8_t data[8] = {0};
++    assert(LegCan_FreshMask(now) == 0);
++    for (unsigned i = 0; i < 12; ++i) { g_leg_rx_count[i] = 1; g_leg_rx_ms[i] = now; }
++    assert(LegCan_FreshMask(now) == 0xfff);
++    for (unsigned i = 0; i < 6; ++i) g_leg_rx_ms[i] -= 101;
++    assert(LegCan_FreshMask(now) == 0xfc0); /* left stale, right fresh */
++    g_leg_rx_ms[0] = 0xfffffff0U;
++    assert(LegCan_FreshMask(0x10U) & 1U); /* tick rollover */
++
++    assert(FDCAN_Send_ExtFrame(&hfdcan1, 123, data, 8) == 0);
++    assert(g_leg_tx_failures[0] == 0);
++    free_level = 0;
++    uint32_t before = now;
++    assert(FDCAN_Send_ExtFrame(&hfdcan2, 123, data, 8) != 0);
++    assert(now - before < 10); /* bounded wait; no indefinite blocked main loop */
++    assert(g_leg_tx_failures[1] == 1);
++    assert(!LegCan_Healthy(now));
++    free_after = 2; polls = 0;
++    assert(FDCAN_Send_ExtFrame(&hfdcan2, 123, data, 8) == 0);
++    assert(g_leg_tx_failures[1] == 1); /* transient FIFO pressure retried */
++    now += 101;
++    assert(LegCan_Healthy(now));
++
++    regs[0].TXBRP = 3; regs[1].TXBRP = 12;
++    LegCan_BeginBatch();
++    assert(regs[0].TXBRP == 0 && regs[1].TXBRP == 0 && aborts == 2);
++    regs[1].PSR = FDCAN_PSR_BO; regs[1].CCCR = FDCAN_CCCR_INIT; regs[1].TXBRP = 63;
++    assert(!LegCan_Healthy(now));
++    LegCan_Service();
++    assert(regs[1].TXBRP == 0 && !(regs[1].CCCR & FDCAN_CCCR_INIT));
++    assert(g_leg_recoveries[1] == 1);
++    LegCan_Service();
++    assert(g_leg_recoveries[1] == 1); /* no recovery storm */
++    now += 251;
++    LegCan_Service();
++    assert(g_leg_recoveries[1] == 2);
++    regs[1].PSR = 0;
++    assert(LegCan_Healthy(now));
++    puts("PASS: feedback freshness, wrap, bounded FIFO retry, failure reporting, stale TX cancellation, bus-off recovery");
++    return 0;
++}

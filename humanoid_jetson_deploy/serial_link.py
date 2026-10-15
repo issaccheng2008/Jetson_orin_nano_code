@@ -43,6 +43,8 @@ class SerialLink:
         self._write_lock = threading.Lock()
         self._stop = threading.Event()
         self._sequence = 0
+        self.last_command_sequence = None
+        self.reader_error = ""
         self._queue_states = queue_states
         self._state_queue = deque(maxlen=4096)
         self.state_queue_drops = 0
@@ -53,7 +55,8 @@ class SerialLink:
         while not self._stop.is_set():
             try:
                 chunk = self.serial.read(max(1, self.serial.in_waiting))
-            except self._serial_module.SerialException:
+            except (self._serial_module.SerialException, OSError) as exc:
+                self.reader_error = str(exc)
                 self._stop.set()
                 return
             if not chunk:
@@ -149,6 +152,7 @@ class SerialLink:
         finally:
             self._write_lock.release()
         self._sequence = (self._sequence + 1) & 0xFFFF
+        self.last_command_sequence = packet.sequence
         return True
 
     def send_action(self, event_id: int, action_id: int) -> None:

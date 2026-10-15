@@ -15,7 +15,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from protocol import (CommandPacket, FrameDecoder, StatePacket, pack_state,
                       COMMAND_ENABLE, COMMAND_ESTOP, COMMAND_TEACHING,
-                      STATE_ENCODERS_VALID, STATE_TEACHING_READY)
+                      STATE_ENCODERS_VALID, STATE_TEACHING_READY, STATE_MOTORS_ENABLED,
+                      CanDiagnostics)
 from teaching import TeachingController, TeachingStore
 
 
@@ -50,9 +51,16 @@ class SerialTeachingIntegration(unittest.TestCase):
                     if now >= deadline:
                         seq += 1
                         q = np.full(12, .02*np.sin(seq*.02))
+                        command = commands[-1] if commands else None
+                        enabled = command is not None and command.command_flags&COMMAND_ENABLE and not command.command_flags&COMMAND_ESTOP
+                        mode = 0 if not enabled else 1 if np.all(command.kp==0) and np.all(command.kd==0) else 2
                         packet = StatePacket(seq & 0xffff, seq*20000, q, np.zeros(12),
                                              np.zeros(3), np.zeros(3), np.array([1,0,0,0]),
-                                             STATE_ENCODERS_VALID | STATE_TEACHING_READY)
+                                             STATE_ENCODERS_VALID | STATE_TEACHING_READY | (STATE_MOTORS_ENABLED if enabled else 0),
+                                             len(commands), seq,
+                                             CanDiagnostics((0,)*12, (seq,)*12,
+                                                            applied_command_sequence=command.sequence if command else 0,
+                                                            applied_gain_mode=mode))
                         os.write(master, pack_state(packet))
                         deadline += .02
                     stopped.wait(.002)

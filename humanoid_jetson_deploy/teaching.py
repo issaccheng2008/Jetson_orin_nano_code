@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import bisect
 from datetime import datetime, timezone
+from dataclasses import asdict
 import json
 import math
 import os
@@ -21,7 +22,8 @@ import numpy as np
 import config
 from motor_test_common import STM32_BRIDGE_JOINT_NAMES, monotonic_us
 from protocol import (COMMAND_ENABLE, COMMAND_ESTOP, COMMAND_TEACHING,
-                      STATE_ENCODERS_VALID, STATE_FAULT, STATE_TEACHING_READY)
+                      STATE_ENCODERS_VALID, STATE_FAULT, STATE_TEACHING_READY, STATE_CAN_FAULT,
+                      STATE_MOTORS_ENABLED)
 
 DT = 0.02
 NAMES = list(STM32_BRIDGE_JOINT_NAMES)
@@ -154,10 +156,11 @@ class Trajectory:
 class TeachingController:
     """One owner for all sends; web threads only change intent under the lock."""
     def __init__(self, link, store, *, enable_motors=False, clock=time.monotonic,
-                 max_speed=config.MAX_TARGET_SPEED_RAD_S):
+                 max_speed=config.MAX_TARGET_SPEED_RAD_S, reconnect_factory=None):
         self.link, self.store, self.clock = link, store, clock
         self.enable_motors = enable_motors
         self.max_speed = positive(max_speed, "最大速度", 0.001)
+        self.reconnect_factory = reconnect_factory
         self.lock = threading.RLock()
         self.mode = "idle"
         self.error = ""
@@ -180,21 +183,37 @@ class TeachingController:
         self.last_progress_key = None
         self.last_progress_time = 0.0
         self.session_started = False
+        self.mode_requested_at = self.clock()
+        self.last_sent_sequence = None
+        self.free_warmup_until = 0.0
         self.stop_event = threading.Event()
         self.thread = None
 
-    def _fresh(self, require_raw=False):
+    def _fresh(self, require_raw=False, allow_stale_encoders=False):
         if self.state is None or self.state_time is None or self.clock() - self.state_time > 0.10:
             raise ValueError("反馈过期或尚未连接 STM32")
         flags = self.state.status_flags
         if not flags & STATE_TEACHING_READY:
             raise ValueError("STM32 尚未烧录支持示教的固件 (缺少 STATE_TEACHING_READY)")
-        if flags & STATE_FAULT or not flags & STATE_ENCODERS_VALID:
+        if flags & STATE_FAULT:
             raise ValueError("STM32 电机故障或编码器未就绪")
+        diagnostics = self.state.can_diagnostics
+        if not allow_stale_encoders:
+            if flags & STATE_CAN_FAULT:
+                raise ValueError("STM32 CAN 发送失败或 bus-off；无法确认电机已收到命令")
+            if diagnostics is not None:
+                age = max(0, self.clock() - self.state_time) * 1000
+                stale = [NAMES[i] for i, ms in enumerate(diagnostics.feedback_age_ms) if ms + age > 100]
+                if stale:
+                    raise ValueError("CAN 编码器反馈过期: " + ", ".join(stale))
+            if not flags & STATE_ENCODERS_VALID:
+                raise ValueError("STM32 编码器未就绪或反馈过期")
         if self.clock() - self.last_progress_time > 0.10:
             raise ValueError("STM32 序号/时间戳停止更新")
         if require_raw and (not self.session_started or self.clock() - self.session_time < 0.10):
             raise ValueError("请先进入松弛模式并等待真实角度反馈")
+        if require_raw and diagnostics is None:
+            raise ValueError("缺少逐关节 CAN 反馈诊断；请先烧录新版 STM32 固件，不能仅凭 USB 在线锁定或记录")
         return vector(self.state.joint_position)
 
     def _can_enable(self):
@@ -223,12 +242,33 @@ class TeachingController:
         elif action in ("load-checkpoints", "play-checkpoints"):
             loaded = self.store.checkpoints(data["name"])
         with self.lock:
-            if action == "release":
+            previous_mode = self.mode
+            if action == "reconnect":
+                if self.reconnect_factory is None:
+                    raise ValueError("此连接不支持重新打开")
+                if self.mode not in ("fault", "idle", "disabled"):
+                    raise ValueError("请先停止输出；重新连接只允许在已停止/故障状态操作")
+                self._stop_recording()
+                self.mode, self.session_started, self.trajectory = "idle", False, None
+                self.link.close()
+                self.state = self.state_time = self.last_progress_key = self.last_tick = None
+                self.last_sent_sequence = None
+                try:
+                    self.link = self.reconnect_factory()
+                    self.error = ""
+                except Exception as exc:
+                    self.mode, self.error = "fault", f"USB 重新连接失败: {exc}"
+                    raise ValueError(self.error) from exc
+            elif action == "release":
                 self._can_enable()
-                q = self._fresh()
+                q = self._fresh(allow_stale_encoders=True)
                 if self.mode == "playback":
                     raise ValueError("请先停止回放")
                 self.target, self.mode, self.trajectory = q, "free", None
+                d = self.state.can_diagnostics
+                needs_feedback = (not self.state.status_flags & STATE_ENCODERS_VALID or
+                                  (d is not None and max(d.feedback_age_ms) > 100))
+                self.free_warmup_until = self.clock() + .30 if needs_feedback else 0.0
                 if not self.session_started:
                     self.session_started = True
                     self.session_time = self.clock()
@@ -252,7 +292,7 @@ class TeachingController:
                 self.trajectory = None
                 self._stop_recording()
             elif action == "reset":
-                self._fresh()
+                self._fresh(allow_stale_encoders=True)
                 self.mode, self.error, self.trajectory = "disabled", "", None
             elif action == "start-recording":
                 self._can_enable()
@@ -314,6 +354,8 @@ class TeachingController:
                 self.mode, self.target = "playback", current
             else:
                 raise ValueError(f"未知命令: {action}")
+            if self.mode != previous_mode or action == "release":
+                self.mode_requested_at = self.clock()
             return self.snapshot()
 
     def _stop_recording(self):
@@ -357,6 +399,24 @@ class TeachingController:
                                       flags | COMMAND_TEACHING, lock_timeout_s=0.02)
         if sent is False:
             raise RuntimeError("串口写入锁超时")
+        self.last_sent_sequence = getattr(self.link, "last_command_sequence", None)
+
+    def _gain_confirmation(self):
+        d = None if self.state is None else self.state.can_diagnostics
+        if d is None:
+            return "unavailable"
+        if self.mode == "idle" or not self.session_started:
+            return "monitoring"
+        if self.last_sent_sequence is None:
+            return "pending"
+        if self.state_time is None or self.clock() - self.state_time > .1:
+            return "pending"
+        expected = 1 if self.mode == "free" else 2 if self.mode in ("hold", "playback") else 0
+        if expected and not self.state.status_flags & STATE_MOTORS_ENABLED:
+            return "pending"
+        recent = (self.last_sent_sequence is None or
+                  ((self.last_sent_sequence - d.applied_command_sequence) & 0xffff) <= 10)
+        return "submitted" if d.applied_gain_mode == expected and recent else "pending"
 
     def tick(self):
         with self.lock:
@@ -379,7 +439,12 @@ class TeachingController:
             if self.record_file and self.link.state_queue_drops:
                 raise ValueError("反馈队列溢出，记录完整性丢失")
             if self.mode in ("free", "hold", "playback"):
-                current = self._fresh()
+                warming = self.mode == "free" and now < self.free_warmup_until
+                if (warming and self.state is not None and self.state.can_diagnostics is not None
+                        and max(self.state.can_diagnostics.feedback_age_ms) <= 100
+                        and self.state.status_flags & STATE_ENCODERS_VALID):
+                    self.free_warmup_until, warming = 0.0, False
+                current = self._fresh(allow_stale_encoders=warming)
                 if self.last_tick is not None and now - self.last_tick > 0.08:
                     raise ValueError("控制循环延迟超过 80 ms，停止执行")
                 self._record(frames)
@@ -398,6 +463,10 @@ class TeachingController:
                         raise ValueError("跟踪误差超过配置窗口，已停止输出")
                     kp, kd = config.motion_gain_scales()
                     self._send(COMMAND_ENABLE, kp, kd)
+                if (self.state.can_diagnostics is not None and not warming
+                        and self._gain_confirmation() != "submitted"
+                        and now - self.mode_requested_at > .40):
+                    raise ValueError("STM32 未确认向全部 12 电机提交本次 PD 模式；CAN 命令未生效")
             elif self.session_started:
                 self._send(COMMAND_ESTOP if self.mode == "fault" else 0)
             self.last_tick = now
@@ -425,6 +494,13 @@ class TeachingController:
                         joint_names=NAMES, position_rad=None if q is None else q.tolist(),
                         target_rad=self.target.tolist(), state_age_s=age,
                         status_flags=0 if self.state is None else self.state.status_flags,
+                        state_sequence=None if self.state is None else self.state.sequence,
+                        state_timestamp_us=None if self.state is None else self.state.timestamp_us,
+                        command_rx_count=None if self.state is None else self.state.command_rx_count,
+                        system_control_cycle=None if self.state is None else self.state.system_control_cycle,
+                        can_diagnostics=None if self.state is None or self.state.can_diagnostics is None else asdict(self.state.can_diagnostics),
+                        gain_confirmation=self._gain_confirmation(),
+                        reader_error=getattr(self.link, "reader_error", ""),
                         firmware_ready=bool(self.state and self.state.status_flags & STATE_TEACHING_READY),
                         recording=bool(self.record_file), record_name=self.record_name,
                         record_count=self.record_count, record_missing=self.record_missing,

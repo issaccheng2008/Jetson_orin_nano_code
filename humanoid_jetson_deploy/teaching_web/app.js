@@ -5,13 +5,13 @@ const jointLabels = ['髋 Pitch','髋 Roll','髋 Yaw','膝 Pitch','踝 Pitch','�
 let token='', state=null, points=[], dirty=false, busy=false, lastFileSignature='', fileCache=[];
 function notice(message, error=false) { $('notice').textContent=message; $('notice').classList.toggle('error',error); }
 async function api(path, body) {
-  const response = await fetch(path, body ? {method:'POST',headers:{'Content-Type':'application/json','X-Teaching-Token':token},body:JSON.stringify(body)} : {cache:'no-store'});
+  const response = await fetch(path, body ? {method:'POST',headers:{'Content-Type':'application/json','X-Teaching-Token':token},body:JSON.stringify(body),signal:AbortSignal.timeout(5000)} : {cache:'no-store',signal:AbortSignal.timeout(3000)});
   const data=await response.json();
   if (!response.ok) throw Error(data.error || `HTTP ${response.status}`);
   return data;
 }
 async function command(action, extra={}) {
-  if (busy && !['estop','disable'].includes(action)) return false;
+  if (busy && !['estop','disable'].includes(action)) { notice('上一条请求仍在处理中，请稍候再点击。',true); return false; }
   busy=true;
   try {
     const result=await api('/api/command',{action,...extra});
@@ -19,7 +19,7 @@ async function command(action, extra={}) {
     if (['checkpoint','new-checkpoints','load-checkpoints','save-checkpoints'].includes(action)) {
       points=structuredClone(result.checkpoints); dirty=false; renderPoints();
     }
-    notice(`${({release:'已进入松弛模式，请托住机器人',hold:'已固定最新反馈角度并恢复原有 PD',disable:'已停止电机输出',estop:'急停已发送',reset:'故障锁存已清除；仍保持停止输出','start-recording':'已开始记录实际反馈帧','stop-recording':'记录已停止并保存',checkpoint:'当前姿态已保存','save-checkpoints':'区间时间与顺序已保存','play-log':'连续动作开始回放','play-checkpoints':'Checkpoint 动作开始回放','stop-playback':'回放已停止，锁定当前实测姿态'})[action] || '操作完成'}`);
+    notice(`${({release:'已请求 Kp/Kd=0；查看下方 CAN 提交确认状态',hold:'已请求锁定最新实测角度；等待 STM32 CAN 提交确认',disable:'停止输出请求已发送',estop:'急停请求已发送',reset:'故障锁存已清除；仍保持停止输出',reconnect:'USB 已重新打开，当前仅监控；需主动点击松弛','start-recording':'已开始记录实际反馈帧','stop-recording':'记录已停止并保存',checkpoint:'当前姿态已保存','save-checkpoints':'区间时间与顺序已保存','play-log':'连续动作开始回放','play-checkpoints':'Checkpoint 动作开始回放','stop-playback':'回放已停止，已请求锁定当前姿态'})[action] || '操作完成'}`);
     await refreshFiles();
     return true;
   } catch(error) { notice(error.message,true); return false; }
@@ -31,23 +31,41 @@ for(let row=0;row<6;row++) for(let leg=0;leg<2;leg++) {
   const name=element('span','name');name.append(element('span','index',String(i).padStart(2,'0')),document.createTextNode(`${leg?'右':'左'} ${jointLabels[row]}`));
   const angle=element('span','angle','—');angle.id=`angle${i}`;
   const target=element('small','','目标 —');target.id=`target${i}`;
-  e.append(name,angle,target);$('joints').append(e);
+  const freshness=element('small','','CAN 年龄：未知');freshness.id=`canAge${i}`;
+  e.append(name,angle,target,freshness);$('joints').append(e);
 }
+const diagPanel=element('div','can-panel');diagPanel.id='canPanel';
+$('joints').after(diagPanel);
+const reconnectButton=element('button','quiet','重新连接 USB');
+reconnectButton.addEventListener('click',()=>command('reconnect'));
+document.querySelector('.controls').append(reconnectButton);
 function render(s) {
   state={...state,...s}; s=state;
   $('mode').textContent=modeNames[s.mode] || s.mode;
+  if(['free','hold','playback'].includes(s.mode) && s.gain_confirmation!=='submitted') $('mode').textContent+=' · 尚未确认';
   const fresh=s.state_age_s!==null && s.state_age_s<0.1;
   $('led').classList.toggle('online',fresh);
-  $('connection').textContent=fresh?'反馈在线':'反馈离线';
+  $('connection').textContent=fresh?'USB 帧在线':'USB 帧离线';
   $('feedback').textContent=s.simulated?'模拟数据 · 无硬件连接':s.enable_motors?'电机控制已授权':'监控模式 · 未授权使能';
   $('demo').hidden=!s.simulated;
   $('age').textContent=s.state_age_s===null?'—':`${(s.state_age_s*1000).toFixed(0)} ms`;
   $('flags').textContent=`0x${s.status_flags.toString(16).toUpperCase().padStart(4,'0')}`;
-  $('firmware').textContent=s.firmware_ready?'支持示教':'需更新 STM32';
+  $('firmware').textContent=s.firmware_ready?(s.can_diagnostics?'CAN 诊断版':'示教旧版 · 需升级'):'需更新 STM32';
   const rad=$('unit').value==='rad', factor=rad?1:180/Math.PI, suffix=rad?' rad':'°';
   for(let i=0;i<12;i++) {
     $(`angle${i}`).textContent=s.position_rad?(s.position_rad[i]*factor).toFixed(rad?3:1)+suffix:'—';
     $(`target${i}`).textContent='目标 '+(s.target_rad[i]*factor).toFixed(rad?3:1)+suffix;
+    const canAge=s.can_diagnostics ? s.can_diagnostics.feedback_age_ms[i]+(s.state_age_s||0)*1000 : null;
+    $(`canAge${i}`).textContent=canAge===null?'CAN 年龄：旧固件未提供':`CAN ${canAge>=65535?'未收到':Math.round(canAge)+' ms'}${canAge>100?' · 过期':''}`;
+    $(`canAge${i}`).classList.toggle('stale',canAge!==null&&canAge>100);
+  }
+  const d=s.can_diagnostics, confirmed=s.gain_confirmation==='submitted';
+  diagPanel.classList.toggle('stale',!confirmed&&['free','hold','playback'].includes(s.mode));
+  if(!d) diagPanel.textContent='缺少 CAN 诊断：当前 USB 在线不能证明编码器更新或松弛已生效。请烧录新版 STM32 固件。';
+  else {
+    const mode=['停止输出','Kp=Kd=0','恢复 PD'][d.applied_gain_mode]||'未知';
+    diagPanel.textContent=`${s.gain_confirmation==='monitoring'?'仅监控，尚未发送控制指令':(confirmed?'STM32 已向 12 电机提交':'等待 STM32 提交')+'：'+mode} · 命令序号 ${d.applied_command_sequence} ｜ USB 序号 ${s.state_sequence} · 收命令 ${s.command_rx_count} · 控制周期 ${s.system_control_cycle}\n`+
+      [1,0].map((b)=>`${b?'左腿 CAN2':'右腿 CAN1'}：TX失败 ${d.can_tx_failures[b]} · 恢复 ${d.can_recoveries[b]} · TEC ${d.can_ecr[b]&255} · REC ${(d.can_ecr[b]>>8)&127} · bus-off ${(d.can_psr[b]&128)?'是':'否'}`).join('\n');
   }
   $('gainHint').textContent=s.mode==='free'?'每 20 ms 回传最新反馈角度，Kp=Kd=0。':s.mode==='hold'?'目标固定；使用 config.py 原有站立 PD。':s.mode==='playback'?'所有关节按同一时间轴执行；完成后保持末帧。':'先托住机器人，再进入松弛模式。';
   $('recordBadge').textContent=s.recording?'● 记录中':'待机';$('recordBadge').classList.toggle('active',s.recording);
@@ -57,6 +75,7 @@ function render(s) {
   $('startRecord').disabled=s.recording||s.mode!=='free';
   $('progress').textContent=s.playback_total_s?`${s.playback_elapsed_s.toFixed(1)} / ${s.playback_total_s.toFixed(1)} s`:'';
   if(s.error)notice(s.error,true);
+  else if(!d)notice('当前固件不能确认逐关节 CAN 反馈和 PD 提交；锁定/记录/回放需新版固件。',true);
   if(!dirty && JSON.stringify(points)!==JSON.stringify(s.checkpoints)){points=structuredClone(s.checkpoints);renderPoints();}
 }
 function markDirty(){dirty=true;$('dirty').textContent='有未保存修改';}

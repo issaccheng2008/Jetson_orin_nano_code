@@ -10,7 +10,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from protocol import (COMMAND_ENABLE, COMMAND_ESTOP, COMMAND_TEACHING,
                       STATE_ENCODERS_VALID, STATE_FAULT, STATE_TEACHING_READY, StatePacket,
-                      FrameDecoder, pack_command, CommandPacket)
+                      FrameDecoder, pack_command, CommandPacket, CanDiagnostics,
+                      STATE_MOTORS_ENABLED)
 from teaching import TeachingController, TeachingStore, Trajectory, NAMES
 
 
@@ -19,6 +20,7 @@ class FakeLink:
 
     def __init__(self):
         self.frames, self.sent = [], []
+        self.last_command_sequence = 0
 
     def drain_states(self):
         frames, self.frames = self.frames, []
@@ -26,6 +28,7 @@ class FakeLink:
 
     def send_command(self, *args, **kwargs):
         self.sent.append(args)
+        self.last_command_sequence = (self.last_command_sequence + 1)&0xffff
         return True
 
     def close(self):
@@ -44,12 +47,21 @@ class TeachingTests(unittest.TestCase):
         self.seq = 0
         self.timestamp_base = 0
 
-    def frame(self, value=0., flags=STATE_ENCODERS_VALID | STATE_TEACHING_READY, *, timestamp=None):
+    def frame(self, value=0., flags=STATE_ENCODERS_VALID | STATE_TEACHING_READY | STATE_MOTORS_ENABLED,
+              *, timestamp=None, diagnostics=True, ages=None, applied_mode=None):
         self.seq += 1
+        mode = 0
+        if self.link.sent:
+            last = self.link.sent[-1]
+            mode = 0 if not last[-1]&COMMAND_ENABLE or last[-1]&COMMAND_ESTOP else 1 if last[2]==last[3]==0 else 2
+        diag = CanDiagnostics(tuple(ages or [0]*12), (self.seq,)*12,
+                              applied_command_sequence=self.link.last_command_sequence,
+                              applied_gain_mode=mode if applied_mode is None else applied_mode)
         state = StatePacket(self.seq & 0xffff,
                             timestamp if timestamp is not None else (self.timestamp_base+self.seq*20000)&0xffffffff,
                             np.full(12, value), np.zeros(12), np.zeros(3), np.zeros(3),
-                            np.array([1,0,0,0]), flags)
+                            np.array([1,0,0,0]), flags, len(self.link.sent), self.seq,
+                            diag if diagnostics else None)
         self.link.frames.append((state, self.now))
         return state
 
@@ -290,6 +302,61 @@ class TeachingTests(unittest.TestCase):
             np.testing.assert_allclose(result.kp,kp)
             np.testing.assert_allclose(result.kd,kd)
             self.assertEqual(result.command_flags,COMMAND_ENABLE|COMMAND_TEACHING)
+
+
+    def test_usb_fresh_left_can_stale_faults_and_stops_recording(self):
+        self.free()
+        self.control.execute('start-recording')
+        self.tick()
+        with self.assertRaisesRegex(ValueError,'l_leg_pitch_joint') as caught:
+            self.tick(ages=[200]*6+[0]*6)
+        self.control.fail(caught.exception)
+        self.assertEqual(self.control.mode,'fault')
+        self.assertIsNone(self.control.record_file)
+        self.assertTrue(self.link.sent[-1][-1]&COMMAND_ESTOP)
+
+    def test_stationary_angles_with_fresh_can_are_valid(self):
+        self.free()
+        for _ in range(50):
+            self.tick(0.)
+        self.assertEqual(self.control.mode,'free')
+        self.assertEqual(self.control.snapshot()['gain_confirmation'],'submitted')
+
+    def test_release_must_be_confirmed_by_stm32_not_just_http_success(self):
+        self.free()
+        self.tick()
+        self.control.execute('hold')
+        for _ in range(6):
+            self.tick(applied_mode=2)
+        self.control.execute('release')
+        self.assertEqual(self.control.snapshot()['gain_confirmation'],'pending')
+        with self.assertRaisesRegex(ValueError,'未确认') as caught:
+            for _ in range(25):
+                self.tick(applied_mode=2)
+        self.control.fail(caught.exception)
+        self.assertEqual(self.control.mode,'fault')
+
+    def test_legacy_firmware_cannot_silently_lock_stale_pose(self):
+        self.tick(diagnostics=False)
+        self.control.execute('release')
+        for _ in range(6):
+            self.tick(diagnostics=False)
+        self.assertEqual(self.control.snapshot()['gain_confirmation'],'unavailable')
+        with self.assertRaisesRegex(ValueError,'CAN'):
+            self.control.execute('hold')
+
+    def test_reconnect_does_not_restore_previous_hold_or_send_enable(self):
+        self.free()
+        self.control.execute('hold')
+        self.control.fail('USB disconnected')
+        replacement=FakeLink()
+        self.control.reconnect_factory=lambda:replacement
+        self.control.execute('reconnect')
+        self.assertEqual(self.control.mode,'idle')
+        self.assertFalse(self.control.session_started)
+        self.assertIsNone(self.control.state)
+        self.control.tick()
+        self.assertEqual(replacement.sent,[])
 
 
 if __name__=='__main__':

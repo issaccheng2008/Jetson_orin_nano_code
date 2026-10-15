@@ -37,7 +37,7 @@ $browserJob = Start-Job -ArgumentList $LocalPort -ScriptBlock {
 }
 try {
     $forward = "127.0.0.1:${LocalPort}:127.0.0.1:8765"
-    $remote = "exec $RemotePython -B $RemoteDirectory/teaching_console.py serve --port /dev/ttyACM0 --enable-motors --data-dir /home/isaac/jetson_orin_code/records/teaching"
+    $remote = "exec $RemotePython -B $RemoteDirectory/teaching_console.py serve --port auto --enable-motors --data-dir /home/isaac/jetson_orin_code/records/teaching"
     # Foreground SSH keeps its password prompt visible. The -t session owns the
     # server, so terminal closure also closes it instead of leaving a daemon.
     & ssh -t -o ExitOnForwardFailure=yes -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -L $forward "${RobotUser}@${RobotHost}" $remote
