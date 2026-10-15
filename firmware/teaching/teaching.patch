@@ -1,0 +1,178 @@
+diff --git a/Core/Inc/jetson_protocol.h b/Core/Inc/jetson_protocol.h
+index 53a328c..0a6bbe7 100644
+--- a/Core/Inc/jetson_protocol.h
++++ b/Core/Inc/jetson_protocol.h
+@@ -34,6 +34,7 @@
+ #define COMMAND_ENABLE              (1UL << 0)
+ #define COMMAND_ESTOP               (1UL << 1)
+ #define COMMAND_CLEAR_FAULT         (1UL << 2)
++#define COMMAND_TEACHING            (1UL << 3)
+ 
+ #define STATE_MOTORS_ENABLED        (1UL << 0)
+ #define STATE_FAULT                 (1UL << 1)
+@@ -42,6 +43,8 @@
+ #define STATE_COMMAND_FRESH         (1UL << 4)
+ #define STATE_START_BUTTON          (1UL << 5)
+ #define STATE_STARTUP_ACTIVE        (1UL << 6)
++/* Firmware capability: raw encoder teaching + stop without reboot. */
++#define STATE_TEACHING_READY        (1UL << 7)
+ 
+ #pragma pack(push, 1)
+ typedef struct {
+diff --git a/Core/Inc/jetson_robot_bridge.h b/Core/Inc/jetson_robot_bridge.h
+index 5dcacc1..76e5e52 100644
+--- a/Core/Inc/jetson_robot_bridge.h
++++ b/Core/Inc/jetson_robot_bridge.h
+@@ -36,6 +36,8 @@ uint8_t JetsonRobotBridge_LeanSettled(void);
+ /* Values after URDF-to-motor direction conversion, visible over ST-Link. */
+ extern volatile float g_debug_motor_target[12];
+ extern volatile uint8_t g_debug_jetson_control_active;
++extern volatile uint8_t g_debug_teaching_session;
++void Robot_EnterTeachingMode(void);
+ /* Local interpolation/leg action owns the motors; COMMAND still stays live. */
+ extern volatile uint8_t g_debug_local_leg_active;
+ extern volatile uint32_t g_debug_watchdog_trip_count;
+diff --git a/Core/Src/jetson_robot_bridge.c b/Core/Src/jetson_robot_bridge.c
+index 608c1d8..40628db 100644
+--- a/Core/Src/jetson_robot_bridge.c
++++ b/Core/Src/jetson_robot_bridge.c
+@@ -81,6 +81,7 @@ static uint32_t last_send_tick_ms;
+ 
+ volatile float g_debug_motor_target[PROTOCOL_NUM_JOINTS];
+ volatile uint8_t g_debug_jetson_control_active;
++volatile uint8_t g_debug_teaching_session;
+ volatile uint32_t g_debug_watchdog_trip_count;
+ volatile uint32_t g_debug_estop_trip_count;
+ volatile uint32_t g_debug_invalid_command_count;
+@@ -385,6 +386,7 @@ void JetsonRobotBridge_Init(void)
+     last_applied_command_count = 0U;
+     memset((void *)g_debug_motor_target, 0, sizeof(g_debug_motor_target));
+     g_debug_jetson_control_active = 0U;
++    g_debug_teaching_session = 0U;
+     g_debug_watchdog_trip_count = 0U;
+     g_debug_estop_trip_count = 0U;
+     g_debug_invalid_command_count = 0U;
+@@ -430,6 +432,11 @@ void JetsonRobotBridge_ProcessCommand(void)
+         if (g_debug_jetson_control_active != 0U) {
+             ++g_debug_watchdog_trip_count;
+ 
++            if (g_debug_teaching_session != 0U) {
++                stop_all_motors();
++                g_debug_jetson_control_active = 0U;
++            }
++
+             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
+         }
+         return;
+@@ -440,6 +447,40 @@ void JetsonRobotBridge_ProcessCommand(void)
+     }
+     last_applied_command_count = command_count_after;
+ 
++    /* Reject malformed teaching frames before changing ownership. */
++    if ((command.command_flags & COMMAND_TEACHING) != 0U) {
++        if (!command_targets_are_valid(&command)) {
++            ++g_debug_invalid_command_count;
++            stop_all_motors();
++            g_debug_jetson_control_active = 0U;
++            return;
++        }
++        if (g_debug_teaching_session == 0U) {
++            Robot_EnterTeachingMode();
++            g_debug_teaching_session = 1U;
++            lean_target = lean_applied = 0.0f;
++            g_debug_pose_lean_applied = 0.0f;
++            g_debug_feedback_freeze = 0U;
++            clear_startup();
++        }
++        if (((command.command_flags & COMMAND_ENABLE) == 0U) ||
++            ((command.command_flags & COMMAND_ESTOP) != 0U)) {
++            ++g_debug_estop_trip_count;
++            stop_all_motors();
++            g_debug_jetson_control_active = 0U;
++            return; /* Never reset/re-home in a teaching session. */
++        }
++    } else if ((command.command_flags & COMMAND_ENABLE) != 0U &&
++               (command.command_flags & COMMAND_ESTOP) == 0U &&
++               command_targets_are_valid(&command)) {
++        /* A subsequently started walking process explicitly takes ownership. */
++        g_debug_teaching_session = 0U;
++    } else if (g_debug_teaching_session != 0U) {
++        stop_all_motors();
++        g_debug_jetson_control_active = 0U;
++        return;
++    }
++
+     if (((command.command_flags & COMMAND_ENABLE) == 0U) ||
+         ((command.command_flags & COMMAND_ESTOP) != 0U)) {
+         if (g_debug_jetson_control_active != 0U || g_debug_local_leg_active != 0U) {
+@@ -527,7 +568,7 @@ uint8_t JetsonRobotBridge_SendState(void)
+ 
+         /* 3. 单帧限幅 —— 反馈偏离目标不超过限制值，过滤跳变 */
+         float delta = corrected - target_position[index];
+-        if (g_debug_local_leg_active == 0U) {
++        if (g_debug_local_leg_active == 0U && g_debug_teaching_session == 0U) {
+             if (delta > FRAME_ANGLE_LIMIT)  delta = FRAME_ANGLE_LIMIT;
+             if (delta < -FRAME_ANGLE_LIMIT) delta = -FRAME_ANGLE_LIMIT;
+             corrected = target_position[index] + delta;
+@@ -542,7 +583,7 @@ uint8_t JetsonRobotBridge_SendState(void)
+ 
+     /* 冻结期间回放前倾前的快照：上位机拿假数据做识别，电机侧闭环不受影响。
+      * timestamp_us 不冻——它是"新一帧"的单调时钟，冻掉会让上位机误判过期。 */
+-    if (g_debug_feedback_freeze != 0U) {
++    if (g_debug_feedback_freeze != 0U && g_debug_teaching_session == 0U) {
+         memcpy(state.joint_position, frozen_joint_position, sizeof(state.joint_position));
+         memcpy(state.joint_velocity, frozen_joint_velocity, sizeof(state.joint_velocity));
+         memcpy(state.accel_m_s2, &frozen_imu[0], sizeof(state.accel_m_s2));
+@@ -553,6 +594,7 @@ uint8_t JetsonRobotBridge_SendState(void)
+     if (mode_flags == 0x0FFFU) {
+         state.status_flags |= STATE_MOTORS_ENABLED;
+     }
++    state.status_flags |= STATE_TEACHING_READY;
+     if (fault_flags != 0U) {
+         state.status_flags |= STATE_FAULT;
+     }
+diff --git a/Core/Src/main.c b/Core/Src/main.c
+index 0e6b9b5..da30c8b 100644
+--- a/Core/Src/main.c
++++ b/Core/Src/main.c
+@@ -516,6 +516,11 @@ static void Handle_Action_Request(const ActionRequestPayload *request)
+ {
+   Robot_StateTypeDef next_state;
+ 
++  if (g_debug_teaching_session != 0U) {
++    Queue_Action_Status(request->event_id, request->action_id, ACTION_STATUS_BUSY);
++    return;
++  }
++
+   if (request->event_id == active_event_id && active_event_id != 0U) {         // 如果当前动作的事件 ID 与上位机请求的事件 ID 相同，说明上位机重复发送了请求
+     Queue_Action_Status(request->event_id, request->action_id,
+         request->action_id == active_action_id ? active_action_status : ACTION_STATUS_INVALID);
+@@ -954,8 +959,8 @@ void BUTTON_CHANGE(void)
+   uint8_t pressed = buttons & ~previous_buttons;
+   previous_buttons = buttons;
+   (void)JetsonRobotBridge_ServiceStartupButton();
+-  if (robot_state != ROBOT_STATE_IDLE || g_debug_local_leg_active != 0U ||
+-      active_action_status == ACTION_STATUS_ACCEPTED) return;
++  if (g_debug_teaching_session != 0U || robot_state != ROBOT_STATE_IDLE ||
++      g_debug_local_leg_active != 0U || active_action_status == ACTION_STATUS_ACCEPTED) return;
+   if (pressed & 1U) robot_state = ROBOT_STATE_LLEG;
+   else if (pressed & 2U) robot_state = ROBOT_STATE_RLEG;
+   else if (pressed & 4U) {
+@@ -1031,6 +1036,17 @@ static void Action_Goto_Cancel(void)
+   local_release_pending = 0U;
+ }
+ 
++/* Called before the first teaching command is applied, in the main loop. */
++void Robot_EnterTeachingMode(void)
++{
++  Action_Goto_Cancel();
++  robot_state = ROBOT_STATE_IDLE;
++  if (active_action_status == ACTION_STATUS_ACCEPTED) {
++    active_action_status = ACTION_STATUS_FAILED;
++    Queue_Action_Status(active_event_id, active_action_id, active_action_status);
++  }
++}
++
+ /* One motor batch every 20 ms, including the three-second hold. */
+ static void Action_Goto_Service(void)
+ {

@@ -1,5 +1,10 @@
 # Jetson Orin Nano humanoid runtime
 
+Browser-based manual teaching, 50 Hz encoder recording, timed checkpoint
+playback, and hold-current-position are available in the standalone
+[teaching console](docs/teaching_console_zh.md). It owns the serial port instead
+of the walking runtime. Windows entry point: `open_teaching.cmd`.
+
 The runtime supports standard forward walking from `Humanoid_Robot_RSL_RL`
 and one-foot standing from `Humanoid_Robot_One_Foot_Standing`. Select the
 interface with `--policy walking` (default) or `--policy one-foot`.

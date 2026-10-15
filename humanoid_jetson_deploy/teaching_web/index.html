@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>机器人 · 动作示教台</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<header><div><span class="eyebrow">HUMANOID / MOTION LAB</span><h1>动作示教台 <span id="demo" hidden>离线模拟</span></h1><p>手动示教，记录姿态，按自己的节奏复现。</p></div><div class="connection"><span id="led"></span><strong id="connection">连接中</strong><small id="feedback">等待反馈</small></div></header>
+<main>
+<section class="toolbar panel"><div><span class="eyebrow">CONTROL</span><h2 id="mode">仅监控</h2><p id="gainHint">先托住机器人，再进入松弛模式。</p></div><div class="controls"><button data-action="release" class="primary">松弛 · Kp/Kd = 0</button><button data-action="hold">锁定当前位置</button><button data-action="disable">停止输出</button><button data-action="estop" class="danger">急停</button><button data-action="reset" class="quiet">清除故障锁存</button></div></section>
+<div id="notice" role="status" aria-live="polite">服务启动后仅监控；松弛与锁定都使用最新接收的关节角度。</div>
+<div class="workspace">
+<section class="panel telemetry"><div class="section-title"><div><span class="eyebrow">LIVE FEEDBACK</span><h2>实时关节角度</h2></div><label class="small">显示单位 <select id="unit"><option value="deg">° 度</option><option value="rad">rad 弧度</option></select></label></div><p class="subtle">左腿 0–5 · 右腿 6–11 ｜ 反馈 50 Hz · 界面 10 Hz</p><div id="joints" class="joints"></div><div class="stats"><div><small>反馈帧序状态</small><strong id="flags">—</strong></div><div><small>反馈延迟</small><strong id="age">—</strong></div><div><small>示教固件</small><strong id="firmware">等待</strong></div></div></section>
+<div class="right-column">
+<section class="panel"><div class="section-title"><div><span class="eyebrow">CONTINUOUS CAPTURE</span><h2>连续动作记录</h2></div><span class="badge" id="recordBadge">待机</span></div><p class="subtle">保存实际接收帧、STM32 时间戳和序号，按原时间轴回放。</p><div class="row"><button id="startRecord" class="primary">开始记录</button><button data-action="stop-recording">停止记录</button><strong id="samples">0 帧</strong></div><p id="recordFile" class="filename">尚无记录</p><small id="missing">缺帧估计：0</small></section>
+<section class="panel"><div class="section-title"><div><span class="eyebrow">KEY POSES</span><h2>Checkpoint 姿态编排</h2></div><button data-action="new-checkpoints" class="quiet">新建</button></div><div class="row"><input id="label" placeholder="姿态名称，如：左脚抬起" maxlength="100" aria-label="姿态名称"><button id="addCheckpoint" class="primary">＋ 记录当前姿态</button></div><p class="subtle">每行时间表示从该姿态匀速到下一姿态的用时；所有关节同时到达。</p><div id="checkpoints" class="checkpoint-list"><p class="empty">记录第一个姿态，开始编排动作。</p></div><div class="row"><button id="saveCheckpoints">保存时间与顺序</button><span id="dirty" class="small"></span></div><p id="checkpointFile" class="filename">每次记录自动保存到独立 checkpoint 文件</p></section>
+</div>
+</div>
+<section class="panel library"><div class="section-title"><div><span class="eyebrow">PLAYBACK LIBRARY</span><h2>动作文件与回放</h2></div><button id="refreshFiles" class="quiet">刷新文件</button></div><div class="playback-settings"><label>到首帧用时 (s)<input id="approach" type="number" min="0.02" step="0.1" value="2"></label><label>连续记录回放倍率<input id="speed" type="number" min="0.05" step="0.1" value="1"></label><button data-action="stop-playback">停止回放并锁定当前姿态</button><span id="progress" class="small"></span></div><p class="subtle">先平滑到达首帧，再执行动作；完成后保持末帧。Checkpoint 回放使用已保存的区间时间。</p><div id="files" class="file-list"></div></section>
+<footer>12 关节 · STM32 模型线序 · 文件统一保存 rad ｜ 松弛和停止输出会失去支撑，请托住机器人。急停后需要显式清除故障。</footer>
+</main></body></html>

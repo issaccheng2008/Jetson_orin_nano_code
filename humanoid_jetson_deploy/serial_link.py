@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import threading
 import time
+import os
+from collections import deque
 
 from config import command_gains
 
@@ -15,11 +17,23 @@ from protocol import (
 
 
 class SerialLink:
-    def __init__(self, port: str, baudrate: int = 921600) -> None:
+    def __init__(self, port: str, baudrate: int = 921600, *, queue_states: bool = False) -> None:
         import serial
 
         self._serial_module = serial
-        self.serial = serial.Serial(port=port, baudrate=baudrate, timeout=0.01, write_timeout=0.05)
+        options = dict(port=port, baudrate=baudrate, timeout=0.01, write_timeout=0.05)
+        if os.name == "posix":
+            options["exclusive"] = True
+        self.serial = serial.Serial(**options)
+        if os.name == "posix":
+            # Also reject later non-cooperating serial openers, not just flock users.
+            import fcntl
+            import termios
+            try:
+                fcntl.ioctl(self.serial.fileno(), termios.TIOCEXCL)
+            except Exception:
+                self.serial.close()
+                raise
         self.decoder = FrameDecoder()
         self._latest_state: StatePacket | None = None
         self._latest_state_host_time = 0.0
@@ -29,6 +43,9 @@ class SerialLink:
         self._write_lock = threading.Lock()
         self._stop = threading.Event()
         self._sequence = 0
+        self._queue_states = queue_states
+        self._state_queue = deque(maxlen=4096)
+        self.state_queue_drops = 0
         self._thread = threading.Thread(target=self._reader, name="stm32-serial-reader", daemon=True)
         self._thread.start()
 
@@ -46,6 +63,10 @@ class SerialLink:
                     with self._lock:
                         self._latest_state = message
                         self._latest_state_host_time = time.monotonic()
+                        if self._queue_states:
+                            if len(self._state_queue) == self._state_queue.maxlen:
+                                self.state_queue_drops += 1
+                            self._state_queue.append((message, self._latest_state_host_time))
                         self._state_receive_times[(message.sequence, message.timestamp_us)] = self._latest_state_host_time
                         if len(self._state_receive_times) > 64:
                             self._state_receive_times.pop(next(iter(self._state_receive_times)))
@@ -63,6 +84,13 @@ class SerialLink:
             except TimeoutError:
                 time.sleep(0.01)
         raise TimeoutError("No valid STM32 state packet received")
+
+    def drain_states(self):
+        """Return every received frame once, in arrival order (teaching recorder)."""
+        with self._lock:
+            frames = list(self._state_queue)
+            self._state_queue.clear()
+        return frames
 
     def get_latest_state(self, max_age_s: float = 0.05) -> StatePacket:
         with self._lock:

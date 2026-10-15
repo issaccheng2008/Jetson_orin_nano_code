@@ -1,0 +1,2 @@
+# Preserve patch bytes; blank context lines are required by unified diffs.
+*.patch -text -whitespace
