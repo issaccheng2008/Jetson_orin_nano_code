@@ -20,7 +20,6 @@ if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 
 from line_detector_v1_warp import LineDetector
-from shape_detector import ShapeDetector
 from protocol_v2 import (VisionProtocolV2, StreamParser, MSG_ROBOT_STATE,
                          MSG_ACK, quantize_to_step)
 from utils import clamp, open_camera, show_debug_windows
@@ -154,7 +153,6 @@ def main():
         cam_height_cm=CAM_HEIGHT_CM,
         cam_pitch_deg=CAM_PITCH_DEG,
         cam_vfov_deg=CAM_VFOV_DEG)
-    sd = ShapeDetector(stable_frames=3, cooldown_ms=3200)
 
     # ── State ──
     integral   = 0.0
@@ -172,13 +170,6 @@ def main():
 
     proto = VisionProtocolV2()
     parser = StreamParser()
-
-    # 图卡动作状态机
-    SM_DRIVE, SM_ACTION = 0, 1
-    sm_mode = SM_DRIVE
-    sm_action_start = 0.0
-    sm_action = 0
-    sm_frame_count = 0
 
     print(f"run_robot: {actual_w}x{actual_h}  step_len={STEP_LEN_CM:.1f}cm  "
           f"preview={PREVIEW_GAIN:.2f}  KP_s={KP_S:.3f} KP_c={KP_C:.3f}  "
@@ -215,36 +206,16 @@ def main():
         # ── Detector ──
         _dev, _hdg, conf, _vis, dbg = ld.process(bgr)
         err     = float(dbg.get("fused_err", 0.0))
-        lane_err_cm = float(dbg.get("base_err_cm", 0.0))
         angle_err = float(dbg.get("angle_err_deg", 0.0))
         curve   = bool(dbg.get("curve_mode", False))
         lost    = int(dbg.get("lost_frames", 0))
         lock_ok = bool(dbg.get("bottom_lock_valid", False))
 
-        # ── 图卡检测 (隔帧) ──
-        if sm_mode == SM_DRIVE:
-            sm_frame_count += 1
-            if sm_frame_count % 3 == 0:
-                shape_action, _ = sd.update(bgr, lane_offset_cm=lane_err_cm)
-                if shape_action is not None:
-                    sm_mode = SM_ACTION
-                    sm_action = shape_action
-                    sm_action_start = t
-                    print(f"[shape] >>> 图卡 action={shape_action}，停车做动作")
-
-        if lock_ok and sm_mode == SM_DRIVE:
+        if lock_ok:
             integral = 0.0 if last_curve else integral
         last_curve = curve
 
-        # ── 图卡动作状态：停车+动作3秒 ──
-        if sm_mode == SM_ACTION:
-            if t - sm_action_start >= 3.0:
-                sm_mode = SM_DRIVE
-                integral = 0.0
-                last_err = 0.0
-                print(f"[shape] 动作{sm_action}完成，恢复巡线")
-            steer = 0.0
-        elif lost == 0:
+        if lost == 0:
             # ── PID (dual-mode) ──
             kp, ki, kd = (KP_C, KI_C, KD_C) if curve else (KP_S, KI_S, KD_S)
             integral += err * dt

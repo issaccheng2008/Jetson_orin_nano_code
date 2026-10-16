@@ -356,11 +356,6 @@ def parse_args():
     parser.add_argument("--card-clear-calls", type=int,
                         default=max(1, int(os.getenv("CARD_CLEAR_CALLS", "4"))),
                         help="First startup card departure confirmation calls only")
-    parser.add_argument("--card-stable-frames", type=int,
-                        default=max(1, int(os.getenv("CARD_STABLE_FRAMES", "2"))),
-                        help="Detection calls that must return the same shape name before "
-                             "the card is acted on. run_robot.py used 3; 2 trades a little "
-                             "precision for firing on cards whose classification flickers")
     parser.add_argument("--shape-every", type=int,
                         default=max(1, int(os.getenv("SHAPE_EVERY", "2"))),
                         help="Startup card sampling period; ordinary walking cards run every frame")
@@ -686,8 +681,6 @@ def parse_args():
         parser.error("card-trigger-dist-cm must be positive")
     if args.card_clear_calls < 1:
         parser.error("card-clear-calls must be at least 1")
-    if args.card_stable_frames < 1:
-        parser.error("card-stable-frames must be at least 1")
     if args.card_every_stopped < 1:
         parser.error("card-every-stopped must be at least 1")
     if args.shape_every < 1:
@@ -913,9 +906,7 @@ def main():
         if args.card_camera_pitch_deg is not None else args.camera_pitch_deg)
     if not args.no_shape_detect:
         from shape_detector import ShapeDetector
-        # run_robot.py's cooldown, so a card cannot re-fire while it is still in view.
-        shape = ShapeDetector(stable_frames=args.card_stable_frames,
-                              cooldown_ms=3200, debug=False)
+        shape = ShapeDetector()
         shape.preprocess_mode = args.shape_preprocess
         shape.photometric_mode = args.photometric_mode
         print(f"[shape-preprocess] {args.shape_preprocess}; photometric={args.photometric_mode} "
@@ -923,8 +914,7 @@ def main():
         shape_names = {number: name for name, number in shape.action_map.items()}
         shape_numbers = dict(shape.action_map)
         if args.card_camera_device or args.card_camera >= 0:
-            precision_shape = ShapeDetector(stable_frames=args.card_stable_frames,
-                                            cooldown_ms=3200, debug=False)
+            precision_shape = ShapeDetector()
             precision_shape.preprocess_mode = args.shape_preprocess
             precision_shape.photometric_mode = args.card_camera_photometric_mode
             precision_shape.cfg["cam_height_cm"] = (args.card_camera_height_cm
@@ -1519,9 +1509,9 @@ def main():
                 if dual_vote:
                     # Each camera owns its classifier state. Fuse the two
                     # results into at most one vote for this capture cycle.
-                    action, card_dbg = shape.update(
-                        frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
-                        classify=True, issue_action=False,
+                    _shape_name, card_dbg = shape.update(
+                        frame,
+                        classify=True,
                         proposal_mode=args.shape_proposal_mode)
                     primary_card_dbg = card_dbg
                     card_primary_shape = card_dbg.get("shape")
@@ -1535,9 +1525,9 @@ def main():
                     else:
                         shape_frame = frame
                 if dual_vote and card_frame_source == "secondary":
-                    action, card_dbg = precision_shape.update(
-                        shape_frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
-                        classify=True, issue_action=False,
+                    _shape_name, card_dbg = precision_shape.update(
+                        shape_frame,
+                        classify=True,
                         proposal_mode=args.shape_proposal_mode)
                     card_secondary_shape = card_dbg.get("shape")
                     if primary_card_dbg.get("presence"):
@@ -1545,9 +1535,9 @@ def main():
                         # the stopped vote is active.
                         card_dbg = dict(card_dbg, presence=True)
                 elif not dual_vote:
-                    action, card_dbg = shape.update(
-                        frame, lane_offset_cm=float(debug.get("base_err_cm", 0.0)),
-                        classify=classify_card, issue_action=False,
+                    _shape_name, card_dbg = shape.update(
+                        frame,
+                        classify=classify_card,
                         proposal_mode=(args.shape_proposal_mode if classify_card else "all"))
                 if dual_vote:
                     fused_shape, card_shape_source = resolve_card_shapes(

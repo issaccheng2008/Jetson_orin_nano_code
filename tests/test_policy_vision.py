@@ -1525,23 +1525,16 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         self.assertEqual(second.get("presence_cue"), 0.0)   # and the log is honest
         self.assertTrue(second.get("presence"))             # window still holds
 
-    def test_presence_survives_the_detector_disarming_itself(self):
-        """presence 说的是"画面里有没有卡"，不是"我还要不要开火"。
-
-        2026-10-02 实车：车停在五角星前面，分类器逐帧都认得出来，但检测器内部
-        那套动作闸（调用方早就不用了）自己开了一次火 → armed=0 → dbg["presence"]
-        被门控成假 → 调用方数满 4 次漏检，把 card_flag / card_triggered 和
-        **投出来的票**一起复位：那次停车一张票都没剩下（什么都没做），
-        5 秒后同一张卡又触发了一次停车。"""
+    def test_presence_does_not_require_a_classification(self):
+        """Confirmed presence is available even when no shape is classified."""
         detector = ShapeDetector()
         detector._presence_cue = lambda _gray: ((40, 300, 120, 90), 4.0)
         detector._cue_hist.extend([1, 1, 1])          # window already confirmed
-        detector.armed = False                        # 内部动作闸开过一次火
         blank = np.zeros((720, 1280, 3), np.uint8)
 
         _, dbg = detector.update(blank)
 
-        self.assertFalse(detector.armed)
+        self.assertIsNone(dbg["shape"])
         self.assertTrue(dbg.get("presence"))
 
     def test_a_low_score_cue_is_not_a_card(self):

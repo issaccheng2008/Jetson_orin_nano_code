@@ -78,7 +78,7 @@ def main():
           f"只加{kind_cn}模糊，不做几何变换")
     print()
 
-    sd = ShapeDetector(stable_frames=1, cooldown_ms=0, debug=False)
+    sd = ShapeDetector()
     sigmas = [float(x) for x in args.sigmas.split(",")]
 
     # 每张照片对应的真实距离：用 σ=0 帧检出的框反投影到地面（模型值过距离标定）

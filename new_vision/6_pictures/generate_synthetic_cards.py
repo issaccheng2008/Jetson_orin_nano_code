@@ -542,7 +542,7 @@ def _get_sd():
     global _SD_WORKER
     if _SD_WORKER is None:
         cv2.setNumThreads(1)
-        _SD_WORKER = ShapeDetector(stable_frames=1, cooldown_ms=0, debug=False)
+        _SD_WORKER = ShapeDetector()
     return _SD_WORKER
 
 
