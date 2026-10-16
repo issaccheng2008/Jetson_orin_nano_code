@@ -79,7 +79,7 @@ class StartupVideoTests(unittest.TestCase):
                 self.assertTrue(all(r['heading_deg'] is None and not r['line_lost'] for r in rows[:4]))
                 self.assertTrue(all(r['frame_source'] == 'startup_camera' for r in rows[:4]))
                 self.assertEqual(rows[-1]['frame_source'], source)
-                cap = cv2.VideoCapture(str(Path(tmp) / 'camera_commands.avi'))
+                cap = cv2.VideoCapture(str(recorder.video_path))
                 decoded = []
                 try:
                     while True:

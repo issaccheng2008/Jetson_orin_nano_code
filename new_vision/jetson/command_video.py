@@ -153,6 +153,8 @@ class CommandVideo:
         self.frame_source = frame_source
         self.image_size = image_size
         self.directory = Path(directory)
+        # Freeze the Jetson local start time before the encoder thread opens files.
+        self.video_path = self.directory / (time.strftime('%H%M%S') + '.avi')
         self.fps, self.width, self.max_wz = fps, width, max_wz
         self.dropped_samples = 0
         self.written_frames = 0
@@ -235,7 +237,7 @@ class CommandVideo:
                     out_h = max(2, round(h*out_w/w)//2*2)
                     image_dimensions = (out_w, out_h)
                     dimensions = (out_w, out_h + (110 if self.frame_source in ('binary', 'bird_pair') else 0))
-                    writer = cv2.VideoWriter(str(self.directory/'camera_commands.avi'),
+                    writer = cv2.VideoWriter(str(self.video_path),
                         cv2.VideoWriter_fourcc(*'MJPG'), self.fps, dimensions)
                     if not writer.isOpened():
                         raise RuntimeError('MJPG video encoder could not open')
@@ -294,7 +296,7 @@ class CommandVideo:
                 except OSError as exc:
                     self.error = self.error or str(exc)
             try:
-                manifest = dict(schema='command_video_v2', codec='MJPG', video='camera_commands.avi',
+                manifest = dict(schema='command_video_v2', codec='MJPG', video=self.video_path.name,
                     frame_index='frames.jsonl', fps=self.fps, dimensions=dimensions,
                     frame_source=self.frame_source,
                     startup_frame_source='camera, letterboxed; STARTUP CAMERA label; no lane estimate',

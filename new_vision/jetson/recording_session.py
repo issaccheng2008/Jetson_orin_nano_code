@@ -47,7 +47,7 @@ def create_session(root, log_items=LOG_ITEMS):
         'control': {'execution_and_imu': 'control/control_trace_*.csv'},
         'motor': {'motor_positions': 'motor_positions/*.csv'},
         'policy': {'policy_console': 'main_*.log'},
-        'video': {'camera_video': 'video/camera_commands.avi (when enabled)',
+        'video': {'camera_video': 'video/*.avi',
                   'camera_video_index': 'video/frames.jsonl'},
         'shape': {'shape_dumps': 'shape/run_*'}, 'loss': {'loss_dumps': 'loss/run_*'},
     }

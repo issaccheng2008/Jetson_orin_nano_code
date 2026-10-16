@@ -15,6 +15,26 @@ from command_video import CommandVideo, draw_command, line_lost
 
 
 class CommandVideoTests(unittest.TestCase):
+    def test_avi_uses_local_recording_start_hhmmss_and_manifest_matches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch('command_video.time.strftime', return_value='090507') as clock:
+                recorder = CommandVideo(tmp)
+            try:
+                recorder.submit(np.zeros((180, 320, 3), np.uint8), frame_id=1,
+                    host_time_ns=1, monotonic_s=1., vx=.2, wz=0., lost=False)
+            finally:
+                recorder.close()
+            self.assertIsNone(recorder.error)
+            self.assertEqual([path.name for path in Path(tmp).glob('*.avi')], ['090507.avi'])
+            clock.assert_called_once_with('%H%M%S')
+            manifest = json.loads((Path(tmp) / 'manifest.json').read_text(encoding='utf-8'))
+            self.assertEqual(manifest['video'], '090507.avi')
+            cap = cv2.VideoCapture(str(Path(tmp) / manifest['video']))
+            try:
+                self.assertTrue(cap.read()[0])
+            finally:
+                cap.release()
+
     def test_lane_observations_follow_source_frames_during_resampling(self):
         frame = np.full((180, 320, 3), 100, np.uint8)
         original = frame.copy()
@@ -35,7 +55,7 @@ class CommandVideoTests(unittest.TestCase):
             self.assertEqual([row['source_frame'] for row in rows], [1, 1, 1, 2])
             self.assertEqual([row['line_state'] for row in rows], ['DUAL']*3+['LOST'])
             self.assertEqual([row['heading_deg'] for row in rows], [12.5]*3+[None])
-            cap = cv2.VideoCapture(str(Path(tmp)/'camera_commands.avi'))
+            cap = cv2.VideoCapture(str(recorder.video_path))
             try:
                 self.assertTrue(cap.read()[0])
             finally:
@@ -135,7 +155,7 @@ class CommandVideoTests(unittest.TestCase):
             recorder.submit((colour,mask),frame_id=1,host_time_ns=1,monotonic_s=1.,vx=.2,wz=.3,lost=False)
             recorder.close()
             self.assertIsNone(recorder.error)
-            cap=cv2.VideoCapture(str(Path(tmp)/'camera_commands.avi'))
+            cap=cv2.VideoCapture(str(recorder.video_path))
             try:
                 ok, decoded=cap.read()
                 self.assertTrue(ok)
@@ -179,7 +199,7 @@ class CommandVideoTests(unittest.TestCase):
                             monotonic_s=1., vx=.2, wz=.3, lost=False)
             recorder.close()
             self.assertIsNone(recorder.error)
-            cap = cv2.VideoCapture(str(Path(tmp)/'camera_commands.avi'))
+            cap = cv2.VideoCapture(str(recorder.video_path))
             try:
                 ok, decoded = cap.read()
                 self.assertTrue(ok)
@@ -214,7 +234,7 @@ class CommandVideoTests(unittest.TestCase):
                             vx=.2, wz=.3, lost=False)
             recorder.close()
             self.assertIsNone(recorder.error)
-            cap = cv2.VideoCapture(str(Path(tmp)/'camera_commands.avi'))
+            cap = cv2.VideoCapture(str(recorder.video_path))
             try:
                 ok, decoded = cap.read()
                 self.assertTrue(ok)
@@ -401,7 +421,7 @@ class CommandVideoTests(unittest.TestCase):
             recorder.close()
             self.assertIsNone(recorder.error)
             rows = (Path(tmp)/'frames.jsonl').read_text().splitlines()
-            cap = cv2.VideoCapture(str(Path(tmp)/'camera_commands.avi'))
+            cap = cv2.VideoCapture(str(recorder.video_path))
             try:
                 decoded = 0
                 while True:
