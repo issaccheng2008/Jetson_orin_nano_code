@@ -56,6 +56,7 @@ class AttitudeInput:
         self.card_tilt_status_seen = False
         self.card_tilt_event_id = 0
         self.card_tilt_done = False
+        self._card_task = None
         self._executed_command = None
         self._executed_received_s = None
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -96,6 +97,7 @@ class AttitudeInput:
                     ValueError, OverflowError):
                 continue
             self._observe_execution(message.get('executed_command'), now)
+            self._observe_card_task(message.get('card_task'), now)
             # A poll can drain several 10 Hz packets. They share this receive
             # timestamp, so filtering each one would give the later packets
             # dt=0 and could bypass the low-pass entirely.
@@ -111,6 +113,27 @@ class AttitudeInput:
                 self.value += alpha * (latest_target - self.value)
             self.last_packet_s = now
         return seen
+
+    def _observe_card_task(self, data, now):
+        if not isinstance(data, dict):
+            return
+        if any(type(data.get(key)) is not int or not 0 <= data[key] <= 0xFFFFFFFF
+               for key in ('restore_id', 'action_id')):
+            return
+        if any(type(data.get(key)) is not bool for key in ('restore_done', 'action_done')):
+            return
+        stamp = data.get('monotonic_s')
+        if (not isinstance(stamp, (int, float)) or not math.isfinite(stamp)
+                or not -.01 <= now - stamp <= .5):
+            return
+        if self._card_task is not None and stamp < self._card_task['monotonic_s']:
+            return
+        self._card_task = dict(data)
+
+    def card_task(self, now):
+        if self._card_task is None or not -.01 <= now - self._card_task['monotonic_s'] <= .5:
+            return {}
+        return dict(self._card_task)
 
     def _observe_execution(self, data, now):
         if not isinstance(data, dict):

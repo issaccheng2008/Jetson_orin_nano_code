@@ -72,7 +72,7 @@ class CardVoteCameraTests(unittest.TestCase):
         camera.close()
         reader.close.assert_called_once()
 
-    def test_stopped_votes_use_second_frame_while_approach_uses_first(self):
+    def test_ordinary_cards_use_only_primary_camera(self):
         primary_frame = np.zeros((720, 1280, 3), np.uint8)
         second_frame = np.full((720, 1280, 3), 7, np.uint8)
         primary_cap = Mock()
@@ -119,9 +119,8 @@ class CardVoteCameraTests(unittest.TestCase):
         with (
             patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', '--headless',
                                '--card-camera', '1', '--shape-every', '1',
-                               '--card-every-stopped', '1', '--card-tilt-ms', '0',
-                               '--card-settle-ms', '0', '--card-vote-frames', '1',
-                               '--card-stop-ms', '300', '--photometric-mode', 'raw']),
+                               '--card-tilt-ms', '0',
+                               '--card-settle-ms', '0', '--card-stop-ms', '300', '--photometric-mode', 'raw']),
             patch.object(run_policy_vision.signal, 'signal'),
             patch.object(run_policy_vision, 'ConnectorClient') as connector,
             patch('utils.open_camera', side_effect=[primary_cap, second_cap]) as open_camera,
@@ -132,19 +131,12 @@ class CardVoteCameraTests(unittest.TestCase):
             contextlib.redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(run_policy_vision.main(), 0)
-        self.assertEqual(open_camera.call_count, 2)
+        self.assertEqual(open_camera.call_count, 1)
         self.assertTrue(all(call.args[0] is primary_frame
                             for call in primary_shape.update.call_args_list))
-        self.assertTrue(precision_shape.update.called)
-        self.assertTrue(all(call.args[0] is second_frame
-                            for call in precision_shape.update.call_args_list))
-        self.assertTrue(any(call.kwargs.get('classify') is True
-                            for call in precision_shape.update.call_args_list))
+        precision_shape.update.assert_not_called()
         self.assertTrue(any(call.kwargs.get('classify') is True
                             for call in primary_shape.update.call_args_list))
-        self.assertTrue(any(call.kwargs.get('event_action') == 3
-                            for call in connector.return_value.publish.call_args_list))
-        capture.close.assert_called_once()
 
     def test_startup_shape_gate_uses_second_camera_and_releases_it(self):
         primary_frame = np.zeros((720, 1280, 3), np.uint8)
@@ -193,9 +185,8 @@ class CardVoteCameraTests(unittest.TestCase):
         with (
             patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', '--headless',
                                '--card-camera', '1', '--start-gate', 'shape', '--start-gate-shape-frames', '1', '--shape-every', '1',
-                               '--card-every-stopped', '1', '--card-tilt-ms', '0',
-                               '--card-settle-ms', '0', '--card-vote-frames', '1',
-                               '--card-stop-ms', '300', '--photometric-mode', 'raw']),
+                               '--card-tilt-ms', '0',
+                               '--card-settle-ms', '0', '--card-stop-ms', '300', '--photometric-mode', 'raw']),
             patch.object(run_policy_vision.signal, 'signal'),
             patch.object(run_policy_vision, 'ConnectorClient') as connector,
             patch('utils.open_camera', side_effect=[primary_cap, second_cap]) as open_camera,
