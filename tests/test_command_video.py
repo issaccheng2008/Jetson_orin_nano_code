@@ -15,6 +15,74 @@ from command_video import CommandVideo, draw_command, line_lost
 
 
 class CommandVideoTests(unittest.TestCase):
+    def test_lane_observations_follow_source_frames_during_resampling(self):
+        frame = np.full((180, 320, 3), 100, np.uint8)
+        original = frame.copy()
+        debug = dict(measurement_valid=True, tracking_mode='BOTH',
+                     heading_control_valid=True, heading_control_deg=12.5)
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = CommandVideo(Path(tmp), queue_size=16)
+            try:
+                recorder.submit(frame, frame_id=1, host_time_ns=1, monotonic_s=1.,
+                                vx=.2, wz=.3, lost=False, lane_debug=debug)
+                debug['heading_control_deg'] = 99.
+                recorder.submit(frame, frame_id=2, host_time_ns=2, monotonic_s=1.3,
+                                vx=.2, wz=.3, lost=True, lane_debug=debug)
+            finally:
+                recorder.close()
+            self.assertIsNone(recorder.error)
+            rows = [json.loads(row) for row in (Path(tmp)/'frames.jsonl').read_text().splitlines()]
+            self.assertEqual([row['source_frame'] for row in rows], [1, 1, 1, 2])
+            self.assertEqual([row['line_state'] for row in rows], ['DUAL']*3+['LOST'])
+            self.assertEqual([row['heading_deg'] for row in rows], [12.5]*3+[None])
+            cap = cv2.VideoCapture(str(Path(tmp)/'camera_commands.avi'))
+            try:
+                self.assertTrue(cap.read()[0])
+            finally:
+                cap.release()
+        np.testing.assert_array_equal(frame, original)
+
+    def test_lane_hud_uses_valid_current_geometry_only(self):
+        cases = [
+            ({'tracking_mode': 'BOTH', 'heading_control_valid': True,
+              'heading_control_deg': -7.5}, False, 'DUAL', -7.5),
+            ({'tracking_mode': 'LEFT_ONLY', 'heading_control_valid': True,
+              'heading_control_deg': 0.}, False, 'SINGLE', 0.),
+            ({'tracking_mode': 'RIGHT_ONLY', 'single_edge_valid': True,
+              'single_edge_heading_deg': 8.}, False, 'SINGLE', 8.),
+            ({'tracking_mode': 'VISIBLE_ONLY', 'heading_control_valid': True,
+              'heading_control_deg': 4.}, False, 'SINGLE', 4.),
+            ({'single_line': True, 'heading_control_valid': False,
+              'heading_control_deg': 25.}, False, 'SINGLE', None),
+            ({'heading_control_valid': True, 'heading_control_deg': float('nan')}, False, 'DUAL', None),
+            ({'heading_control_valid': True, 'heading_control_deg': float('inf')}, False, 'DUAL', None),
+            ({'heading_control_valid': True, 'heading_control_deg': None}, False, 'DUAL', None),
+            ({'heading_control_valid': True, 'heading_control_deg': 20.}, True, 'LOST', None),
+        ]
+        writer = Mock()
+        writer.isOpened.return_value = True
+        for debug, lost, state, angle in cases:
+            with self.subTest(debug=debug, lost=lost), tempfile.TemporaryDirectory() as tmp:
+                with patch('command_video.cv2.VideoWriter', return_value=writer):
+                    recorder = CommandVideo(Path(tmp))
+                    try:
+                        recorder.submit(np.zeros((180,320,3),np.uint8), frame_id=1,
+                            host_time_ns=1, monotonic_s=1., vx=.2, wz=0.,
+                            lost=lost, lane_debug=debug)
+                    finally:
+                        recorder.close()
+                self.assertIsNone(recorder.error)
+                row = json.loads((Path(tmp)/'frames.jsonl').read_text().splitlines()[0])
+                self.assertEqual(row['line_state'], state)
+                self.assertEqual(row['heading_deg'], angle)
+                with patch('command_video.cv2.putText', wraps=cv2.putText) as text:
+                    drawn = draw_command(np.zeros((180,320,3),np.uint8), .2, 0.,
+                        lost, .5, 0., line_state=state, heading_deg=angle)
+                label = '--' if angle is None else f'{angle:+.1f}'
+                self.assertTrue(any(f'hdg={label}deg' in call.args[1] for call in text.call_args_list))
+                # Embedded Chinese label occupies the left of the existing footer.
+                self.assertTrue(drawn[72:88,8:40].any())
+
     def test_bird_pair_preserves_colour_mask_and_existing_footer(self):
         colour = np.full((400,320,3), (30,100,220), np.uint8)
         mask = np.zeros((400,320), np.uint8)

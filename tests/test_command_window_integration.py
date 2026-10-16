@@ -15,7 +15,7 @@ from connector import CommandWindowScheduler, process_vision_output
 
 
 class WindowPublicationTests(unittest.TestCase):
-    def run_frames(self, side, stop_frame=None):
+    def run_frames(self, side, stop_frame=None, recorder=None):
         camera = Mock()
         camera.isOpened.return_value = True
         camera.get.side_effect = [1280, 720]
@@ -62,7 +62,8 @@ class WindowPublicationTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch('sys.argv', ['run_policy_vision.py', '--no-camera-async', '--headless', '--no-shape-detect',
-                              '--no-record-video', '--attitude-port', '0', '--recording-root', tmp,
+                              '--record-video' if recorder is not None else '--no-record-video',
+                              '--video-source', 'camera', '--attitude-port', '0', '--recording-root', tmp,
                               '--steering-command-median', side]),
             patch.object(run_policy_vision.signal, 'signal'),
             patch('utils.open_camera', return_value=camera),
@@ -70,6 +71,7 @@ class WindowPublicationTests(unittest.TestCase):
             patch('camera_controls.apply_camera_controls', return_value=dict(status='unchanged', settings=[])),
             patch('heading_steering.HeadingSteeringController.command', mapped),
             patch.object(run_policy_vision, 'ConnectorClient') as client,
+            patch('command_video.CommandVideo', return_value=recorder),
             patch.object(run_policy_vision.time, 'monotonic', lambda: clock[0]),
             contextlib.redirect_stdout(io.StringIO()),
         ):
@@ -97,6 +99,20 @@ class WindowPublicationTests(unittest.TestCase):
         self.assertEqual(sent[3:13], [(0., 0.)]*10)
         self.assertEqual(sent[13], (.2, .25))
         self.assertEqual(rows[2]['vx'], 0.)
+
+    def test_video_receives_current_geometry_without_changing_published_commands(self):
+        without_video, _ = self.run_frames('lower')
+        recorder = Mock(error=None)
+        with_video, _ = self.run_frames('lower', recorder=recorder)
+        self.assertEqual(with_video, without_video)
+        self.assertEqual(recorder.submit.call_count, 31)
+        samples = [call.kwargs for call in recorder.submit.call_args_list]
+        for i, sample in enumerate(samples, 1):
+            valid = i <= 7 or i >= 22
+            self.assertEqual(sample['lane_debug']['heading_control_valid'], valid)
+            self.assertEqual(sample['lane_debug']['heading_control_deg'], 0.)
+            self.assertEqual(sample['lost'], not valid)
+        recorder.close.assert_called_once()
 
 
 if __name__ == '__main__':

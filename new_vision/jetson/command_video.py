@@ -11,6 +11,36 @@ import threading
 import time
 
 import cv2
+import numpy as np
+
+
+# 16px monochrome 双线 / 单线 / 丢线. Decode once; no runtime fonts/Pillow.
+_LANE_LABELS = {
+    state: np.unpackbits(np.frombuffer(bytes.fromhex(bits), dtype=np.uint8)).reshape(16, 32).astype(bool)
+    for state, bits in (
+        ('DUAL', '00001048fdfc20400484245c448445e04484f8402888105e288823e0105040441050fc48282040302820002244501c524488e08a810443060202000200000000'),
+        ('SINGLE', '08201048044020403ff8245c210845e02108f8403ff8105e210823e0210840443ff8fc480100403001000022fffe1c520100e08a010043060100000200000000'),
+        ('LOST', '00f810483f0020400100245c010045e03ff8f8400100105e010023e001004044fffefc48020040300400002208201c521010e08a3ff843061008000200000000'),
+    )
+}
+
+
+def lane_observation(debug, lost):
+    """Snapshot existing geometry only; +heading means lane ahead left, in degrees."""
+    if lost:
+        return 'LOST', None
+    single = (debug.get('tracking_mode') in ('LEFT_ONLY', 'RIGHT_ONLY', 'VISIBLE_ONLY')
+              or debug.get('single_line', False)
+              or bool(debug.get('left_seen', False)) != bool(debug.get('right_seen', False)))
+    state = 'SINGLE' if single else 'DUAL'
+    value = (debug.get('heading_control_deg') if debug.get('heading_control_valid', False)
+             else debug.get('single_edge_heading_deg') if debug.get('single_edge_valid', False)
+             else None)
+    try:
+        angle = float(value)
+    except (TypeError, ValueError, OverflowError):
+        angle = None
+    return state, angle if angle is not None and math.isfinite(angle) else None
 
 
 def line_lost(debug, confidence):
@@ -22,16 +52,28 @@ def line_lost(debug, confidence):
             or reason in ('brief_loss_hold', 'geometry_lost_yaw_zero', 'invalid_clock'))
 
 
-def draw_command(image, vx, wz, lost, max_wz, elapsed_s, executed=None):
+def draw_command(image, vx, wz, lost, max_wz, elapsed_s, executed=None,
+                 line_state=None, heading_deg=None):
     """Draw a direction symbol on the encoder's private image, never on control input."""
     h, w = image.shape[:2]
     colour = (0, 0, 255) if lost else (255, 0, 0)  # BGR: red / blue
     panel = image[max(0, h-110):h]
     panel[:] = (panel * .35).astype(image.dtype)
     scale = max(.35, min(.65, w/960))
-    label = 'LINE LOST' if lost else 'TRACK'
-    cv2.putText(image, f'{label} t={elapsed_s:.2f}s', (8, h-92),
-                cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), 1, cv2.LINE_AA)
+    if line_state in _LANE_LABELS and h >= 110:
+        image[h-108:h-92, 8:40][_LANE_LABELS[line_state]] = (255, 255, 255)
+        heading = '--' if heading_deg is None else f'{heading_deg:+.1f}'
+        title = f'hdg={heading}deg'
+        if w >= 480:
+            title += f' t={elapsed_s:.2f}s'
+        title_width = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 1., 1)[0][0]
+        title_scale = min(scale, max(.15, (w//2-52)/title_width))
+        cv2.putText(image, title, (46, h-92), cv2.FONT_HERSHEY_SIMPLEX,
+                    title_scale, (255, 255, 255), 1, cv2.LINE_AA)
+    else:
+        label = 'LINE LOST' if lost else 'TRACK'
+        cv2.putText(image, f'{label} t={elapsed_s:.2f}s', (8, h-92),
+                    cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), 1, cv2.LINE_AA)
     columns = [(w//4, 'VISION', vx, wz)]
     status = None
     if executed is None:
@@ -96,7 +138,8 @@ class CommandVideo:
         self._thread = threading.Thread(target=self._run, name='command-video', daemon=True)
         self._thread.start()
 
-    def submit(self, image, *, frame_id, host_time_ns, monotonic_s, vx, wz, lost, executed=None):
+    def submit(self, image, *, frame_id, host_time_ns, monotonic_s, vx, wz, lost,
+               executed=None, lane_debug=None):
         if self.error is not None or self._closing.is_set():
             return False
         if self._queue.full():
@@ -104,11 +147,13 @@ class CommandVideo:
             return False
         # Copy before enqueue: a display window/detector may modify the camera buffer.
         try:
+            state, heading = (lane_observation(lane_debug, lost) if lane_debug is not None
+                              else (None, None))
             private_image = (tuple(part.copy() for part in image)
                              if self.frame_source == 'bird_pair' else image.copy())
             sample = (private_image, dict(source_frame=frame_id,
                 command_host_time_ns=host_time_ns, command_monotonic_s=monotonic_s,
-                vx=vx, wz=wz, line_lost=bool(lost), executed_command=(
+                vx=vx, wz=wz, line_lost=bool(lost), line_state=state, heading_deg=heading, executed_command=(
                     None if executed is None else dict(executed, velocity=list(executed['velocity'])))))
             self._queue.put_nowait(sample)
         except queue.Full:
@@ -224,6 +269,7 @@ class CommandVideo:
                     command_source='vision per-frame candidate -> connector median window/bias -> model hold; VISION is not the held execution block',
                     executed_command_source='policy feedback after model hold/takeovers and serial send; not measured body motion',
                     colour='BGR blue for tracking, red for lost line; STOP has no direction arrow',
+                    lane_observation='Chinese DUAL/SINGLE/LOST; heading_deg from valid current heading_control or single_edge; positive left, negative right; null/-- when lost or invalid; not body yaw or command wz',
                     clock='video_time_s + origin_monotonic_s; ceil to next tick; repeated source frames allowed',
                     origin_monotonic_s=origin, written_frames=self.written_frames,
                     dropped_samples=self.dropped_samples, truncated=self.truncated, error=self.error)
@@ -246,7 +292,8 @@ class CommandVideo:
                 actual = None
         drawn = image.copy()
         draw_command(drawn, metadata['vx'], metadata['wz'], metadata['line_lost'],
-                     self.max_wz, tick/self.fps, executed=actual)
+                     self.max_wz, tick/self.fps, executed=actual,
+                     line_state=metadata['line_state'], heading_deg=metadata['heading_deg'])
         writer.write(drawn)
         index.write(json.dumps(dict(video_frame=self.written_frames,
             video_time_s=tick/self.fps, **dict(metadata, executed_command=actual)), allow_nan=False)+'\n')
