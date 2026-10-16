@@ -86,6 +86,26 @@ class ButtonStartTests(unittest.TestCase):
 
 
 class StartupSerialTests(unittest.TestCase):
+    def test_ready_transition_is_sent_before_the_heartbeat_deadline(self):
+        import startup_button_link
+        clock=[0.]
+        link=Mock(spec=SerialLink)
+        link.reader_alive.return_value=True
+        link.get_latest_state.return_value=SimpleNamespace(status_flags=0)
+        with patch.object(startup_button_link,'SerialLink',return_value=link), \
+                patch.object(startup_button_link.time,'monotonic',lambda:clock[0]):
+            button=startup_button_link.StartupButtonLink('/dev/ttyACM0')
+            button.poll(False)
+            clock[0]=.01
+            button.poll(False)  # reset acknowledged; arm without card
+            link.send_startup_control.assert_called_with(protocol.STARTUP_ARM)
+            clock[0]=.02
+            button.poll(True)  # must not wait until .21
+            link.send_startup_control.assert_called_with(protocol.STARTUP_ARM|protocol.STARTUP_CARD_READY)
+            self.assertEqual(button.diagnostics()['startup_serial_sent_flags'],3)
+            link.send_command.assert_not_called()
+            link.send_action.assert_not_called()
+
     def test_reset_and_arm_ack_prevent_stale_press_and_close_before_handoff(self):
         import startup_button_link
         clock = [0.0]
@@ -165,6 +185,8 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
         detector.process.return_value = (0, 0, 0.9, None, dict(
             fused_err=0., fused_err_cm=0., angle_err_deg=0., lost_frames=0,
             curve_mode=False, bottom_lock_valid=True, curve_px=0., base_err_cm=0.))
+        if press_at is None:
+            detector.process.side_effect=AssertionError('startup card detection must not wait for lane processing')
         shape = Mock()
         shape.action_map = {"circle": 1}
         shape.update.return_value = (None, dict(presence=card, card_found=card,
@@ -208,6 +230,8 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
             self.assertEqual(run_policy_vision.main(), 0)
             launcher.timed_commands = timed_commands
         qr_cls.assert_not_called()
+        if card and press_at is None:
+            self.assertEqual(shape.update.call_count,2)  # latch then serve startup link without reclassifying
         return launcher, client_cls.return_value.publish.call_args_list, order, ready_values
 
     def test_first_card_action_follows_configured_walk_duration(self):

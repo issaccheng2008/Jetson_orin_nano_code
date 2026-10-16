@@ -3472,6 +3472,12 @@ class StartGateIntegrationTests(unittest.TestCase):
         self.assertNotIn("识别到图卡（投票）", out.getvalue())
 
     def test_first_card_reappearing_near_does_not_stop_again(self):
+        self._check_first_card_departure_then_next_card(.2)
+
+    def test_next_card_first_seen_close_stops_after_first_card_departure(self):
+        self._check_first_card_departure_then_next_card(.9)
+
+    def _check_first_card_departure_then_next_card(self, next_card_first_reach):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         clock = [0.0]
         # Continue beyond the first action's three-second retrigger gap.
@@ -3491,7 +3497,7 @@ class StartGateIntegrationTests(unittest.TestCase):
             # exposing the next card far from the trigger line.
             if index == 71:
                 return None, {"presence": True, "card_found": True,
-                              "presence_cy_frac": 0.2, "shape": "square"}
+                              "presence_cy_frac": next_card_first_reach, "shape": "square"}
             if index >= 72:
                 return None, {"presence": True, "card_found": True,
                               "presence_cy_frac": 0.9, "shape": "square"}

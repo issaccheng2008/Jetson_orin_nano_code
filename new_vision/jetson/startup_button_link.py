@@ -20,6 +20,8 @@ class StartupButtonLink:
         self._next_connect = 0.0
         self._next_write = 0.0
         self._reset_pending = True
+        self._last_sent_flags = None
+        self._state_flags = None
 
     def poll(self, card_ready: bool) -> bool:
         now = time.monotonic()
@@ -30,6 +32,7 @@ class StartupButtonLink:
             try:
                 self._link = SerialLink(self.port, self.baud)
                 self._link.send_startup_control(0)
+                self._last_sent_flags = 0
             except OSError as exc:
                 self.close()
                 print(f"[button-start] waiting for {self.port}: {exc}", flush=True)
@@ -44,14 +47,20 @@ class StartupButtonLink:
             state = self._link.get_latest_state(max_age_s=0.5)
         except TimeoutError:
             state = None
+        self._state_flags = state.status_flags if state is not None else None
         if self._reset_pending and state is not None and not state.status_flags & STATE_STARTUP_ACTIVE:
             self._reset_pending = False
             self._next_write = 0.0
         flags = (0 if self._reset_pending else
                  STARTUP_ARM | (STARTUP_CARD_READY if card_ready else 0))
         try:
-            if now >= self._next_write:
+            if flags != self._last_sent_flags or now >= self._next_write:
                 self._link.send_startup_control(flags)
+                if flags != self._last_sent_flags:
+                    print(f"[button-start] startup flags=0x{flags:02x} "
+                          f"card_ready={bool(flags & STARTUP_CARD_READY)} "
+                          f"state_flags={self._state_flags}", flush=True)
+                self._last_sent_flags = flags
                 self._next_write = now + 0.2
         except OSError as exc:
             self.close()
@@ -60,6 +69,11 @@ class StartupButtonLink:
         return bool(not self._reset_pending and state is not None
                     and state.status_flags & STATE_STARTUP_ACTIVE
                     and state.status_flags & STATE_START_BUTTON)
+
+    def diagnostics(self):
+        return dict(startup_serial_reset_pending=self._reset_pending,
+                    startup_serial_sent_flags=self._last_sent_flags,
+                    startup_serial_state_flags=self._state_flags)
 
     def close(self) -> None:
         link, self._link = self._link, None

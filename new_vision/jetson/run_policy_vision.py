@@ -1432,8 +1432,17 @@ def main():
             line_process_start_ns = time.perf_counter_ns()
             line_frame_token = zlib.crc32(frame)
             detector._pending_frame_token = line_frame_token
-            _, _, confidence, visualization, debug = detector.process(
-                frame, dt=processed - previous)
+            startup_card_only = bool(gate_window_open and args.start_gate == 'button')
+            if startup_card_only:
+                # Lane commands cannot be used before button handoff. Prioritize
+                # first-card classification and startup serial communication.
+                confidence, visualization = 0.0, frame
+                debug = dict(startup_card_only=True, measurement_valid=False,
+                             lost_frames=0, base_err_cm=0.0,
+                             tracking_mode='STARTUP_CARD_ONLY')
+            else:
+                _, _, confidence, visualization, debug = detector.process(
+                    frame, dt=processed - previous)
             line_process_ms = (time.perf_counter_ns() - line_process_start_ns) / 1_000_000.0
             if window_open:
                 detector.restore_tracking_state(tracking_before_frame)
@@ -1443,7 +1452,7 @@ def main():
             frames += 1
             log_frames += 1
             recognized_this_frame = False
-            if args.dump_on_loss:
+            if args.dump_on_loss and not startup_card_only:
                 pair_now = float(debug.get("bottom_pair_ratio", 0.0))
                 loss_ring.append((frame.copy(), visualization.copy(),
                                   dict(debug), float(confidence)))
@@ -1542,6 +1551,7 @@ def main():
             startup_shape_candidate = None
             startup_shape_source = None
             card_shape_source = None
+            card_reach = card_reach_line = card_width_px = None
             # ── 阀1：二维码 ──
             # 只在还没扫到时跑，而且每 --qr-every 帧才解一次：detectAndDecode 是纯
             # CPU 的，1280x720 raw 十几毫秒、再放大一倍几十毫秒，逐帧跑会把主循环
@@ -1588,7 +1598,8 @@ def main():
                     raise RuntimeError('Stopped-card capture did not terminate; refusing duplicate open')
                 card_camera_reader = None
                 print('[card-camera] released after stopped recognition', flush=True)
-            if shape is not None and not tilting and (frames % shape_period == 0):
+            if (shape is not None and not tilting and (frames % shape_period == 0)
+                    and not (startup_card_only and start_gate.shape_passed)):
                 classify_card = bool(
                     (gate_window_open and start_gate is not None
                      and start_gate.require_shape and not start_gate.shape_passed)
@@ -1688,7 +1699,13 @@ def main():
                     card_absent = 0
                     card_flag = True
                 else:
-                    card_absent += 1
+                    # Only walking observations can prove departure. Misses
+                    # accumulated during a pose/action must not clear the latch
+                    # on the very first resumed frame.
+                    walking_clear = (not startup_first_card_pending
+                        and processed >= stop_until and processed >= card_until
+                        and last_cmd_vx > 0.0)
+                    card_absent = card_absent + 1 if walking_clear else 0
                     # A few blurred frames during the stopped vote cannot mean
                     # that this physical card has left. Re-arm only after its
                     # stop/action windows are over and walking has resumed.
@@ -1699,6 +1716,11 @@ def main():
                         card_flag = False
                         card_triggered = False
                         card_action_triggered = False
+                        # A confirmed departure separates cards. The next card
+                        # may first be observed already inside the trigger line.
+                        # Action windows and retrigger cooldown still apply.
+                        if not startup_first_card_lock:
+                            card_armed = True
                         # 卡走了，票也跟着作废。不清的话：窗口关闭后
                         # card_event_id 归零、这里又把 card_action_triggered 归零，
                         # 兜底分支就会拿着上一批旧票再投一次 —— 实机是刚起步又停下。
@@ -1711,16 +1733,15 @@ def main():
                 # Seeing a card only slows the robot down. Stopping waits until the card
                 # is close, on the same card_reach card_reach_line the action gate uses.
                 #
-                # A trigger has to be earned again by seeing a confirmed card well
-                # short of the line. Unconfirmed cues never arm a new approach.
+                # A far sighting or confirmed departure while walking can arm
+                # the next approach; a far sighting is not mandatory.
                 if (not startup_first_card_lock and card_reach is not None
                         and card_reach < card_reach_line):
                     card_armed = True
                 # The first card can disappear from a few frames while the robot is
                 # stopped for its action, then reappear close up. Count its departure
-                # only after the action window and walking have resumed. Even then,
-                # a cleared lock cannot inherit an old far-range arm: the next card
-                # must be seen far away on a later detection call before it can stop.
+                # only after the action window and walking have resumed. Four clear
+                # calls separate the next card; it need not appear at far range.
                 if startup_first_card_lock:
                     if (not startup_first_card_pending and processed >= card_until
                             and last_cmd_vx > 0.0
@@ -1729,8 +1750,8 @@ def main():
                         if startup_first_card_clear_calls >= args.card_clear_calls:
                             startup_first_card_lock = False
                             startup_first_card_clear_calls = 0
-                            card_armed = False
-                            print("[start-gate] 首卡已离开；下一张卡须从远处重新接近", flush=True)
+                            card_armed = True
+                            print("[start-gate] 首卡已离开；已允许下一张近距图卡停车（仍受冷却约束）", flush=True)
                     else:
                         startup_first_card_clear_calls = 0
                 # 门控期间不许开火。card_armed 的初值是 True，而起点那张卡本来就
@@ -1857,6 +1878,12 @@ def main():
                 if (startup_button_link is not None
                         and start_gate.observe_button(startup_button_link.poll(start_gate.shape_passed))):
                     print("[button-start] 收到PC2按钮；交接串口并启动步态。", flush=True)
+                if startup_button_link is not None:
+                    # Record transmission and STM32 state separately from the
+                    # recognized class; the lamp itself has no readback bit.
+                    startup_serial_debug = startup_button_link.diagnostics()
+                    if isinstance(startup_serial_debug, dict):
+                        debug.update(startup_serial_debug)
                 if start_gate.passed and gate_window_open:
                     if policy_launcher is not None and not policy_launcher.started:
                         if startup_button_link is not None:
@@ -2142,7 +2169,7 @@ def main():
                     time.monotonic()-capture_metadata['camera_capture_returned_s'])*1000
             read_to_publish_ms = (time.perf_counter_ns() - read_return_ns) / 1_000_000.0
             recording_submit_ms = None
-            if command_video is not None:
+            if command_video is not None and not startup_card_only:
                 recording_submit_start_ns = time.perf_counter_ns()
                 try:
                     actual_command = None
@@ -2193,6 +2220,18 @@ def main():
                     card_stop_cue_hit_count=card_stop_cue_hit_count,
                     card_stop_box_trigger_count=card_stop_box_trigger_count,
                     card_stop_cue_trigger_count=card_stop_cue_trigger_count,
+                    card_stop_armed=bool(card_armed),
+                    card_stop_first_card_lock=bool(startup_first_card_lock),
+                    card_stop_triggered=bool(card_triggered),
+                    card_stop_flag=bool(card_flag),
+                    card_stop_absent_calls=card_absent,
+                    card_stop_current_presence=(bool(card_dbg.get('presence'))
+                        if card_dbg is not None else None),
+                    card_stop_current_box=(bool(card_dbg.get('card_found'))
+                        if card_dbg is not None else None),
+                    card_stop_reach=card_reach,
+                    card_stop_reach_line=card_reach_line,
+                    card_stop_reach_units=('pixels' if card_width_px is not None else 'fraction'),
                     card_vote_total=card_vote_total,
                     card_vote_attempts=card_vote_attempts,
                     card_vote_abstentions=card_vote_abstentions,
