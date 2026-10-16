@@ -31,6 +31,7 @@ from command_video import line_lost, recording_frame
 from steering_command_window import SteeringCommandWindow, effective_policy_hold
 from start_gate import resolve_card_shapes
 from card_flow import CardFlow
+from recording_options import LOG_ITEMS, parse_log_items
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
 CARD_NAMES_ZH = {
@@ -90,7 +91,11 @@ def parse_args():
     from camera_controls import add_arguments as add_camera_arguments, validate_args as validate_camera_args
     add_camera_arguments(parser)
     parser.add_argument('--recording-root', default='',
-                        help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths.')
+                        help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths; '
+                             'button mode creates recordings only after the STM32 start button is received.')
+    parser.add_argument('--log-items', type=parse_log_items, default=None,
+                        help='LOG selection: space/comma separated vision control video motor policy shape loss; '
+                             'all or none. When set, this also controls video instead of --record-video.')
     parser.add_argument('--record-video', action=argparse.BooleanOptionalAction, default=True,
                         help='Record selected video-source with command arrows inside recording-root; red on line loss.')
     parser.add_argument('--video-source', choices=('bird_pair', 'binary', 'camera'), default='bird_pair',
@@ -579,6 +584,10 @@ def parse_args():
     from steering_command_window import add_arguments as add_window_arguments
     add_window_arguments(parser)
     args = parser.parse_args()
+    if args.log_items is None:
+        args.log_items = tuple(name for name in LOG_ITEMS if name != 'video' or args.record_video)
+    else:
+        args.record_video = 'video' in args.log_items
     if not math.isfinite(args.lane_strictness_pct) or not 0. <= args.lane_strictness_pct <= 100.:
         parser.error('lane-strictness-pct must be between 0 and 100')
     if not math.isfinite(args.line_adaptive_c):
@@ -808,14 +817,25 @@ def main():
     from startup_sequence import parse_sequence, StartupSequence
     startup_sequence = StartupSequence(parse_sequence(
         args.startup_sequence, args.startup_first_walk_s, args.vx, args.max_wz))
+    recording_deferred = args.start_gate == 'button'
+    recording_started = False
     recording_directory = None
-    if args.recording_root:
-        from recording_session import create_session
-        recording_directory = create_session(args.recording_root)
-        args.line_log_dir = str(recording_directory / 'vision')
-        args.dump_on_loss = str(recording_directory / 'loss')
-        args.shape_dump = str(recording_directory / 'shape')
-        print(f'[recording] test directory: {recording_directory}', flush=True)
+    dump_options = (('vision', 'line_log_dir'), ('loss', 'dump_on_loss'), ('shape', 'shape_dump'))
+    for name, option in dump_options:
+        if name not in args.log_items:
+            setattr(args, option, '')
+
+    def prepare_recording_directory():
+        nonlocal recording_directory
+        if args.recording_root and args.log_items and recording_directory is None:
+            from recording_session import create_session
+            recording_directory = create_session(args.recording_root, log_items=args.log_items)
+            for name, option in dump_options:
+                setattr(args, option, str(recording_directory / name) if name in args.log_items else '')
+            print(f'[recording] test directory: {recording_directory}', flush=True)
+
+    if not recording_deferred:
+        prepare_recording_directory()
     line_log = None
     command_video = None
     # Reuse the dual-mode PID defaults/environment overrides of run_robot.py.
@@ -954,6 +974,7 @@ def main():
                                              policy_python=args.start_policy_python,
                                              one_foot_model=args.start_policy_one_foot_model,
                                              command_min_hold_s=effective_policy_hold(args),
+                                             log_items=args.log_items,
                                              **({'recording_directory': recording_directory}
                                                 if recording_directory is not None else {}))
     if args.start_gate == "button":
@@ -1209,10 +1230,7 @@ def main():
         startup_first_card_clear_calls = 0
         startup_card_present = False
         dumped = 0
-        run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}_{time.time_ns()}"
         dump_metadata = {
-            "run_id": run_id,
-            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "argv": list(sys.argv),
             "arguments": vars(args).copy(),
             "camera_width": width, "camera_height": height,
@@ -1228,7 +1246,7 @@ def main():
         }
         print("[vision] P1 geometry: quality-gated near/preview; elapsed-time EMA; "
               "legacy --anticipation-clip has no effect", flush=True)
-        if args.shape_dump or args.dump_on_loss or args.line_log_dir:
+        if args.log_items and (args.recording_root or args.shape_dump or args.dump_on_loss or args.line_log_dir):
             dump_metadata["source_sha256"] = {}
             for source_name in ("run_policy_vision.py", "line_detector_v1_warp.py",
                                 "lane_boundary_path.py", "continuous_lane_heading.py",
@@ -1237,29 +1255,54 @@ def main():
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
                                 "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
-                                "line_preprocess.py", "masked_ground.py", "latest_camera.py", "photometric_thresholds.py", "canny_candidates.py"):
+                                "line_preprocess.py", "masked_ground.py", "latest_camera.py", "photometric_thresholds.py", "canny_candidates.py",
+                                "recording_options.py", "recording_session.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
-        if args.line_log_dir:
-            line_log = LineTelemetry(_new_dump_run(args.line_log_dir, run_id, dump_metadata))
-            print(f"[vision] per-frame log: {line_log.path}", flush=True)
-            print(f"[vision] readable counts: {line_log.counts_path}", flush=True)
-        if recording_directory is not None and args.record_video:
-            try:
-                from command_video import CommandVideo
-                command_video = CommandVideo(recording_directory/'video', fps=args.video_fps,
-                                             width=args.video_width, max_wz=args.max_wz,
-                                             frame_source=args.video_source,
-                                             image_size=((detector.bird_w * (2 if args.video_source == 'bird_pair' else 1),
-                                                          detector.bird_h)
-                                                         if args.video_source != 'camera' else None))
-                print(f'[video] source={args.video_source} + vision sent commands: {recording_directory / "video"}; '
-                      f'{args.video_fps:g} playback FPS; asynchronous encoder', flush=True)
-            except Exception as exc:
-                print(f'[video] recording disabled: {exc}', flush=True)
-        if args.shape_dump:
-            args.shape_dump = _new_dump_run(args.shape_dump, run_id, dump_metadata)
-            print(f"[shape] run dump: {args.shape_dump}", flush=True)
+
+        def begin_recording():
+            nonlocal recording_directory, recording_started, line_log, command_video
+            if recording_started:
+                return
+            prepare_recording_directory()
+            if policy_launcher is not None and recording_directory is not None:
+                policy_launcher.recording_directory = recording_directory
+            run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}_{time.time_ns()}"
+            dump_metadata.update(run_id=run_id,
+                                 started_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                                 arguments=vars(args).copy())
+            if args.line_log_dir:
+                line_log = LineTelemetry(_new_dump_run(args.line_log_dir, run_id, dump_metadata))
+                print(f"[vision] per-frame log: {line_log.path}", flush=True)
+                print(f"[vision] readable counts: {line_log.counts_path}", flush=True)
+            if recording_directory is not None and args.record_video:
+                try:
+                    from command_video import CommandVideo
+                    command_video = CommandVideo(recording_directory/'video', fps=args.video_fps,
+                                                 width=args.video_width, max_wz=args.max_wz,
+                                                 frame_source=args.video_source,
+                                                 image_size=((detector.bird_w * (2 if args.video_source == 'bird_pair' else 1),
+                                                              detector.bird_h)
+                                                             if args.video_source != 'camera' else None))
+                    print(f'[video] source={args.video_source} + vision sent commands: {recording_directory / "video"}; '
+                          f'{args.video_fps:g} playback FPS; asynchronous encoder', flush=True)
+                except Exception as exc:
+                    print(f'[video] recording disabled: {exc}', flush=True)
+            if args.shape_dump:
+                args.shape_dump = _new_dump_run(args.shape_dump, run_id, dump_metadata)
+                print(f"[shape] run dump: {args.shape_dump}", flush=True)
+            if args.dump_on_loss:
+                args.dump_on_loss = _new_dump_run(args.dump_on_loss, run_id, dump_metadata)
+                print(f"[vision] run dump: {args.dump_on_loss}", flush=True)
+            recording_started = True
+
+        print(f"[recording] enabled logs: {' '.join(args.log_items) or 'none'}", flush=True)
+        if not args.log_items:
+            print('[recording] 测试文件记录已关闭；控制台和服务journal仍保留。', flush=True)
+        elif recording_deferred:
+            print('[recording] 等待PC2启动按钮；按下后才创建测试目录并开始日志和录像。', flush=True)
+        else:
+            begin_recording()
         # The frames around a lock drop-out, kept short so the last good frame before
         # the drop is still in the ring when it trips -- that is the one that shows
         # what the detector was looking at while it still agreed with itself.
@@ -1269,9 +1312,6 @@ def main():
         prev_pair = 0.0
         prev_conf = 0.0
         previous_loop_start_ns = None
-        if args.dump_on_loss:
-            args.dump_on_loss = _new_dump_run(args.dump_on_loss, run_id, dump_metadata)
-            print(f"[vision] run dump: {args.dump_on_loss}", flush=True)
         if args.camera_async:
             from latest_camera import LatestCamera
             camera_reader = LatestCamera(cap).start()
@@ -1400,7 +1440,7 @@ def main():
             frames += 1
             log_frames += 1
             recognized_this_frame = False
-            if args.dump_on_loss and not startup_card_only:
+            if recording_started and args.dump_on_loss and not startup_card_only:
                 pair_now = float(debug.get("bottom_pair_ratio", 0.0))
                 loss_ring.append((frame.copy(), visualization.copy(),
                                   dict(debug), float(confidence)))
@@ -1574,8 +1614,8 @@ def main():
                 else:
                     card_reach = card_dbg.get("presence_cy_frac")
                     card_reach_line = card_trigger_frac
-                if args.shape_dump and (card_dbg.get("card_found")
-                                        or card_dbg.get("presence")):
+                if recording_started and args.shape_dump and (card_dbg.get("card_found")
+                                                               or card_dbg.get("presence")):
                     dumped += 1
                     stem = os.path.join(
                         args.shape_dump,
@@ -1668,6 +1708,9 @@ def main():
                         print("=" * 68 + "\n", flush=True)
                 if (startup_button_link is not None
                         and start_gate.observe_button(startup_button_link.poll(start_gate.shape_passed))):
+                    # Initialize all outputs before C starts, so its console,
+                    # control/IMU trace and motor positions share this session.
+                    begin_recording()
                     print("[button-start] 收到PC2按钮；交接串口并启动步态。", flush=True)
                 if startup_button_link is not None:
                     # Record transmission and STM32 state separately from the

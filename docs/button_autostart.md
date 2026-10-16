@@ -114,7 +114,31 @@ Vision 异常退出后，systemd 在 5 秒后重启并重新等待本次运行�
 
 相机曝光和画质也在同一配置文件调整。固定 5 ms 使用 `CAMERA_EXPOSURE_MODE=manual`、`CAMERA_EXPOSURE_MS=5`；亮度、对比度、饱和度、锐度、白平衡和抗闪烁设置详见 [相机曝光与画质参数](相机曝光与画质参数.md)。默认 keep/空不会改变现有相机状态。
 
-lane 分支每次测试统一写入 `records/hz_test/日期/test_时间_唯一编号/`，包括视觉、控制指令、关节角、IMU 和图片；时钟未设置时写入 `clock_unsynced/`，详见 [测试数据每日归档](测试数据每日归档.md)。副摄像头默认禁用，在 `config/button_start.env` 设置 `CARD_CAMERA_ENABLED=1` 可恢复已保存的双摄配置。查看本次启动全部日志：
+lane 分支收到本次 PC2 按钮事件后，才创建 `records/hz_test/日期/test_时间_唯一编号/` 并按 `LOG` 选择保存数据；按钮前不生成测试文件。日期无效时最多等待 60 秒恢复，仍无效则退出且不启动步态，详见 [测试数据每日归档](测试数据每日归档.md)。副摄像头默认禁用，在 `config/button_start.env` 设置 `CARD_CAMERA_ENABLED=1` 可恢复已保存的双摄配置。服务启动和等待按钮的控制台提示仍由 journal 保存。
+
+只需修改上位机本地 `config/button_start.env` 的一行：
+
+```bash
+LOG="vision control video"
+```
+
+配置文件被 `.gitignore` 忽略，不跟踪 Git；安装脚本保留已有配置。修改后重启视觉服务生效，无须重新安装服务。名称用空格或逗号分隔；未知名称会报错，避免拼写错误导致缺少记录。`LOG=all` 全开，`LOG=none`（或空字符串）关闭全部测试文件记录，仍正常识别和控制，控制台/journal 继续输出。有任何项目开启时，始终保存会话清单，列出实际启用项；它是配套索引，不另设开关。
+
+| 名称 | 重要程度与用途 |
+|---|---|
+| `vision` | 主要：巡线观测、偏移/角度、有效性、转向判断和发送 VX/WZ；图卡检测、投票、停车/动作事件、处理耗时。包含中文计数汇总。 |
+| `control` | 主要：请求指令与实际模型输入、指令保持/动作接管、最终发送关节角、反馈关节角及 IMU，分析执行链路和关节跟踪。 |
+| `video` | 主要：用画面核对巡线/图卡是否识别正确，并对照视觉指令与策略使用的指令。 |
+| `motor` | 次要：关节目标/反馈和 IMU 简表，便于直接绘图；主要数据已包含在 `control` 中。 |
+| `policy` | 次要：另存步态程序文字日志及 `records/main_live.log`；排查启动、串口、掉线和异常时使用。不选仍可看 journal。 |
+| `shape` | 次要：图卡截图与诊断 JSON，排查漏识别/误识别时增加。 |
+| `loss` | 次要：丢锁触发时保存原图、可视化和诊断，排查巡线丢失时增加。 |
+
+例如查图卡问题用 `LOG="vision control video shape policy"`；查巡线丢失用 `LOG="vision control video loss"`。新配置推荐 `vision control video`；旧配置缺少 `LOG` 时保持原来的记录方式，并继续使用 `RECORD_VIDEO`。写了 `LOG` 后，是否录像由其中是否包含 `video` 决定，优先于旧 `RECORD_VIDEO`；`VIDEO_SOURCE/FPS/WIDTH` 仍控制录像格式。
+
+按时间对齐 `vision` 的 `host_time_ns / 1e9` 和 `control` 的 `host_unix_s`，依次比较视觉 `vx/wz` → `requested_cmd_*` → `cmd_*` → `motor_send_argument_*` 与反馈关节角。`cmd_wz` 是模型输入，不是实测机身角速度；机身姿态变化结合 IMU 判断，真实速度跟踪精度还需要外部运动测量。
+
+查看本次启动全部日志：
 
 ```bash
 journalctl -u humanoid-button-connector.service -u humanoid-button-vision.service -b --no-pager

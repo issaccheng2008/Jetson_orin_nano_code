@@ -187,6 +187,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--enable-motors", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0, help="0 runs until Ctrl+C")
     parser.add_argument("--log-every", type=int, default=25, help="Print every N policy steps")
+    parser.add_argument('--no-position-log', action='store_true',
+                        help='Disable the motor-position/IMU summary CSV; control diagnostics are independent.')
     parser.add_argument(
         "--position-log-dir",
         default="records/motor_positions",
@@ -499,13 +501,15 @@ def main() -> int:
         and args.policy == "walking" and args.command_source == "vision"
         else None
     )
-    position_logger = PositionCsvLogger(args.position_log_dir, config.JOINT_NAMES)
+    position_logger = (None if args.no_position_log else
+                       PositionCsvLogger(args.position_log_dir, config.JOINT_NAMES))
     position_plot = None
     if not args.no_plot:
         try:
             position_plot = LivePositionPlot(config.JOINT_NAMES, args.plot_history_seconds)
         except Exception as exc:
-            position_logger.close()
+            if position_logger is not None:
+                position_logger.close()
             raise SystemExit(
                 f"Could not open the motor-position window: {exc}. "
                 "Run with --no-plot on a headless system; CSV logging will remain enabled."
@@ -529,7 +533,7 @@ def main() -> int:
     if not args.fixed_policy and args.policy == "walking":
         print(f"Walking command minimum hold: {args.command_min_hold_s:g} s at model input; "
               "stops and takeovers preempt")
-    print(f"Motor-position and IMU log: {position_logger.path}")
+    print(f"Motor-position and IMU log: {position_logger.path if position_logger is not None else 'off'}")
     if position_plot is not None:
         print("Motor/IMU window opened (knee motors and IMU data selected by default)")
 
@@ -574,7 +578,8 @@ def main() -> int:
             directory = (getattr(args, "diagnostic_log_dir", None)
                          or Path(args.position_log_dir) / "control_diagnostics")
             diagnostics = ControlDiagnostics(directory, args, target_safety, sources,
-                                             first_state, "main.py", position_logger.path)
+                                             first_state, "main.py",
+                                             position_logger.path if position_logger is not None else None)
         else:
             print("Control diagnostics explicitly disabled")
 
@@ -955,16 +960,17 @@ def main() -> int:
                     raise RuntimeError(f"IMU/encoder data invalid: flags=0x{response.status_flags:08X}")
 
             elapsed_s = now - start_time
-            position_logger.write(
-                elapsed_s,
-                step,
-                state.sequence,
-                last_q_motor,
-                state.joint_position,
-                accel_policy,
-                orientation_rpy,
-                gyro_policy,
-            )
+            if position_logger is not None:
+                position_logger.write(
+                    elapsed_s,
+                    step,
+                    state.sequence,
+                    last_q_motor,
+                    state.joint_position,
+                    accel_policy,
+                    orientation_rpy,
+                    gyro_policy,
+                )
             if position_plot is not None and step % args.plot_every == 0:
                 position_plot.update(
                     elapsed_s,
@@ -1037,7 +1043,8 @@ def main() -> int:
         send_disable(link, last_q_motor)
         if attitude is not None:
             attitude.close()
-        position_logger.close()
+        if position_logger is not None:
+            position_logger.close()
         if position_plot is not None and not timed_run_completed:
             position_plot.close()
         if command_source is not None and args.policy == "walking":

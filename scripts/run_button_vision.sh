@@ -61,6 +61,11 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --card-failure-cooldown-s "${CARD_FAILURE_COOLDOWN_S:-0.5}" --shape-every "$SHAPE_EVERY"
     --recording-root "$RECORDS_DIR/hz_test" "$video_flag"
     --video-source "$VIDEO_SOURCE" --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
+# An explicit LOG line is the master selection, including video. Missing LOG
+# keeps older installed configs and RECORD_VIDEO behavior unchanged.
+if [[ ${LOG+x} ]]; then
+    command+=(--log-items "$LOG")
+fi
 case "${LANE_VISIBLE_DIRECTION_FALLBACK:-1}" in
     1) command+=(--lane-visible-direction-fallback) ;;
     0) command+=(--no-lane-visible-direction-fallback) ;;

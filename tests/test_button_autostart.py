@@ -16,6 +16,28 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_log_line_reaches_parser_and_missing_setting_keeps_legacy_behavior(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            template = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                 if not line.startswith('LOG=')) + '\n'
+            for setting, expected in (('LOG="vision control video"\nRECORD_VIDEO=0\n', ('vision', 'control', 'video')),
+                                      ('LOG=none\n', ()), ('RECORD_VIDEO=0\n', None)):
+                (checkout / 'config/button_start.env').write_text(template + setting)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    args = run_policy_vision.parse_args()
+                if expected is None:
+                    self.assertNotIn('--log-items', command)
+                    self.assertFalse(args.record_video)
+                else:
+                    self.assertEqual(args.log_items, expected)
+                    self.assertEqual(args.record_video, 'video' in expected)
+
     def test_success_cooldown_uses_its_own_config_instead_of_distance(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision

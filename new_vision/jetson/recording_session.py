@@ -4,13 +4,14 @@ import json
 from pathlib import Path
 import uuid
 import time
+from recording_options import LOG_ITEMS
 
 
 # This deployment dates from 2026. A pre-deployment date is not trustworthy.
 MIN_RECORDING_YEAR = 2026
 
 
-def create_session(root):
+def create_session(root, log_items=LOG_ITEMS):
     now = datetime.now().astimezone()
     # The Jetson can boot at the epoch and recover its date moments later.
     # Allocate no paths/writers until then: a session cannot change directory
@@ -36,16 +37,22 @@ def create_session(root):
         'wall_clock_valid': True,
         'started_monotonic_ns': started_monotonic_ns,
         'test_id': directory.name,
-        'vision': 'vision/run_*/line_frames.jsonl',
-        'execution_and_imu': 'control/control_trace_*.csv',
-        'motor_positions': 'motor_positions/*.csv',
-        'policy_console': 'main_*.log',
-        'camera_video': 'video/camera_commands.avi (when enabled)',
-        'camera_video_index': 'video/frames.jsonl',
+        'enabled_logs': list(log_items),
         'camera_video_semantics': 'VISION is the per-frame candidate before connector median windows; ROBOT CMD is policy feedback after windows/hold/takeovers and serial send; red means line lost; absent/stale execution is UNKNOWN',
         'time_alignment': 'vision host_time_ns / 1e9 and control host_unix_s',
         'execution_semantics': 'cmd_wz is model input; motor_send_argument_* is sent joint target, not measured body yaw',
     }
+    paths = {
+        'vision': {'vision': 'vision/run_*/line_frames.jsonl', 'vision_counts': 'vision/run_*/counts_summary.txt'},
+        'control': {'execution_and_imu': 'control/control_trace_*.csv'},
+        'motor': {'motor_positions': 'motor_positions/*.csv'},
+        'policy': {'policy_console': 'main_*.log'},
+        'video': {'camera_video': 'video/camera_commands.avi (when enabled)',
+                  'camera_video_index': 'video/frames.jsonl'},
+        'shape': {'shape_dumps': 'shape/run_*'}, 'loss': {'loss_dumps': 'loss/run_*'},
+    }
+    for name in log_items:
+        manifest.update(paths[name])
     (directory / 'recording_manifest.json').write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     return directory

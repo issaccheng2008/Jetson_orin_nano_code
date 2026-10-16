@@ -108,7 +108,7 @@ class ControlDiagnostics:
         self.manifest = dict(schema=SCHEMA, run_id=self.run_id, entrypoint=entrypoint,
             argv=list(sys.argv), arguments=_json_value(vars(args)), created_utc=datetime.now(timezone.utc).isoformat(),
             sources=identities, firmware_sha256="unknown_not_reported_by_protocol",
-            initial_state=state_snapshot(initial_state), associated_legacy_log=str(associated_log),
+            initial_state=state_snapshot(initial_state), associated_legacy_log=str(associated_log) if associated_log is not None else None,
             target_limits=dict(lower_rad=limits.lower, upper_rad=limits.upper, margin_rad=limits.margin_rad,
                                max_speed_rad_s=limits.max_speed_rad_s, max_deviation_deg=limits.max_deviation_deg,
                                absolute_bounds_source=str(bounds_source) if bounds_source else "config.Q_LOWER/Q_UPPER"),

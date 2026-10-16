@@ -2,9 +2,11 @@
 
 from contextlib import redirect_stdout
 import io
+import json
 from pathlib import Path
 import sys
 import threading
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -165,7 +167,8 @@ class StartupSerialTests(unittest.TestCase):
 
 
 class ButtonVisionIntegrationTests(unittest.TestCase):
-    def run_scenario(self, card, press_at=None, walk_s=None, sequence=None):
+    def run_scenario(self, card, press_at=None, walk_s=None, sequence=None,
+                     extra_args=(), on_poll=None, on_launch=None):
         clock, reads = [0.0], [0]
         camera = Mock()
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -182,9 +185,12 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
 
         camera.read.side_effect = read
         detector = Mock()
-        detector.process.return_value = (0, 0, 0.9, None, dict(
+        detector.bird_w, detector.bird_h = 320, 400
+        detector.process.return_value = (0, 0, 0.9, frame.copy(), dict(
             fused_err=0., fused_err_cm=0., angle_err_deg=0., lost_frames=0,
-            curve_mode=False, bottom_lock_valid=True, curve_px=0., base_err_cm=0.))
+            curve_mode=False, bottom_lock_valid=True, curve_px=0., base_err_cm=0.,
+            bird_color=np.zeros((400, 320, 3), dtype=np.uint8),
+            binary=np.zeros((400, 320), dtype=np.uint8)))
         if press_at is None:
             detector.process.side_effect=AssertionError('startup card detection must not wait for lane processing')
         shape = Mock()
@@ -195,6 +201,8 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
 
         def poll(ready):
             ready_values.append(ready)
+            if on_poll is not None:
+                on_poll(reads[0])
             return press_at is not None and reads[0] >= press_at
 
         extra = [] if walk_s is None else ['--startup-first-walk-s', str(walk_s)]
@@ -202,7 +210,7 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
             extra += ['--startup-sequence', sequence]
         timed_commands = []
         with (patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--card-camera", "-1", "--start-gate", "button",
-                                "--start-policy-on-gate", "--shape-every", "1", "--attitude-port", "0", *extra]),
+                                "--start-policy-on-gate", "--shape-every", "1", "--attitude-port", "0", *extra, *extra_args]),
               patch.object(run_policy_vision.signal, "signal"),
               patch.object(run_policy_vision, "ConnectorClient") as client_cls,
               patch("utils.open_camera", return_value=camera),
@@ -221,6 +229,8 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
             launcher.process.poll.return_value = None
 
             def launch():
+                if on_launch is not None:
+                    on_launch(launcher)
                 order.append("gait_started")
                 launcher.started = True
 
@@ -233,6 +243,86 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
         if card and press_at is None:
             self.assertEqual(shape.update.call_count,2)  # latch then serve startup link without reclassifying
         return launcher, client_cls.return_value.publish.call_args_list, order, ready_values
+
+    def test_waiting_for_button_creates_no_recording_even_with_latched_card(self):
+        for card in (False, True):
+            with self.subTest(card=card), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / 'recordings'
+                with patch('command_video.CommandVideo') as video:
+                    launcher, *_ = self.run_scenario(card=card, extra_args=(
+                        '--recording-root', str(root), '--record-video'),
+                        on_poll=lambda _: self.assertFalse(root.exists()))
+                video.assert_not_called()
+                launcher.start.assert_not_called()
+                self.assertFalse(root.exists())
+
+    def test_button_starts_shared_recording_before_policy_launch(self):
+        for card in (False, True):
+            with self.subTest(card=card), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / 'recordings'
+
+                def check_waiting(frame):
+                    if frame <= 6:
+                        self.assertFalse(root.exists())
+
+                def check_launch(launcher):
+                    session = launcher.recording_directory
+                    self.assertTrue((session / 'recording_manifest.json').is_file())
+                    self.assertEqual(len(list(session.glob('vision/run_*/line_frames.jsonl'))), 1)
+                    self.assertEqual(video.call_count, 1)
+                    self.assertEqual(video.call_args.args[0], session / 'video')
+
+                with patch('command_video.CommandVideo') as video:
+                    launcher, *_ = self.run_scenario(card=card, press_at=6,
+                        extra_args=('--recording-root', str(root), '--record-video'),
+                        on_poll=check_waiting, on_launch=check_launch)
+                session = launcher.recording_directory
+                self.assertEqual(len(list(root.glob('*/*/recording_manifest.json'))), 1)
+                rows = [json.loads(row) for row in next(session.glob(
+                    'vision/run_*/line_frames.jsonl')).read_text(encoding='utf-8').splitlines()]
+                self.assertTrue(rows)
+                self.assertTrue(all(row['button_passed'] and row['frame'] >= 6 for row in rows))
+                self.assertFalse(rows[0]['start_released'])  # policy is still loading
+                self.assertEqual(video.return_value.submit.call_count, len(rows))
+                self.assertEqual(video.return_value.submit.call_args_list[0].kwargs['frame_id'], 6)
+                video.return_value.close.assert_called_once()
+
+    def test_individual_dump_paths_are_also_deferred_until_button(self):
+        for press_at in (None, 6):
+            with self.subTest(press_at=press_at), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+
+                def check_waiting(frame):
+                    if press_at is None or frame <= press_at:
+                        self.assertEqual(list(root.iterdir()), [])
+
+                self.run_scenario(card=True, press_at=press_at, extra_args=(
+                    '--line-log-dir', str(root / 'vision'),
+                    '--shape-dump', str(root / 'shape'),
+                    '--dump-on-loss', str(root / 'loss')), on_poll=check_waiting)
+                if press_at is None:
+                    self.assertEqual(list(root.iterdir()), [])
+                else:
+                    for name in ('vision', 'shape', 'loss'):
+                        self.assertEqual(len(list((root / name).glob('run_*'))), 1)
+
+    def test_button_records_logs_when_video_is_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.CommandVideo') as video:
+            launcher, *_ = self.run_scenario(card=False, press_at=6,
+                extra_args=('--recording-root', tmp, '--no-record-video'))
+            self.assertTrue(list(launcher.recording_directory.glob('vision/run_*/line_frames.jsonl')))
+            video.assert_not_called()
+
+    def test_recording_failure_on_button_prevents_policy_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch('recording_session.create_session', side_effect=RuntimeError('clock unset')) as session:
+                with self.assertRaisesRegex(RuntimeError, 'clock unset'):
+                    self.run_scenario(card=False, press_at=6,
+                        extra_args=('--recording-root', tmp),
+                        on_poll=lambda _: session.assert_not_called(),
+                        on_launch=lambda _: self.fail('policy launched before recording was ready'))
+                session.assert_called_once()
+            self.assertEqual(list(Path(tmp).iterdir()), [])
 
     def test_first_card_action_follows_configured_walk_duration(self):
         for duration in (.3, .5, 1.):

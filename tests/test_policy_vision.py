@@ -2627,7 +2627,8 @@ class StartGateIntegrationTests(unittest.TestCase):
         launcher_cls.assert_called_once_with(
             "custom walking.onnx", "/dev/ttyACM0", 1200.0,
             # Actual model input must preserve each connector window for at least .5 s.
-            policy_python=None, one_foot_model="custom standing.onnx", command_min_hold_s=.5)
+            policy_python=None, one_foot_model="custom standing.onnx", command_min_hold_s=.5,
+            log_items=('vision', 'control', 'video', 'motor', 'policy', 'shape', 'loss'))
         launcher.start.assert_called_once()
         launcher.close.assert_called_once()
         published = client_cls.return_value.publish.call_args_list
