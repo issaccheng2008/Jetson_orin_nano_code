@@ -2155,7 +2155,7 @@ def main():
                                    else debug['binary'] if args.video_source == 'binary' else frame)
                     command_video.submit(video_frame, frame_id=frames, host_time_ns=command_host_time_ns,
                         monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence),
-                        executed=actual_command)
+                        executed=actual_command, lane_debug=debug)
                 except Exception as exc:
                     # Auxiliary diagnostics must not escape into the motor loop.
                     print(f'[video] frame submission disabled: {exc}', flush=True)
