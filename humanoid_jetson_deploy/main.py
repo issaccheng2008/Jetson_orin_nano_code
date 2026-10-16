@@ -39,6 +39,7 @@ from protocol import (
     STATE_FAULT,
     STATE_IMU_VALID,
     STATE_MOTORS_ENABLED,
+    STARTUP_HOST_READY,
 )
 from serial_link import SerialLink
 from target_safety import TargetSafety, add_target_safety_arguments, limit_target_slew
@@ -57,6 +58,17 @@ def write_startup_ready_if_confirmed(path: str | None, state_flags: int,
     temporary = marker.with_name(marker.name + ".tmp")
     temporary.write_text("ready\n", encoding="ascii")
     os.replace(temporary, marker)
+    return True
+
+
+def send_host_ready_if_connected(link: SerialLink, command_source) -> bool:
+    """Cover an early PC2 handoff before vision received the connector's reply."""
+    if command_source is None or command_source.last_update <= 0.0:
+        return False
+    try:
+        link.send_startup_control(STARTUP_HOST_READY)
+    except OSError:
+        return False  # A lamp write must not change motion error handling.
     return True
 
 
@@ -595,13 +607,15 @@ def main() -> int:
         held_observation = None
         last_action_tx = -float("inf")
         startup_ready_sent = False
+        startup_led_sent = False
         last_executed_feedback = None
 
         def link_loss_recovery(exc: Exception, where: str) -> None:
             """掉线后的统一恢复：重连，并把节拍和命令保持重新起表。"""
-            nonlocal link, previous_tick, next_tick
+            nonlocal link, previous_tick, next_tick, startup_led_sent
             print(f"[link] STM32 掉线（{where}: {exc}）—— 等 USB 回来重连", flush=True)
             link = reconnect_link(link, args.port, args.baud)
+            startup_led_sent = False
             print("[link] 重连成功，继续", flush=True)
             previous_tick = time.monotonic()
             next_tick = previous_tick
@@ -934,6 +948,8 @@ def main() -> int:
                 raise
             command_sent_monotonic_s = time.monotonic_ns() * 1e-9
             command_sent_host_unix_s = time.time()
+            if args.startup_ready_file and not startup_led_sent:
+                startup_led_sent = send_host_ready_if_connected(link, command_source)
             if diagnostics is not None:
                 diagnostics.write(**diagnostic_values,
                     send_result="written" if send_result is True else "not_written" if send_result is False else "unknown",

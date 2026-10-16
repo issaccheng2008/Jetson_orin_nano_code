@@ -8,7 +8,8 @@ DEPLOY_DIR = Path(__file__).resolve().parents[2] / "humanoid_jetson_deploy"
 if str(DEPLOY_DIR) not in sys.path:
     sys.path.insert(0, str(DEPLOY_DIR))
 
-from protocol import STARTUP_ARM, STARTUP_CARD_READY, STATE_START_BUTTON, STATE_STARTUP_ACTIVE
+from protocol import (STARTUP_ARM, STARTUP_CARD_READY, STARTUP_HOST_READY,
+                      STATE_START_BUTTON, STATE_STARTUP_ACTIVE)
 from serial_link import SerialLink
 
 
@@ -22,6 +23,7 @@ class StartupButtonLink:
         self._reset_pending = True
         self._last_sent_flags = None
         self._state_flags = None
+        self.host_ready = False
 
     def poll(self, card_ready: bool) -> bool:
         now = time.monotonic()
@@ -53,6 +55,8 @@ class StartupButtonLink:
             self._next_write = 0.0
         flags = (0 if self._reset_pending else
                  STARTUP_ARM | (STARTUP_CARD_READY if card_ready else 0))
+        if self.host_ready:
+            flags |= STARTUP_HOST_READY
         try:
             if flags != self._last_sent_flags or now >= self._next_write:
                 self._link.send_startup_control(flags)
@@ -80,7 +84,8 @@ class StartupButtonLink:
         if link is None:
             return
         try:
-            link.send_startup_control(0)
+            # Disarm as before, but keep READY if this overwrites the pending frame.
+            link.send_startup_control(STARTUP_HOST_READY if self.host_ready else 0)
         except OSError:
             pass
         finally:

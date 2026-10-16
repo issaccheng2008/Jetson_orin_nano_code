@@ -69,7 +69,7 @@ class ButtonStartTests(unittest.TestCase):
         self.assertEqual(link._sequence, 8)
         self.assertEqual(decoder.crc_errors + decoder.format_errors, 0)
         with self.assertRaises(ValueError):
-            protocol.pack_startup_control(protocol.StartupControlPacket(0, 4))
+            protocol.pack_startup_control(protocol.StartupControlPacket(0, 8))
 
     def test_state_keeps_existing_size_and_button_bits(self):
         flags = protocol.STATE_START_BUTTON | protocol.STATE_STARTUP_ACTIVE
@@ -168,7 +168,7 @@ class StartupSerialTests(unittest.TestCase):
 
 class ButtonVisionIntegrationTests(unittest.TestCase):
     def run_scenario(self, card, press_at=None, walk_s=None, sequence=None,
-                     extra_args=(), on_poll=None, on_launch=None):
+                     extra_args=(), on_poll=None, on_launch=None, connector_ready=True):
         clock, reads = [0.0], [0]
         camera = Mock()
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -222,6 +222,7 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
               patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
               redirect_stdout(io.StringIO())):
             button = button_cls.return_value
+            client_cls.return_value.poll_startup_ready.return_value = connector_ready
             button.poll.side_effect = poll
             button.close.side_effect = lambda: order.append("serial_closed")
             launcher = launcher_cls.return_value
@@ -243,6 +244,12 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
         if card and press_at is None:
             self.assertEqual(shape.update.call_count,2)  # latch then serve startup link without reclassifying
         return launcher, client_cls.return_value.publish.call_args_list, order, ready_values
+
+    def test_button_launch_does_not_depend_on_led_acknowledgement(self):
+        launcher, _, order, _ = self.run_scenario(
+            card=False, press_at=6, connector_ready=False)
+        launcher.start.assert_called_once()
+        self.assertEqual(order[:2], ['serial_closed', 'gait_started'])
 
     def test_waiting_for_button_creates_no_recording_even_with_latched_card(self):
         for card in (False, True):

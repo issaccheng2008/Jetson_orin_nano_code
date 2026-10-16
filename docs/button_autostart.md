@@ -6,6 +6,10 @@ heading/segments 的近端位置回正参数、默认值及回退方式见 [近�
 
 启动顺序是 `connector → vision → 等待 STM32 PC2 按钮 → gait`。两个 systemd 服务只启动 connector 和带 `--start-gate button --start-policy-on-gate` 的 vision；不直接启动 `main.py`。Vision 收到本次运行的新按钮事件后，才通过策略 Python 启动 gait 并等待 STM32 就绪。PC2 接线与固件按当前版本说明完成；安装服务本身不会启动电机。
 
+PA1（低电平亮）表示本次 vision 和 connector 已成功启动：vision 成功取得相机画面后，用原 UDP 5006 socket 向 connector 请求一次确认，收到回复后在原串口启动包中增加 `STARTUP_HOST_READY`（bit 2），下位机收到后点亮 PA1，保持到 MCU 复位。等待按钮时就能亮，不用先启动步态；PA3 仍表示首卡就绪，PA2 保留原逻辑。探测不转发给策略、不刷新运动命令，确认后不再探测，不新增服务、线程或串口连接。这是启动成功指示，不是实时健康/故障灯。
+
+上下位机需一起更新（下位机 `抬脚` 分支）。点灯确认不增加 PC2 起步条件：如果提前按下按钮，策略接管串口后收到 connector 的原 UDP 数据时，会补发一次相同的点灯标志；失败不影响原有运动处理。交接时清除 ARM 的包会保留已确认的点灯位，避免覆盖待处理的点灯消息。自启动脚本和配置无需重新安装，更新代码后重启原有服务即可。Windows 软件回归与固件编译不能代替板上 PA1、PA3 和 PC2 验证。
+
 ## 在 Jetson 上安装
 
 以平时运行机器人程序的普通用户登录，仓库放在 `~/jetson_orin_code`。不要给整个安装命令加 `sudo`。

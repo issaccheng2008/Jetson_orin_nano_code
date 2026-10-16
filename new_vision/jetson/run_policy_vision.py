@@ -1706,8 +1706,12 @@ def main():
                               f"（{start_gate.last_shape}）"
                               f"    {evidence} 来源={startup_shape_source}", flush=True)
                         print("=" * 68 + "\n", flush=True)
+                button_pressed = False
+                if startup_button_link is not None:
+                    startup_button_link.host_ready = client.poll_startup_ready()
+                    button_pressed = startup_button_link.poll(start_gate.shape_passed)
                 if (startup_button_link is not None
-                        and start_gate.observe_button(startup_button_link.poll(start_gate.shape_passed))):
+                        and start_gate.observe_button(button_pressed)):
                     # Initialize all outputs before C starts, so its console,
                     # control/IMU trace and motor positions share this session.
                     begin_recording()

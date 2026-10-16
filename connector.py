@@ -436,6 +436,10 @@ def main() -> int:
                     decoded = json.loads(payload.decode("utf-8"))
                     if not isinstance(decoded, dict):
                         raise ValueError("message must be a JSON object")
+                    if decoded == {"startup_probe": True}:
+                        # Startup acknowledgement only: never refresh a motion command.
+                        receiver.sendto(b'{"connector_ready":true}', _address)
+                        continue
                     latest = process_vision_output(decoded, wz_bias=args.wz_bias)
                     last_vision_update = time.monotonic()
                     scheduler.receive(latest, last_vision_update)

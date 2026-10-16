@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import math
+import select
 import socket
+import time
 
 
 def clamp(value, lower, upper):
@@ -311,6 +313,28 @@ class ConnectorClient:
     def __init__(self, host="127.0.0.1", port=5006):
         self.address = (host, port)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._startup_ready = False
+        self._next_startup_probe = 0.0
+
+    def poll_startup_ready(self):
+        """Confirm connector startup once, without waiting or opening another socket."""
+        if self._startup_ready:
+            return True
+        now = time.monotonic()
+        try:
+            if now >= self._next_startup_probe:
+                self._next_startup_probe = now + 1.0
+                self.socket.sendto(b'{"startup_probe":true}', self.address)
+            for _ in range(4):
+                if not select.select([self.socket], [], [], 0)[0]:
+                    break
+                payload, _ = self.socket.recvfrom(512)
+                if payload == b'{"connector_ready":true}':
+                    self._startup_ready = True
+                    break
+        except OSError:
+            pass  # An unavailable connector must not claim startup success.
+        return self._startup_ready
 
     def publish(self, vx, wz, qr=-1, *, event_id=0, event_action=-1, hold_upright=False,
                 card_tilt=False, command_mode=None, steering_window=None,

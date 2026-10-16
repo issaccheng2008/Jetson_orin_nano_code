@@ -48,6 +48,7 @@ STATE_STARTUP_ACTIVE = 1 << 6
 
 STARTUP_ARM = 1 << 0
 STARTUP_CARD_READY = 1 << 1
+STARTUP_HOST_READY = 1 << 2  # vision + connector startup succeeded; PA1 latch
 
 HEADER = struct.Struct("<HBBHH")
 CRC = struct.Struct("<H")
@@ -171,7 +172,7 @@ def pack_command(packet: CommandPacket) -> bytes:
 
 
 def pack_startup_control(packet: StartupControlPacket) -> bytes:
-    if packet.flags < 0 or packet.flags & ~(STARTUP_ARM | STARTUP_CARD_READY):
+    if packet.flags < 0 or packet.flags & ~(STARTUP_ARM | STARTUP_CARD_READY | STARTUP_HOST_READY):
         raise ValueError("Unknown startup control flags")
     return _pack_frame(MSG_STARTUP_CONTROL, packet.sequence,
                        STARTUP_CONTROL_PAYLOAD.pack(packet.flags))
@@ -289,7 +290,7 @@ class FrameDecoder:
                     decoded.append(ActionStatusPacket(sequence, *ACTION_STATUS_PAYLOAD.unpack(payload)))
                 elif message_type == MSG_STARTUP_CONTROL and payload_len == STARTUP_CONTROL_PAYLOAD.size:
                     flags = STARTUP_CONTROL_PAYLOAD.unpack(payload)[0]
-                    if flags & ~(STARTUP_ARM | STARTUP_CARD_READY):
+                    if flags & ~(STARTUP_ARM | STARTUP_CARD_READY | STARTUP_HOST_READY):
                         raise ValueError("Unknown startup control flags")
                     decoded.append(StartupControlPacket(sequence, flags))
                 else:
