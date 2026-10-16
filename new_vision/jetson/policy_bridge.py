@@ -313,7 +313,8 @@ class ConnectorClient:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def publish(self, vx, wz, qr=-1, *, event_id=0, event_action=-1, hold_upright=False,
-                card_tilt=False, command_mode=None, steering_window=None):
+                card_tilt=False, command_mode=None, steering_window=None,
+                startup_sequence_active=False):
         if command_mode is not None and command_mode not in ("held", "continuous"):
             raise ValueError("invalid command mode")
         if not math.isfinite(vx) or not math.isfinite(wz):
@@ -323,6 +324,8 @@ class ConnectorClient:
             message["command_mode"] = command_mode
         if steering_window is not None:
             message["steering_window"] = dict(steering_window)
+        if startup_sequence_active:
+            message["startup_sequence_active"] = True
         if event_id:
             if not 0 < int(event_id) <= 0xFFFFFFFF or int(event_action) not in (1, 2, 3, 4, 5, 6):
                 raise ValueError("invalid shape event")

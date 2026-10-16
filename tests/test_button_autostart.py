@@ -301,6 +301,8 @@ class ButtonAutostartTests(unittest.TestCase):
                         value = line.split('=', 1)[1]
                         self.assertTrue(PurePosixPath(value).is_absolute(), value)
                 self.assertEqual(rendered.count('ExecStart=/bin/bash '), 2)
+                self.assertIn('After=network.target time-set.target humanoid-button-connector.service', rendered)
+                self.assertIn('Wants=time-set.target', rendered)
                 self.assertFalse((checkout / 'config/button_start.env').exists())
 
     def test_both_wrappers_set_repository_directory_before_exec(self):

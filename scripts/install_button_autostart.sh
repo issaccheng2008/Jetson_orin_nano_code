@@ -32,7 +32,7 @@ render_unit() {
     local component="$1" dependencies
     dependencies='After=network.target'
     if [[ "$component" = vision ]]; then
-        dependencies=$'Requires=humanoid-button-connector.service\nAfter=network.target humanoid-button-connector.service'
+        dependencies=$'Requires=humanoid-button-connector.service\nWants=time-set.target\nAfter=network.target time-set.target humanoid-button-connector.service'
     fi
     cat <<EOF
 [Unit]

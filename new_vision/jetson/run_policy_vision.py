@@ -1846,6 +1846,9 @@ def main():
                            hold_upright=(gate_window_open and start_gate is not None
                                          and start_gate.require_shape),
                            card_tilt=cards.tilt_requested,
+                           **({"startup_sequence_active": True}
+                              if startup_first_card_pending and not gate_window_open
+                              and not in_card_window and not args.hold_still else {}),
                            **({"command_mode": "held"} if args.wz_mode in ("heading", "segments") else {}),
                            **window_metadata,
                            **event)
