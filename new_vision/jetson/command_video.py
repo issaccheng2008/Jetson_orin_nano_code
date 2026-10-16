@@ -52,6 +52,27 @@ def line_lost(debug, confidence):
             or reason in ('brief_loss_hold', 'geometry_lost_yaw_zero', 'invalid_clock'))
 
 
+def recording_frame(frame, debug, frame_source):
+    """Startup skips lane detection; record the camera without inventing a mask."""
+    startup = bool(debug.get('startup_card_only', False))
+    if startup or frame_source == 'camera':
+        return frame, startup
+    return ((debug['bird_color'], debug['binary']) if frame_source == 'bird_pair'
+            else debug['binary']), False
+
+
+def _letterbox_camera(image, dimensions):
+    width, height = dimensions
+    h, w = image.shape[:2]
+    scale = min(width / w, height / h)
+    fitted = cv2.resize(image, (max(1, round(w * scale)), max(1, round(h * scale))),
+                        interpolation=cv2.INTER_AREA if scale <= 1. else cv2.INTER_LINEAR)
+    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+    y, x = (height - fitted.shape[0]) // 2, (width - fitted.shape[1]) // 2
+    canvas[y:y + fitted.shape[0], x:x + fitted.shape[1]] = fitted
+    return canvas
+
+
 def draw_command(image, vx, wz, lost, max_wz, elapsed_s, executed=None,
                  line_state=None, heading_deg=None):
     """Draw a direction symbol on the encoder's private image, never on control input."""
@@ -71,7 +92,8 @@ def draw_command(image, vx, wz, lost, max_wz, elapsed_s, executed=None,
         cv2.putText(image, title, (46, h-92), cv2.FONT_HERSHEY_SIMPLEX,
                     title_scale, (255, 255, 255), 1, cv2.LINE_AA)
     else:
-        label = 'LINE LOST' if lost else 'TRACK'
+        label = ('STARTUP CAMERA' if line_state == 'STARTUP' else
+                 'LINE LOST' if lost else 'TRACK')
         cv2.putText(image, f'{label} t={elapsed_s:.2f}s', (8, h-92),
                     cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), 1, cv2.LINE_AA)
     columns = [(w//4, 'VISION', vx, wz)]
@@ -117,14 +139,19 @@ def _draw_arrow(image, centre, vx, wz, colour, max_wz):
 
 
 class CommandVideo:
-    def __init__(self, directory, fps=10., width=960, max_wz=.5, queue_size=2, frame_source='camera'):
+    def __init__(self, directory, fps=10., width=960, max_wz=.5, queue_size=2,
+                 frame_source='camera', image_size=None):
         if not math.isfinite(fps) or not 1 <= fps <= 30:
             raise ValueError('video fps must be finite and in [1, 30]')
         if not 64 <= width <= 1920 or queue_size < 1:
             raise ValueError('video width must be in [64, 1920]; queue must be positive')
         if frame_source not in ('camera', 'binary', 'bird_pair'):
             raise ValueError('video source must be camera, binary or bird_pair')
+        if image_size is not None and (len(image_size) != 2 or
+                any(not isinstance(n, int) or n < 2 for n in image_size)):
+            raise ValueError('video image_size must be two positive pixel dimensions')
         self.frame_source = frame_source
+        self.image_size = image_size
         self.directory = Path(directory)
         self.fps, self.width, self.max_wz = fps, width, max_wz
         self.dropped_samples = 0
@@ -139,7 +166,7 @@ class CommandVideo:
         self._thread.start()
 
     def submit(self, image, *, frame_id, host_time_ns, monotonic_s, vx, wz, lost,
-               executed=None, lane_debug=None):
+               executed=None, lane_debug=None, camera_fallback=False):
         if self.error is not None or self._closing.is_set():
             return False
         if self._queue.full():
@@ -149,11 +176,15 @@ class CommandVideo:
         try:
             state, heading = (lane_observation(lane_debug, lost) if lane_debug is not None
                               else (None, None))
+            if camera_fallback:
+                state, heading, lost = 'STARTUP', None, False
             private_image = (tuple(part.copy() for part in image)
-                             if self.frame_source == 'bird_pair' else image.copy())
+                             if self.frame_source == 'bird_pair' and not camera_fallback
+                             else image.copy())
             sample = (private_image, dict(source_frame=frame_id,
                 command_host_time_ns=host_time_ns, command_monotonic_s=monotonic_s,
-                vx=vx, wz=wz, line_lost=bool(lost), line_state=state, heading_deg=heading, executed_command=(
+                vx=vx, wz=wz, line_lost=bool(lost), line_state=state, heading_deg=heading,
+                frame_source='startup_camera' if camera_fallback else self.frame_source, executed_command=(
                     None if executed is None else dict(executed, velocity=list(executed['velocity'])))))
             self._queue.put_nowait(sample)
         except queue.Full:
@@ -188,14 +219,18 @@ class CommandVideo:
                 except queue.Empty:
                     continue
                 now = metadata['command_monotonic_s']
+                camera_fallback = metadata['frame_source'] == 'startup_camera'
                 if not math.isfinite(now) or (last_time is not None and now < last_time):
                     raise ValueError('video command clock regressed or is non-finite')
                 if writer is None:
                     origin = now
                     self._origin_monotonic_s = origin
-                    h, w = (raw[0].shape[:2] if self.frame_source == 'bird_pair' else raw.shape[:2])
-                    if self.frame_source == 'bird_pair':
+                    h, w = (raw[0].shape[:2] if self.frame_source == 'bird_pair'
+                            and not camera_fallback else raw.shape[:2])
+                    if self.frame_source == 'bird_pair' and not camera_fallback:
                         w *= 2
+                    if self.image_size is not None:
+                        w, h = self.image_size
                     out_w = min(self.width, w)//2*2
                     out_h = max(2, round(h*out_w/w)//2*2)
                     image_dimensions = (out_w, out_h)
@@ -211,7 +246,9 @@ class CommandVideo:
                 while previous is not None and next_tick < tick:
                     self._write(writer, index, previous, next_tick)
                     next_tick += 1
-                if self.frame_source == 'bird_pair':
+                if camera_fallback:
+                    raw = _letterbox_camera(raw, image_dimensions)
+                if self.frame_source == 'bird_pair' and not camera_fallback:
                     colour, mask = raw
                     if (colour.ndim != 3 or colour.shape[2] != 3 or colour.dtype != 'uint8'
                             or mask.ndim != 2 or mask.dtype != 'uint8'
@@ -224,13 +261,13 @@ class CommandVideo:
                     left = cv2.resize(colour, (left_w, height), interpolation=cv2.INTER_AREA)
                     right = cv2.resize(mask, (right_w, height), interpolation=cv2.INTER_NEAREST)
                     raw = cv2.hconcat((left, cv2.cvtColor(right, cv2.COLOR_GRAY2BGR)))
-                if self.frame_source == 'binary':
+                if self.frame_source == 'binary' and not camera_fallback:
                     # This is the detector's final candidate mask, not a new
                     # threshold of the camera image. Preserve it above the HUD.
                     if raw.ndim != 2 or raw.dtype != 'uint8':
                         raise ValueError('binary video needs the detector uint8 lane mask')
                     raw = cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
-                image = (raw if self.frame_source == 'bird_pair' else
+                image = (raw if self.frame_source == 'bird_pair' or camera_fallback else
                          cv2.resize(raw, image_dimensions,
                              interpolation=cv2.INTER_NEAREST if self.frame_source == 'binary' else cv2.INTER_AREA))
                 if self.frame_source in ('binary', 'bird_pair'):
@@ -260,6 +297,7 @@ class CommandVideo:
                 manifest = dict(schema='command_video_v2', codec='MJPG', video='camera_commands.avi',
                     frame_index='frames.jsonl', fps=self.fps, dimensions=dimensions,
                     frame_source=self.frame_source,
+                    startup_frame_source='camera, letterboxed; STARTUP CAMERA label; no lane estimate',
                     detector_debug_key=('bird_color,binary' if self.frame_source == 'bird_pair'
                                         else 'binary' if self.frame_source == 'binary' else None),
                     image_source=('left: original BGR birdseye; right: final lane candidate mask; HUD below'

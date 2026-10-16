@@ -27,7 +27,7 @@ import numpy as np
 from camera_config import load as load_camera
 from policy_bridge import ConnectorClient, SteeringController
 from line_telemetry import LineTelemetry
-from command_video import line_lost
+from command_video import line_lost, recording_frame
 from steering_command_window import SteeringCommandWindow, effective_policy_hold
 from start_gate import resolve_card_shapes
 
@@ -1277,7 +1277,10 @@ def main():
                 from command_video import CommandVideo
                 command_video = CommandVideo(recording_directory/'video', fps=args.video_fps,
                                              width=args.video_width, max_wz=args.max_wz,
-                                             frame_source=args.video_source)
+                                             frame_source=args.video_source,
+                                             image_size=((detector.bird_w * (2 if args.video_source == 'bird_pair' else 1),
+                                                          detector.bird_h)
+                                                         if args.video_source != 'camera' else None))
                 print(f'[video] source={args.video_source} + vision sent commands: {recording_directory / "video"}; '
                       f'{args.video_fps:g} playback FPS; asynchronous encoder', flush=True)
             except Exception as exc:
@@ -2169,20 +2172,18 @@ def main():
                     time.monotonic()-capture_metadata['camera_capture_returned_s'])*1000
             read_to_publish_ms = (time.perf_counter_ns() - read_return_ns) / 1_000_000.0
             recording_submit_ms = None
-            if command_video is not None and not startup_card_only:
+            if command_video is not None:
                 recording_submit_start_ns = time.perf_counter_ns()
                 try:
                     actual_command = None
                     if attitude is not None:
                         attitude.poll()
                         actual_command = attitude.executed_command()
-                    # Reuse this frame's detector output. Missing binary evidence
-                    # disables auxiliary recording rather than substituting raw video.
-                    video_frame = ((debug['bird_color'], debug['binary']) if args.video_source == 'bird_pair'
-                                   else debug['binary'] if args.video_source == 'binary' else frame)
+                    # Startup has no lane geometry; keep recording its camera view.
+                    video_frame, camera_fallback = recording_frame(frame, debug, args.video_source)
                     command_video.submit(video_frame, frame_id=frames, host_time_ns=command_host_time_ns,
                         monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence),
-                        executed=actual_command, lane_debug=debug)
+                        executed=actual_command, lane_debug=debug, camera_fallback=camera_fallback)
                 except Exception as exc:
                     # Auxiliary diagnostics must not escape into the motor loop.
                     print(f'[video] frame submission disabled: {exc}', flush=True)
