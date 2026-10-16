@@ -286,8 +286,9 @@ def parse_args():
                              "walking resumes")
     parser.add_argument("--card-stop-ms", type=float,
                         default=float(os.getenv("CARD_STOP_MS", "3000")),
-                        help="Maximum wait for the current STM32 re-pose DONE, counted "
-                             "from the proximity stop. After DONE plus --card-settle-ms, "
+                        help="Bounded wait for STM32 re-pose start from the proximity stop, "
+                             "then a fresh timeout of the same duration from the first "
+                             "observed active event. After DONE plus --card-settle-ms, "
                              "a separate fixed one-second vote window begins. "
                              "0 disables stopping")
     parser.add_argument("--card-trigger-frac", type=float, default=None,
@@ -1346,6 +1347,16 @@ def main():
             stop_window = processed < stop_until or processed < card_until
             window_open = stop_window or gate_window_open
             if card_window_open and not window_open:
+                if (card_wait_for_tilt_done and card_vote_ready_at == 0.0
+                        and not card_action_triggered):
+                    stage = ('completion' if card_tilt_pending_id else 'start')
+                    print(f"[shape] re-pose {stage} timeout: "
+                          f"baseline={card_tilt_event_before_stop} "
+                          f"pending={card_tilt_pending_id} "
+                          f"feedback_event={getattr(attitude, 'card_tilt_event_id', None)} "
+                          f"done={getattr(attitude, 'card_tilt_done', None)}; "
+                          f"classification never opened; attempts={card_vote_attempts}",
+                          flush=True)
                 card_wait_for_tilt_done = False
                 card_vote_ready_at = 0.0
                 # Handover on the stopped-to-walking edge, BEFORE this frame is
@@ -1491,6 +1502,19 @@ def main():
                 if (type(tilt_event_id) is int
                         and tilt_event_id > card_tilt_event_before_stop):
                     if getattr(attitude, "card_tilt_done", False) is False:
+                        if card_tilt_pending_id == 0:
+                            # The policy waits for joint speeds to settle before
+                            # sending action 7. That delay must not consume the
+                            # STM32's own completion timeout. Extend ONCE, only
+                            # after observing a new active event; repeated busy
+                            # packets cannot keep the robot stopped indefinitely.
+                            stop_until = max(stop_until, processed + args.card_stop_ms / 1000.0)
+                            next_card_stop_allowed_at = max(
+                                next_card_stop_allowed_at,
+                                stop_until + CARD_STOP_RETRIGGER_GAP_S)
+                            print(f"[shape] STM32 re-pose START event={tilt_event_id}; "
+                                  f"completion timeout {args.card_stop_ms:.0f}ms from observed start",
+                                  flush=True)
                         card_tilt_pending_id = tilt_event_id
                     elif tilt_event_id == card_tilt_pending_id:
                         card_vote_ready_at = processed + args.card_settle_ms / 1000.0
@@ -2145,6 +2169,8 @@ def main():
                 if card_dbg:
                     telemetry_debug.update({"card_" + key: value for key, value in card_dbg.items()
                         if key.startswith(("photometric_", "cue_", "shape_"))})
+                repose_feedback_id = getattr(attitude, 'card_tilt_event_id', None)
+                repose_feedback_done = getattr(attitude, 'card_tilt_done', None)
                 line_log.write(
                     telemetry_debug, frame=frames, host_time_ns=command_host_time_ns,
                     process_monotonic_s=processed, confidence=confidence,
@@ -2171,6 +2197,17 @@ def main():
                     card_vote_attempts=card_vote_attempts,
                     card_vote_abstentions=card_vote_abstentions,
                     card_vote_agreement_streak=card_agreement_streak,
+                    card_repose_waiting=bool(card_wait_for_tilt_done
+                        and card_vote_ready_at == 0.0 and processed < stop_until
+                        and not card_action_triggered),
+                    card_repose_baseline_event_id=card_tilt_event_before_stop,
+                    card_repose_pending_event_id=card_tilt_pending_id,
+                    card_repose_feedback_event_id=(repose_feedback_id
+                        if type(repose_feedback_id) is int else None),
+                    card_repose_feedback_done=(repose_feedback_done
+                        if type(repose_feedback_done) is bool else None),
+                    card_repose_wait_remaining_s=(max(0., stop_until-processed)
+                        if card_wait_for_tilt_done and card_vote_ready_at == 0.0 else None),
                     card_vote_window_remaining_s=(max(0., stop_until-processed)
                                                   if card_vote_ready_at or
                                                   (stop_until > 0 and not card_wait_for_tilt_done)

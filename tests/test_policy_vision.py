@@ -2479,6 +2479,74 @@ class ShapeDetectorReportingTests(unittest.TestCase):
         self.assertTrue(events)
         self.assertGreaterEqual(events[0], 15)
 
+    def test_delayed_repose_start_gets_one_bounded_completion_timeout(self):
+        """Settling before action 7 must not consume its completion budget."""
+        for done_at in (4.0, None):
+            with self.subTest(done_at=done_at):
+                frame = np.zeros((720,1280,3),np.uint8)
+                camera = Mock()
+                camera.isOpened.return_value = True
+                camera.get.side_effect = [1280,720]
+                detector = Mock()
+                detector.process.return_value = (0,0,.8,None,detection())
+                clock, reads, classified, events = [0.], [0], [], []
+                shape = Mock()
+                shape.action_map = {'square':3}
+                attitude = Mock(value=45.,card_tilt_status_seen=True,
+                                card_tilt_event_id=0,card_tilt_done=False)
+
+                def read():
+                    reads[0] += 1
+                    clock[0] = reads[0]*.1
+                    if reads[0]>80:
+                        run_policy_vision.signal.signal.call_args.args[1](None,None)
+                        return False,frame
+                    return True,frame
+
+                def poll():
+                    if clock[0]>=2.:
+                        attitude.card_tilt_event_id=1
+                        attitude.card_tilt_done=done_at is not None and clock[0]>=done_at
+
+                def update(*_args,**kwargs):
+                    if kwargs.get('classify'):
+                        classified.append(clock[0])
+                    return None,dict(presence=reads[0]>=2,
+                        presence_cy_frac=.9 if reads[0]>=2 else None,shape='square')
+
+                camera.read.side_effect=read
+                attitude.poll.side_effect=poll
+                shape.update.side_effect=update
+                output=io.StringIO()
+                with (
+                    patch('sys.argv',['run_policy_vision.py','--card-camera','-1',
+                        '--no-camera-async','--headless','--shape-every','1',
+                        '--card-every-stopped','1','--card-vote-frames','1',
+                        '--card-stop-ms','3000','--card-settle-ms','200']),
+                    patch.object(run_policy_vision.signal,'signal'),
+                    patch.object(run_policy_vision,'ConnectorClient') as client_cls,
+                    patch('utils.open_camera',return_value=camera),
+                    patch('line_detector_v1_warp.LineDetector',return_value=detector),
+                    patch('shape_detector.ShapeDetector',return_value=shape),
+                    patch('attitude_input.AttitudeInput',return_value=attitude),
+                    patch.object(run_policy_vision.time,'monotonic',lambda:clock[0]),
+                    contextlib.redirect_stdout(output),
+                ):
+                    client_cls.return_value.publish.side_effect=lambda *_a,**kw: (
+                        events.append(clock[0]) if kw.get('event_id') else None)
+                    self.assertEqual(run_policy_vision.main(),0)
+                self.assertEqual(output.getvalue().count('re-pose START event=1'),1)
+                if done_at is None:
+                    self.assertFalse(classified)
+                    self.assertFalse(events)
+                    self.assertIn('re-pose completion timeout',output.getvalue())
+                    self.assertIn('card window closed',output.getvalue())
+                else:
+                    self.assertTrue(classified)
+                    self.assertGreaterEqual(min(classified),4.2)
+                    self.assertTrue(events)
+                    self.assertGreaterEqual(min(events),4.2)
+
     def test_stopped_vote_window_and_two_reader_agreement(self):
         """A new action needs DONE, 0.1 s settling, then at most 1 s of votes."""
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
