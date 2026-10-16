@@ -36,9 +36,20 @@ class CardDebugTests(unittest.TestCase):
         stats=Statistics()
         for dbg in ({}, {'card_found':True,'shape':'triangle',
                          'quad':np.array([[10,10],[50,10],[50,50],[10,50]]),
-                         'presence_box':(10,10,40,40),'appearance_gray':np.zeros((200,200),np.uint8)}):
+                         'presence_box':np.array([[10,10],[50,10],[50,50],[10,50]]),
+                         'appearance_gray':np.zeros((200,200),np.uint8)}):
             view=dashboard(np.zeros((720,1280,3),np.uint8),dbg,stats,'unlabelled',10.,1,False,'selective/legacy')
             self.assertEqual(view.shape,(1000,1440,3))
+
+    def test_presence_only_uses_detector_quad_contract(self):
+        # This is the production cue schema, including the no-classification
+        # state that previously crashed while unpacking four point arrays.
+        dbg={'presence':True,'card_found':False,'shape':None,
+             'presence_box':np.array([[100,100],[300,110],[290,300],[110,290]],np.int32)}
+        view=dashboard(np.zeros((720,1280,3),np.uint8),dbg,Statistics(),
+                       'unlabelled',10.,0,False,'selective/lut')
+        amber=(view[:,:,0]==0)&(view[:,:,1]==180)&(view[:,:,2]==255)
+        self.assertTrue(amber[202:656,:864].any())
 
     def test_log_retains_geometry_not_images(self):
         result=scalar_debug({'gray':np.zeros((540,960),np.uint8),

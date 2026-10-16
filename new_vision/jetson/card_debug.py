@@ -135,8 +135,10 @@ def dashboard(frame, dbg, stats, expected, fps, streak, paused, modes):
     if dbg.get('quad') is not None:
         cv2.polylines(raw, [np.asarray(dbg['quad'],np.int32).reshape(-1,1,2)], True, (0,255,0), 3)
     if dbg.get('presence_box') is not None:
-        x,y,w,h = map(int,dbg['presence_box'])
-        cv2.rectangle(raw,(x,y),(x+w,y+h),(0,180,255),2)
+        # ShapeDetector returns four original-frame corner points, just like
+        # quad. A cue box is not an (x, y, width, height) tuple.
+        cue_quad = np.asarray(dbg['presence_box'],np.int32).reshape(4,1,2)
+        cv2.polylines(raw,[cue_quad],True,(0,180,255),2)
     canvas[170:656,:864] = tile(raw,'Camera: green=verified black frame, amber=presence cue',864,486)
     for i,(key,title) in enumerate((('gray','Detector grayscale'),('appearance_gray','Rectified grayscale'),
                                   ('appearance_binary','Local symbol binary'),('warp','Legacy classifier warp'))):
