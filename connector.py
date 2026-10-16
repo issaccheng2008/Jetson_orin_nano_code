@@ -93,6 +93,10 @@ def process_vision_output(message: dict[str, Any], wz_bias: float = 0.0) -> dict
         result["wz"] = clamp(wz + wz_bias, -0.5, 0.5)
     if mode is not None:
         result["command_mode"] = mode
+    if "startup_sequence_active" in message:
+        if not isinstance(message["startup_sequence_active"], bool):
+            raise ValueError("startup_sequence_active must be a boolean")
+        result["startup_sequence_active"] = message["startup_sequence_active"]
     if "steering_window" in message:
         window = message["steering_window"]
         if not isinstance(window, dict):
@@ -177,8 +181,13 @@ class CommandWindowScheduler:
         self.sample_vx = 0.
 
     def _timeout(self):
-        return (max(self.vision_timeout_s, self.window_vision_timeout_s,
-                    self.settings[0]) if self.settings else self.vision_timeout_s)
+        # Startup bypasses median collection, but uses the same bounded camera
+        # watchdog as windowed steering. A normal >250ms frame must not insert
+        # a stop between explicit sequence steps.
+        if self.settings or self.latest.get('startup_sequence_active'):
+            return max(self.vision_timeout_s, self.window_vision_timeout_s,
+                       self.settings[0] if self.settings else 0.)
+        return self.vision_timeout_s
 
     def _close_windows(self, now):
         if self.deadline is None or now < self.deadline:
@@ -236,6 +245,7 @@ class CommandWindowScheduler:
             return target, fresh, age
         target = dict(target)
         target.pop('steering_window', None)
+        target.pop('startup_sequence_active', None)
         if self.settings:
             self._close_windows(now)
             seconds = self.settings[0]
@@ -317,7 +327,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--window-vision-timeout", type=float, default=1.0,
-        help="Windowed candidates may arrive slower than the execution window; "
+        help="Windowed steering and explicit startup steps tolerate slow frames; "
              "stop after this many seconds without a frame (default 1). "
              "The effective timeout is at least one window.",
     )

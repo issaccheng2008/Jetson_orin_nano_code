@@ -3458,12 +3458,14 @@ class StartGateIntegrationTests(unittest.TestCase):
         self.assertLessEqual(len(moving), 6)
         self.assertTrue(all(call.args[:2] == (0.2, 0.0) for call in moving))
         self.assertTrue(all("event_id" not in call.kwargs for call in moving))
+        self.assertTrue(all(call.kwargs.get("startup_sequence_active") for call in moving))
         events = [call for call in published if call.kwargs.get("event_id")]
         self.assertEqual(len({call.kwargs["event_id"] for call in events}), 1)
         self.assertEqual(events[0].kwargs["event_action"], 1)      # circle
         self.assertEqual(events[0].args[2], 1)                     # qr = 形状号
         self.assertEqual(events[0].args[:2], (0.0, 0.0))
         self.assertFalse(events[0].kwargs["card_tilt"])
+        self.assertFalse(events[0].kwargs.get("startup_sequence_active", False))
         # 扫到就锁存：之后一次解码都不该再发生。
         self.assertEqual(qr_cls.return_value.decode.call_count, 6)
         self.assertIn("阀1 通过", out.getvalue())

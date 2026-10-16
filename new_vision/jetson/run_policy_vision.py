@@ -2162,6 +2162,9 @@ def main():
                                              and start_gate is not None
                                              and start_gate.require_shape)),
                            card_tilt=(in_card_window and card_event_id == 0),
+                           **({"startup_sequence_active": True}
+                              if startup_first_card_pending and not gate_window_open
+                              and not in_card_window and not args.hold_still else {}),
                            **({"command_mode": "held"} if args.wz_mode in ("heading", "segments") else {}),
                            **window_metadata,
                            **event)
