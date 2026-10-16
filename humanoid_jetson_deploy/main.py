@@ -991,6 +991,14 @@ def main() -> int:
                         card_tilt_event_id=tilt_event_id,
                         card_tilt_done=(tilt_event_id != 0 and
                                         link.get_action_status(tilt_event_id) == ACTION_DONE),
+                        card_task=dict(
+                            restore_id=card_tilt_event if not card_tilt_active else 0,
+                            restore_done=(not card_tilt_active and now >= tilt_release_at),
+                            action_id=shape_controller.event_id if shape_controller is not None else 0,
+                            action_done=(shape_controller is not None
+                                         and shape_controller.event_id != 0
+                                         and shape_controller.phase == 'idle'),
+                            monotonic_s=time.monotonic()),
                         executed_command=dict(velocity=feedback_velocity, policy_mode=diagnostic_mode,
                             send_result=feedback_result, enabled=bool(args.enable_motors), step=step,
                             monotonic_s=command_sent_monotonic_s, host_unix_s=command_sent_host_unix_s,

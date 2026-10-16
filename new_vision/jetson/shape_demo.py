@@ -31,15 +31,6 @@ SHAPE_NAMES = {
     "circle": "圆形", "pentagon": "五角星", "square": "正方形",
     "diamond": "菱形", "cross": "十字", "triangle": "三角形",
 }
-# 分类过了但没触发时，_confirm 的闸门名 → 人话
-REJECT_ZH = {
-    "trusted": "连续帧数不够",
-    "disarmed": "已触发过·等卡离开",
-    "no_box": "没有框",
-    "too_far": "框还没压到下方 2/3",
-    "cooldown": "冷却中",
-    "fallback": "走的是存在信号兜底",
-}
 # YOLO类别 → 动作号
 YOLO_CLS = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
 YOLO_NAMES = {0: "circle", 1: "pentagon", 2: "square",
@@ -88,8 +79,8 @@ def put_text(img, text, org, color_bgr=(0, 0, 255), size=26):
 
 def run_cv(img, detector):
     """找框+分类（纯 CV 规则法）。返回 (shape, action, conf, quad, dbg)。"""
-    action, dbg = detector.update(img)
-    shape = dbg.get("shape")
+    shape, dbg = detector.update(img)
+    action = detector.action_map.get(shape)
     conf = 1.0 if shape is not None else 0.0
     return shape, action, conf, dbg.get("quad"), dbg
 
@@ -130,8 +121,7 @@ def main():
                         help="保存预处理中间图到指定路径（调试用）")
     args = parser.parse_args()
 
-    detector = ShapeDetector(stable_frames=1, cooldown_ms=0, debug=False,
-                             roi_ratio=1.0)
+    detector = ShapeDetector(roi_ratio=1.0)
 
     # YOLO模型（可选）
     model = None
@@ -235,13 +225,7 @@ def main():
             label = (f"{SHAPE_NAMES.get(shape, shape)} 动作{action} "
                      f"{ACTION_NAMES[action]} | {conf_s}")
         else:
-            # 分出来了却没触发 = _confirm 的闸门没过，和分类器判不出是两回事。
-            # 混成一句话看的人会去查分类器，而问题在触发闸门。
-            if cv_shape is not None:
-                why = REJECT_ZH.get(cv_dbg.get("confirm_reject"),
-                                    str(cv_dbg.get("confirm_reject")))
-                label = f"已分类 {SHAPE_NAMES.get(cv_shape, cv_shape)}，未触发（{why}）"
-            elif cv_dbg.get("card_found"):
+            if cv_dbg.get("card_found"):
                 label = "找到框但分类不出"
             else:
                 label = "未找到框"

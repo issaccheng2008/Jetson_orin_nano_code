@@ -56,7 +56,8 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --heading-right-tolerance-deg "$HEADING_RIGHT_TOLERANCE_DEG"
     --heading-left-tolerance-deg "$HEADING_LEFT_TOLERANCE_DEG"
     --heading-full-scale-deg "$HEADING_FULL_SCALE_DEG" --heading-left-wz "${left_wz[@]}"
-    --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
+    --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM"
+    --card-failure-cooldown-s "${CARD_FAILURE_COOLDOWN_S:-0.5}" --shape-every "$SHAPE_EVERY"
     --recording-root "$RECORDS_DIR/hz_test" "$video_flag"
     --video-source "$VIDEO_SOURCE" --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
 case "${LANE_VISIBLE_DIRECTION_FALLBACK:-1}" in

@@ -194,7 +194,7 @@ def main(argv=None):
         check_display(parser)
     if resolve_mode(args.photometric_mode)=='lut':
         load_lut_mapping(args.photometric_lut_dir)
-    detector = ShapeDetector(debug=False)
+    detector = ShapeDetector()
     detector.preprocess_mode, detector.photometric_mode = args.shape_preprocess,args.photometric_mode
     session = args.output / datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     session.mkdir(parents=True)
@@ -253,7 +253,7 @@ def main(argv=None):
                                 raise RuntimeError('Camera stopped delivering frames')
                             continue
                     failures = 0
-                    _,dbg = detector.update(frame,classify=True,issue_action=False)
+                    _,dbg = detector.update(frame,classify=True)
                     total += 1
                     current = dbg.get('shape')
                     streak = streak+1 if current is not None and current==previous else int(current is not None)

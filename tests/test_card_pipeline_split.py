@@ -28,16 +28,14 @@ class CardPipelineSplitTests(unittest.TestCase):
               patch.object(detector, "_geom_ok", return_value=True),
               patch.object(detector, "_verify_quad", return_value=(1.0, 1.0)),
               patch.object(detector, "_refine_quad", side_effect=lambda _b, q: q),
-              patch.object(detector, "_warp_card", side_effect=AssertionError("classified while walking")),
-              patch.object(detector, "_confirm", side_effect=AssertionError("legacy action used"))):
-            action, debug = detector.update(self.frame, classify=False, issue_action=False)
-        self.assertIsNone(action)
+              patch.object(detector, "_warp_card", side_effect=AssertionError("classified while walking"))):
+            label, debug = detector.update(self.frame, classify=False)
+        self.assertIsNone(label)
         self.assertTrue(debug["card_found"])
         self.assertTrue(debug["presence"])
         self.assertIsNone(debug["shape"])
         self.assertEqual(debug["shape_classification_path"], "deferred_until_stop")
         self.assertEqual(debug["shape_proposal_source"], "cc")
-        self.assertEqual(detector.candidate_count, 0)
 
     def test_staged_box_falls_back_to_corner_before_presence_cue(self):
         detector = ShapeDetector()
@@ -50,7 +48,7 @@ class CardPipelineSplitTests(unittest.TestCase):
               patch.object(detector, "_geom_ok", return_value=True),
               patch.object(detector, "_verify_quad", return_value=(1.0, 1.0)),
               patch.object(detector, "_refine_quad", side_effect=lambda _b, q: q)):
-            _, debug = detector.update(self.frame, classify=True, issue_action=False,
+            _, debug = detector.update(self.frame, classify=True,
                                        proposal_mode="staged")
         self.assertTrue(debug["card_found"])
         self.assertTrue(debug["shape_proposal_fallback"])
@@ -72,7 +70,7 @@ class CardPipelineSplitTests(unittest.TestCase):
               patch.object(detector, "_classify_contour", return_value="square"),
               patch.object(detector, "_classify", return_value="triangle"),
               patch("card_appearance.card_appearance", return_value=appearance)):
-            _, debug = detector.update(self.frame, classify=True, issue_action=False)
+            _, debug = detector.update(self.frame, classify=True)
         self.assertTrue(debug["card_found"])
         self.assertEqual(debug["shape_local_candidate"], "square")
         self.assertEqual(debug["shape_legacy_candidate"], "triangle")

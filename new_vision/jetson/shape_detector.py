@@ -11,7 +11,7 @@ v2 找框重构：线宽选择性预处理（blackhat核9 + 各向异性闭 + �
   close5→保留（桥接断口，改用1×5/5×1各向异性）；open5/open3→废弃（磨细线）；
   CC面积/高度过滤→废弃（删细线CC），改笔画宽判据。
 
-接口与 QRDetector 保持一致：update(bgr) → (action_number, dbg) 或 (None, None)。
+接口：update(bgr) → (shape_name, dbg)，仅提供单帧结果，不触发动作。
 动作映射（与2025二维码1-6对应）：
   圆形=1举左手 五角星=2举右手 正方形=3抬左腿 菱形=4抬右腿 十字形=5举双手 三角形=6摇头
 """
@@ -120,17 +120,8 @@ def trigger_width_at_dist(z_cm):
 
 
 class ShapeDetector:
-    def __init__(
-        self,
-        stable_frames=3,        # 连续确认帧数
-        cooldown_ms=3200,       # 发送冷却
-        roi_ratio=1.0,          # 检测ROI：画面下roi_ratio区域（默认全图）
-        debug=True,
-    ):
-        self.stable_frames = stable_frames
-        self.cooldown_ms = cooldown_ms
+    def __init__(self, roi_ratio=1.0):
         self.roi_ratio = roi_ratio
-        self.debug = debug
         self.vision_backend = None  # Explicitly assigned by --vision-device.
         self.preprocess_mode = "selective"
         self.photometric_mode = "legacy"
@@ -179,9 +170,6 @@ class ShapeDetector:
             "cam_vfov_deg": _CAM["vfov_deg"],
             "max_dist_cm": float(os.environ.get("SHAPE_MAX_DIST_CM", "80.0")),
             # 最远识别距离：面积下限由该距离的图卡投影面积决定（env 可调）
-            # 触发距离：图卡进到这个距离内才允许发动作指令（拦场地误检）
-            "trigger_dist_cm": float(os.environ.get("SHAPE_TRIGGER_DIST_CM",
-                                                    "40.0")),
             "ang_min": 40,           # quad内角范围（度）；远桶GT实测38.6-143.5°
             "ang_max": 150,          # 原135/45误杀远桶透视压扁+旋转卡
             # 地面方形判据：4 角点反投影到地面后，图卡必须是个边长 10cm 的正方形。
@@ -288,22 +276,9 @@ class ShapeDetector:
             "triangle": 6,   # 摇头
         }
 
-        # 状态
-        self.candidate = None
-        self.candidate_count = 0
-        self.last_send_ms = None
-        self.first_candidate_ms = None
-        self.last_quad = None       # 帧间跟踪锁
-        self.track = []             # 候选框历史 (t_ms, cx, cy, box_w)，形状切换时清空
-        self.lane_offset_cm = None  # 机身相对赛道中心的横向偏差cm，update() 传入
-        # 触发闩锁：发过指令后须先"检测不到图卡"若干帧才重新武装，
-        # 否则动作结束→恢复巡线时同一张卡还在视野内，会被反复触发停车
-        self.armed = True
-        self.miss_count = 0
+        # Frame tracking and presence history, without action/stop state.
+        self.last_quad = None
         self._geom_rejects = {}
-        # 已通过连续确认的形状（"可信 flag"）。识别阶段全图累积，与位置无关；
-        # 触发阶段才查位置。图卡离开或触发后清除。
-        self.trusted = None
         self._lsd = None            # LSD 检测器（复用，创建有开销）
         # 存在信号时间窗（per-frame 命中 0/1）与最近一次 cue 框
         self._cue_hist = deque(maxlen=self.cfg["cue_hist_n"])
@@ -312,10 +287,6 @@ class ShapeDetector:
         # ── 面积下限：按相机几何算（图卡在 max_dist_cm 处的投影像素面积）──
         self.cfg["area_min"] = int(self._card_area_at_dist(
             self.cfg["max_dist_cm"]))
-
-        # ── 触发门槛：按相机几何算（图卡进到 trigger_dist_cm 时的框宽/中心y）──
-        self.cfg["trigger_box_w"], self.cfg["trigger_y"] = \
-            self._triggers_at_dist(self.cfg["trigger_dist_cm"])
 
         # ── Hu 矩模板（辅助判据，不改判定树；缺失则跳过）──
         self.hu_templates = {}
@@ -337,15 +308,6 @@ class ShapeDetector:
         由 attitude_input 低通后喂进来，见那边的说明。
         """
         self.cfg["cam_pitch_deg"] = float(pitch_deg)
-
-    def _triggers_at_dist(self, z_cm):
-        """触发距离 → (最小框宽px, 最小框中心y)。
-
-        与 _card_area_at_dist 同一 pinhole 模型：图卡宽 10cm 投影为
-        fx·10/zc，故像素宽可反推距离。距离越小 → 框越大、y 越靠下。
-        返回的门槛即"图卡刚好进到 z_cm 时"的值，可作 >= 判据。
-        """
-        return _triggers_at(z_cm)
 
     def _card_area_at_dist(self, z_cm):
         """图卡（10cm×10cm 平放地面）在水平距离 z_cm 处的工作图像素面积。
@@ -380,19 +342,14 @@ class ShapeDetector:
     # 主入口
     # ═══════════════════════════════════════════════════════════
 
-    def update(self, bgr_or_gray, lane_offset_cm=None, *,
-               classify=True, issue_action=True, proposal_mode="all"):
-        """返回 (action_number, debug_dict) 或 (None, None)。
+    def update(self, bgr_or_gray, *, classify=True, proposal_mode="all"):
+        """Return ``(shape_name, debug_dict)`` for one frame, without issuing actions.
 
-        输入归一化：任意分辨率 → resize到960×540（参数标定基准，
-        YOLO方案A同款）——参数与分辨率解耦；输出quad坐标映射回原图。
-
-        lane_offset_cm: 机身相对赛道中心的横向偏差（cm，正值=赛道中心在
-        画面右侧）。用于把图卡位置约束在赛道两条边线内；不传则按画面中央算。
+        Presence mode skips classification. The caller owns stopping, voting,
+        action dispatch and cooldown. Inputs are normalized to 960 x 540.
         """
         update_started = time.perf_counter()
         stage_started = update_started
-        self.lane_offset_cm = lane_offset_cm
         if len(bgr_or_gray.shape) == 3:
             gray = (self.vision_backend.gray(bgr_or_gray)
                     if self.vision_backend is not None
@@ -439,8 +396,6 @@ class ShapeDetector:
         self._scale_x = w0 / nw
         self._scale_y = rh / nh
 
-        if not classify and issue_action:
-            raise ValueError("classification is required to issue an action")
         if proposal_mode not in ("all", "staged"):
             raise ValueError("proposal_mode must be all or staged")
 
@@ -640,14 +595,6 @@ class ShapeDetector:
             # 存在信号：只看"有没有一个够近的框"，不看它是什么形状。
             # 停下来的决定用它；是什么形状等停稳了再分类。
             dbg["box_top_work"] = float(best[:, 1].min())
-            # 没有 armed 闸门：presence 说的是"画面里有一张卡"，这是图像事实，
-            # 和本检测器内部那套"这张卡我还要不要开火"的状态无关。以前这里挂
-            # armed —— 检测器内部动作闸一开火 armed 就假，于是 classify 还在
-            # 逐帧把卡认出来、presence 却报"没有卡"。调用方按 presence 数漏检，
-            # 满 4 次就把 card_flag / card_triggered / 票全复位：车明明停在卡前面，
-            # 却既丢了票（2026-10-02 第二次停车什么都没出），又让同一张卡
-            # 5 秒后再触发一次。"每张卡只触发一次"现在靠 card_triggered，
-            # 它只在卡真的离开画面之后才复位。
             dbg["presence"] = bool(
                 dbg["box_top_work"] >= WORK_H * self.cfg["presence_top_frac"])
             # 框质心在画面纵向的位置（0=顶, 1=底）。调用方拿它当"够近了"的闸门：
@@ -670,27 +617,8 @@ class ShapeDetector:
         if self.vision_backend is not None:
             dbg.update(self.vision_backend.diagnostics())
         dbg["shape_total_ms"] = (time.perf_counter() - update_started) * 1000.0
-        if not issue_action:
-            # run_policy_vision owns the per-card stop and vote lifecycle.
-            # Preserve the legacy return/action latch for run_robot/run_real_car.
-            dbg["shape"] = shape
-            return None, dbg
-        if shape is None:
-            # 这一帧没检出图卡（框没进门槛，或抖动导致漏检）。不清零候选计数
-            # —— 中间漏一两帧不该推翻已有的连续证据。连续 4 次都检不出，
-            # 才认为卡已离开：重置计数并重新武装。
-            self.miss_count += 1
-            if self.miss_count >= 4:
-                self.candidate = None
-                self.candidate_count = 0
-                self.armed = True
-                self.trusted = None      # 卡已离开，撤回可信标记
-            dbg["shape"] = None
-            return None, dbg
-        self.miss_count = 0
-
         dbg["shape"] = shape
-        return self._confirm(shape, dbg)
+        return shape, dbg
 
     # ═══════════════════════════════════════════════════════════
     # 存在信号兜底（不要求闭合四边形）
@@ -1340,7 +1268,7 @@ class ShapeDetector:
     def _quad_to_ground(self, quad):
         """四边形 4 角点反投影到地面平面，返回 [(X_cm, Z_cm), ...]。
 
-        针孔模型的反解（与 _triggers_at_dist 同一套）：
+        针孔模型的反解（与 _triggers_at 同一套）：
             a = (v - cy)/fy
             Z = h(cosθ - a·sinθ) / (a·cosθ + sinθ)
             X = ((u - cx)/fx) · (h·sinθ + Z·cosθ)
@@ -1686,25 +1614,6 @@ class ShapeDetector:
             return None
         return self._classify_contour(blob)
 
-    def _classify_shape_full(self, binary, dbg=None):
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL,
-                                       cv2.CHAIN_APPROX_SIMPLE)
-        best = None
-        best_area = 0
-        for c in contours:
-            a = cv2.contourArea(c)
-            if a > best_area:
-                best_area = a
-                best = c
-        if best is None or best_area < 30 * 30:
-            return None
-        if dbg is not None:
-            # 兜底路径也要交框指标，否则触发门槛无从判断
-            x, y, w, h = cv2.boundingRect(best)
-            dbg["quad_work"] = np.array(
-                [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], np.float32)
-        return self._classify_contour(best)
-
     def _hu_match(self, contour):
         """Hu 矩模板匹配（辅助信息）：返回 (最接近类名, 距离) 或 None。
 
@@ -1762,112 +1671,6 @@ class ShapeDetector:
                 return "diamond"
         return None
 
-    # ═══════════════════════════════════════════════════════════
-    # 确认 + 冷却（与QRDetector一致）
-    # ═══════════════════════════════════════════════════════════
-
-    def _approach_score(self):
-        """框中心y的下移趋势（0~1）：机器人前进时图卡从画面上方往下走。
-
-        只作软加分记录，不参与拦截——图卡一进画面就很近时无历史，不因此扣分。
-        """
-        if len(self.track) < 3:
-            return 0.0
-        seg = self.track[-8:]
-        span = seg[-1][0] - seg[0][0]
-        if span <= 0:
-            return 0.0
-        px_per_s = (seg[-1][2] - seg[0][2]) * 1000.0 / span
-        return max(0.0, min(1.0, px_per_s / 20.0))
-
-    def _confirm(self, shape, dbg):
-        now = int(time.time() * 1000)
-        if dbg.get("fallback"):
-            # 兜底路径的"框"是最大连通域的外接矩形，不是图卡外框，
-            # 拿它算距离/位置没有意义（空场地上的大色块也能凑出大 bbox）。
-            # 只在图像里显示，不给触发权。
-            dbg["confirm_reject"] = "fallback"
-            return None, dbg
-        # ── 阶段① 识别累积：全图范围，只看形状，不看位置 ──
-        if shape == self.candidate:
-            self.candidate_count += 1
-        else:
-            self.candidate = shape
-            self.candidate_count = 1
-            self.first_candidate_ms = now
-            self.track = []
-            if self.debug:
-                print(f"  [shape] NEW {shape}")
-        if self.candidate_count >= self.stable_frames:
-            self.trusted = shape        # 连续确认通过 → 打上可信 flag
-
-        # 候选框指标（工作图坐标）
-        qw = dbg.get("quad_work")
-        cx = box_w = box_top = None
-        if qw is not None:
-            qw = np.asarray(qw, np.float32)
-            x0, x1 = float(qw[:, 0].min()), float(qw[:, 0].max())
-            y0, y1 = float(qw[:, 1].min()), float(qw[:, 1].max())
-            cx, box_w, box_top = (x0 + x1) * 0.5, x1 - x0, y0
-            cy = (y0 + y1) * 0.5
-            self.track.append((now, cx, cy, box_w))
-            if len(self.track) > 32:
-                self.track = self.track[-32:]
-
-        # ── 阶段② 触发判定：只看位置，形状由 flag 保证 ──
-        # 三道闸各自记名。分类已经过了而没触发是常态，不记名的话调用方只能看到
-        # "找到框但未识别"，会误以为是分类器判不出来。
-        if self.trusted is None or self.trusted != shape:
-            dbg["confirm_reject"] = "trusted"
-            return None, dbg
-        if cx is None or not self.armed:
-            dbg["confirm_reject"] = "disarmed" if not self.armed else "no_box"
-            return None, dbg
-
-        # 位置闸门只剩一条：框顶边落到画面下 2/3（= 顶边过了上 1/3 线）。
-        y_mid = WORK_H * self.cfg["presence_top_frac"]
-        dbg["box_top"] = box_top
-        dbg["y_mid"] = y_mid
-        if box_top < y_mid:
-            dbg["confirm_reject"] = "too_far"
-            return None, dbg
-
-        # 车道偏移照算，只记录不拦截。找框本身已经把"10cm 地面方形 + max_dist_cm"
-        # 卡住了；机器人停稳后卡就在正前方，再拿 lane_offset_cm 去拦只会漏检。
-        # px_per_cm 由框宽反推（图卡物理宽 10cm），无需外部传像素尺度。
-        px_per_cm = box_w / 10.0
-        lane_cx = WORK_W / 2.0 + (self.lane_offset_cm or 0.0) * px_per_cm
-        half = 17.5 * px_per_cm         # 赛道半宽 17.5cm
-        off = abs(cx - lane_cx)
-        dbg["lane_offset_px"] = off
-        dbg["lane_half_px"] = half
-
-        # 软加分（仅记录，不拦截）
-        dbg["bonus_center"] = 1.0 - off / max(half, 1e-6)
-        dbg["bonus_approach"] = self._approach_score()
-
-        ready = (self.last_send_ms is None
-                 or (now - self.last_send_ms) >= self.cooldown_ms)
-        dbg["confirm_reject"] = None if ready else "cooldown"
-        if ready:
-            action = self.action_map[shape]
-            self.last_send_ms = now
-            self.candidate_count = 0
-            self.armed = False
-            self.miss_count = 0
-            self.trusted = None
-            latency = now - (self.first_candidate_ms or now)
-            dbg["action"] = action
-            dbg["latency_ms"] = latency
-            if self.debug:
-                print(f"  [shape] >>> SEND action={action} ({shape}) "
-                      f"latency={latency}ms  w={box_w:.0f} "
-                      f"top={box_top:.0f}/{y_mid:.0f} "
-                      f"off={off:.0f}/{half:.0f}")
-            return action, dbg
-        return None, dbg
-
-
 # ═══════════════════════════════════════════════════════════
 # 自测：合成图卡验证分类
 # ═══════════════════════════════════════════════════════════
@@ -1916,7 +1719,7 @@ def _make_card(shape_name, size=200):
 
 if __name__ == "__main__":
     names = ["circle", "pentagon", "square", "diamond", "cross", "triangle"]
-    sd = ShapeDetector(stable_frames=1, cooldown_ms=0, debug=False)
+    sd = ShapeDetector()
     ok = 0
     for name in names:
         card = _make_card(name)
@@ -1924,11 +1727,10 @@ if __name__ == "__main__":
         card = cv2.resize(card, (200, int(200 * 0.55)))
         canvas = np.ones((540, 960, 3), dtype=np.uint8) * 240
         canvas[200:200 + card.shape[0], 380:380 + card.shape[1]] = card
-        action, dbg = sd.update(canvas)
-        expect = sd.action_map[name]
+        label, dbg = sd.update(canvas)
         got = dbg.get("shape")
         status = "OK" if got == name else f"FAIL(got {got})"
         if got == name:
             ok += 1
-        print(f"  {name:>10} -> {str(got):>10}  action={action}  [{status}]")
+        print(f"  {name:>10} -> {str(got):>10}  [{status}]")
     print(f"Result: {ok}/6")
