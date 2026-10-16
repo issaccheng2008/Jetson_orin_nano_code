@@ -86,8 +86,8 @@ def parse_args():
     parser.add_argument('--camera-async', action=argparse.BooleanOptionalAction, default=True,
                         help='Capture continuously in a worker; process only the latest frame')
     parser.add_argument("--camera", type=int, default=int(os.getenv("CAM_IDX", camera["index"])))
-    parser.add_argument("--card-camera", type=int, default=1,
-                        help="Optional second /dev/videoN for stopped card classification only; -1 disables it")
+    parser.add_argument("--card-camera", type=int, default=-1,
+                        help="Optional second /dev/videoN for stopped card classification only; disabled by default, set N to restore")
     parser.add_argument("--camera-device", default=None, help="Stable main capture path, e.g. /dev/v4l/by-path/...-video-index0")
     parser.add_argument("--card-camera-device", default=None, help="Stable stopped-card capture path; overrides card camera index")
     parser.add_argument("--card-camera-width", type=int, default=1280)

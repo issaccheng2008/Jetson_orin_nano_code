@@ -57,7 +57,7 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --heading-left-tolerance-deg "$HEADING_LEFT_TOLERANCE_DEG"
     --heading-full-scale-deg "$HEADING_FULL_SCALE_DEG" --heading-left-wz "${left_wz[@]}"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
-    --recording-root "$RECORDS_DIR/tests" "$video_flag"
+    --recording-root "$RECORDS_DIR/hz_test" "$video_flag"
     --video-source "$VIDEO_SOURCE" --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
 case "${LANE_VISIBLE_DIRECTION_FALLBACK:-1}" in
     1) command+=(--lane-visible-direction-fallback) ;;
@@ -74,11 +74,16 @@ command+=(--straight-near-cm "${STRAIGHT_NEAR_CM:-10}"
           --straight-confirm-s "${STRAIGHT_CONFIRM_S:-1}"
           --straight-exit-s "${STRAIGHT_EXIT_S:-0.6}"
           --straight-hold-s "${STRAIGHT_HOLD_S:-3}")
-# Enabled by default; open only for stopped precision voting.
-command+=(--card-camera "${CARD_CAMERA:-1}")
+# Keep the saved secondary camera settings, but require an explicit opt-in.
+case "$CARD_CAMERA_ENABLED" in
+    0) card_camera=-1 ;;
+    1) card_camera="${CARD_CAMERA:-1}" ;;
+    *) printf 'CARD_CAMERA_ENABLED must be 0 or 1\n' >&2; exit 2 ;;
+esac
+command+=(--card-camera "$card_camera")
 # Installed configs predating dual-camera support also use the fixed names.
 CAMERA_DEVICE="${CAMERA_DEVICE:-/dev/robot_main_camera}"
-if [[ "${CARD_CAMERA:-1}" != -1 ]]; then
+if [[ "$card_camera" != -1 ]]; then
     CARD_CAMERA_DEVICE="${CARD_CAMERA_DEVICE:-/dev/robot_card_camera}"
 else
     CARD_CAMERA_DEVICE=''

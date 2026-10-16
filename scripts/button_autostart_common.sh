@@ -27,6 +27,7 @@ load_button_config() {
     STARTUP_FIRST_WALK_S=0.5
     STARTUP_SEQUENCE=''
     RECORD_VIDEO=1
+    CARD_CAMERA_ENABLED=0
     VIDEO_SOURCE=bird_pair
     VIDEO_FPS=10
     VIDEO_WIDTH=960

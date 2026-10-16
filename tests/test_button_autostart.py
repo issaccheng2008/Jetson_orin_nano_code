@@ -16,6 +16,24 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_secondary_camera_is_disabled_even_with_old_config_and_can_be_restored(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('CARD_CAMERA_ENABLED=')) + '\n'
+            for extra, enabled in (('', False), ('CARD_CAMERA_ENABLED=1\n', True)):
+                (checkout / 'config/button_start.env').write_text(original +
+                    '\nCARD_CAMERA=1\nCARD_CAMERA_DEVICE=/dev/robot_card_camera\n' + extra)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                   '--dry-run', cwd=checkout))
+                self.assertEqual(command[command.index('--card-camera') + 1], '1' if enabled else '-1')
+                self.assertEqual('--card-camera-device' in command, enabled)
+                self.assertTrue(command[command.index('--recording-root') + 1].endswith('/records/hz_test'))
+
     def test_array_and_near_distance_config_reaches_real_parser(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision

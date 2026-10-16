@@ -114,7 +114,7 @@ Vision 异常退出后，systemd 在 5 秒后重启并重新等待本次运行�
 
 相机曝光和画质也在同一配置文件调整。固定 5 ms 使用 `CAMERA_EXPOSURE_MODE=manual`、`CAMERA_EXPOSURE_MS=5`；亮度、对比度、饱和度、锐度、白平衡和抗闪烁设置详见 [相机曝光与画质参数](相机曝光与画质参数.md)。默认 keep/空不会改变现有相机状态。
 
-每次测试统一写入 `records/tests/日期/test_时间_唯一编号/`，包括视觉、控制指令、关节角、IMU 和图片；详见 [测试数据每日归档](测试数据每日归档.md)。查看本次启动全部日志：
+lane 分支每次测试统一写入 `records/hz_test/日期/test_时间_唯一编号/`，包括视觉、控制指令、关节角、IMU 和图片；时钟未设置时写入 `clock_unsynced/`，详见 [测试数据每日归档](测试数据每日归档.md)。副摄像头默认禁用，在 `config/button_start.env` 设置 `CARD_CAMERA_ENABLED=1` 可恢复已保存的双摄配置。查看本次启动全部日志：
 
 ```bash
 journalctl -u humanoid-button-connector.service -u humanoid-button-vision.service -b --no-pager

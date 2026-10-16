@@ -423,13 +423,13 @@ class VisionEntryPointTests(unittest.TestCase):
             {"presence": True, "presence_cy_frac": 0.9, "shape": "square"},
         )
         with (
-            patch("sys.argv", ["run_policy_vision.py", "--card-camera", "-1", "--no-camera-async", "--headless",
+            patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless",
                                "--wz-mode", "continuous",
                                "--shape-every", "1", "--card-hold-ms", "5000",
                                "--card-vote-frames", "1", "--card-tilt-ms", "0"]),
             patch.object(run_policy_vision.signal, "signal"),
             patch.object(run_policy_vision, "ConnectorClient") as client_cls,
-            patch("utils.open_camera", return_value=camera),
+            patch("utils.open_camera", return_value=camera) as open_camera,
             patch("line_detector_v1_warp.LineDetector", return_value=detector),
             patch("shape_detector.ShapeDetector", return_value=shape),
             patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
@@ -437,6 +437,7 @@ class VisionEntryPointTests(unittest.TestCase):
             contextlib.redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(run_policy_vision.main(), 0)
+        open_camera.assert_called_once()
         published = client_cls.return_value.publish.call_args_list
         self.assertEqual(len({call.kwargs["event_id"] for call in published
                               if "event_id" in call.kwargs}), 1)

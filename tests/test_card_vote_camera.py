@@ -2,7 +2,7 @@
 import contextlib
 import io
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 import unittest
 from unittest.mock import Mock, patch
@@ -36,13 +36,18 @@ class CardVoteCameraTests(unittest.TestCase):
         voted.reject_shape_conflict()
         self.assertEqual(voted.vote_tally(), {})
 
-    def test_dual_camera_enabled_by_default(self):
+    def test_dual_camera_disabled_by_default_and_can_be_restored(self):
         with patch('sys.argv',['vision']):
+            self.assertEqual(run_policy_vision.parse_args().card_camera,-1)
+        with patch('sys.argv',['vision', '--card-camera', '1']):
             self.assertEqual(run_policy_vision.parse_args().card_camera,1)
 
     def test_stable_paths_and_duplicate_device_rejected(self):
         from camera_devices import resolve_devices
-        with patch('camera_devices.Path.exists',return_value=True):
+        class DevicePath(PurePosixPath):
+            def exists(self):
+                return True
+        with patch('camera_devices.Path', DevicePath):
             self.assertEqual(resolve_devices(0,1,'/dev/v4l/by-path/main','/dev/v4l/by-path/card'),
                              ('/dev/v4l/by-path/main','/dev/v4l/by-path/card'))
             with self.assertRaises(ValueError):

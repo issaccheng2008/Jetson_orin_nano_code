@@ -2,6 +2,8 @@ import io
 import sys
 import tempfile
 import unittest
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -11,6 +13,40 @@ import policy_gate_launcher
 
 
 class RecordingSessionTests(unittest.TestCase):
+    def test_unsynchronized_clock_does_not_create_epoch_date_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('recording_session.datetime') as clock:
+                clock.now.return_value = datetime(1970, 1, 1, tzinfo=timezone.utc)
+                first = create_session(directory)
+                second = create_session(directory)
+            self.assertEqual(first.parent.name, 'clock_unsynced')
+            self.assertNotEqual(first, second)
+            self.assertFalse((Path(directory) / '1970-01-01').exists())
+            manifest = json.loads((first / 'recording_manifest.json').read_text())
+            self.assertFalse(manifest['wall_clock_valid'])
+            self.assertGreater(manifest['started_monotonic_ns'], 0)
+
+    def test_synchronized_clock_keeps_local_calendar_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('recording_session.datetime') as clock:
+                clock.now.return_value = datetime(2026, 10, 16, tzinfo=timezone.utc)
+                session = create_session(directory)
+            self.assertEqual(session.parent.name, '2026-10-16')
+            manifest = json.loads((session / 'recording_manifest.json').read_text())
+            self.assertTrue(manifest['wall_clock_valid'])
+
+    def test_clock_sync_applies_to_next_session_and_preserves_unsynced_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('recording_session.datetime') as clock:
+                clock.now.return_value = datetime(1970, 1, 1, tzinfo=timezone.utc)
+                first = create_session(directory)
+                (first / 'evidence.txt').write_text('keep')
+                clock.now.return_value = datetime(2026, 10, 16, tzinfo=timezone.utc)
+                second = create_session(directory)
+            self.assertEqual(first.parent.name, 'clock_unsynced')
+            self.assertEqual(second.parent.name, '2026-10-16')
+            self.assertEqual((first / 'evidence.txt').read_text(), 'keep')
+
     def test_daily_sessions_are_unique_and_preserve_previous_data(self):
         with tempfile.TemporaryDirectory() as directory:
             first = create_session(directory)

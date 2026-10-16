@@ -1,5 +1,17 @@
 # 双摄像头设备绑定与生命周期
 
+## lane 分支当前开关（2026-10-16）
+
+`lane_loss_recovery_20261012` 默认关闭副摄像头，保留全部双摄识别与设备参数。
+按钮入口新增 `CARD_CAMERA_ENABLED=0`；已有配置即使保留 `CARD_CAMERA=1`
+和 `CARD_CAMERA_DEVICE`，也不会打开或校验副摄像头。主摄像头继续使用原单摄
+图卡识别流程。要恢复，在 `config/button_start.env` 中设置
+`CARD_CAMERA_ENABLED=1`，保留 `CARD_CAMERA=1` 和原副摄像头路径，再重启视觉程序。
+
+手动 Python 入口默认 `--card-camera -1`；显式传 `--card-camera 1` 或
+`--card-camera-device /dev/robot_card_camera` 可恢复副摄像头。
+下方双摄默认开启说明为历史记录。
+
 ## 当前端口规则（2026-10-15）
 
 主巡线摄像头可接 USB `2.3` 或 `2.4`，使用 `/dev/robot_main_camera`。这两个端口仅允许出现一只摄像头；两个端口同时出现摄像头时，程序明确报错，不按枚举顺序选择。用户保证不会将辅摄像头接入这两个端口。辅读卡摄像头接其他端口，使用 `/dev/robot_card_camera`，启用双摄时必须恰好一只。
