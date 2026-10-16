@@ -2,6 +2,7 @@
 import contextlib
 import io
 import itertools
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -15,7 +16,21 @@ import run_policy_vision
 
 
 class CardFlowIntegrationTests(unittest.TestCase):
-    def replay(self, labels, seconds=6., *, distance=30, failure=.5,
+    def test_cooldown_environment_override_and_invalid_values(self):
+        with (patch.dict(os.environ, {'STOP_COOL_DOWN': '3.5'}),
+              patch('sys.argv', ['vision', '--card-trigger-dist-cm', '17'])):
+            args = run_policy_vision.parse_args()
+            self.assertEqual(args.stop_cool_down, 3.5)
+            self.assertEqual(args.card_trigger_dist_cm, 17.)
+        with patch('sys.argv', ['vision', '--stop-cool-down', '0']):
+            self.assertEqual(run_policy_vision.parse_args().stop_cool_down, 0.)
+        for value in ('-1', 'nan', 'inf'):
+            with (self.subTest(value=value),
+                  patch('sys.argv', ['vision', '--stop-cool-down', value]),
+                  contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit)):
+                run_policy_vision.parse_args()
+
+    def replay(self, labels, seconds=6., *, distance=30, cooldown=30, failure=.5,
                pose_delay=.2, action_delay=3., present=lambda t: True,
                quad=None, reach=.9, startup_args=()):
         frame = np.zeros((720, 1280, 3), np.uint8)
@@ -76,6 +91,7 @@ class CardFlowIntegrationTests(unittest.TestCase):
         with (patch('sys.argv', ['vision', '--headless', '--no-camera-async',
                   '--card-camera', '-1', '--shape-every', '7',
                   '--card-trigger-dist-cm', str(distance),
+                  '--stop-cool-down', str(cooldown),
                   '--card-failure-cooldown-s', str(failure), *startup_args]),
               patch.object(run_policy_vision.signal, 'signal'),
               patch.object(run_policy_vision, 'ConnectorClient') as client,
@@ -112,14 +128,15 @@ class CardFlowIntegrationTests(unittest.TestCase):
         self.assertFalse(events[0][4]['card_tilt'])
         self.assertEqual(len({row[4]['event_id'] for row in events}), 1)
 
-    def test_success_waits_actual_completion_and_uses_distance_seconds_cooldown(self):
-        calls, _, _ = self.replay(['circle']*6, seconds=38., action_delay=5.)
+    def test_success_waits_completion_and_uses_cooldown_independent_of_distance(self):
+        calls, _, _ = self.replay(['circle']*6, seconds=10., distance=30,
+                                 cooldown=2., action_delay=5.)
         event_at = next(t for t, *_, kw in calls if kw.get('event_id'))
         resumed = next(t for t, vx, *_ in calls if t > event_at and vx > 0)
         self.assertGreaterEqual(resumed, event_at+5.)
         tilts = [t for t, *_, kw in calls if kw.get('card_tilt')]
-        self.assertFalse(any(resumed <= t < resumed+30 for t in tilts))
-        self.assertTrue(any(t >= resumed+30 for t in tilts))
+        self.assertFalse(any(resumed <= t < resumed+2 for t in tilts))
+        self.assertTrue(any(t >= resumed+2 for t in tilts))
 
     def test_failure_restores_then_half_second_cooldown(self):
         calls, _, _ = self.replay([], seconds=4.)

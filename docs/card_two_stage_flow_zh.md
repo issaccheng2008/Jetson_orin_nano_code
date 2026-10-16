@@ -28,10 +28,11 @@
 
 ```bash
 CARD_TRIGGER_DIST_CM=30
+STOP_COOL_DOWN=5
 CARD_FAILURE_COOLDOWN_S=0.5
 ```
 
-`CARD_TRIGGER_DIST_CM` 同时表示停车距离（厘米）及成功后冷却时间（秒），因此上例成功后冷却 30 秒。失败后使用独立的 `CARD_FAILURE_COOLDOWN_S`，默认 0.5 秒。
+`CARD_TRIGGER_DIST_CM` 只表示停车距离（厘米）。成功后冷却读取 `STOP_COOL_DOWN`（秒），因此上例在 30 cm 内触发，成功恢复正常行走后冷却 5 秒。失败后使用独立的 `CARD_FAILURE_COOLDOWN_S`，默认 0.5 秒。旧配置未设置 `STOP_COOL_DOWN` 时默认 5 秒，不再从距离推导冷却时间。
 
 冷却结束后，即使同一张卡仍在近处，也允许再次触发。首卡自身原有的保护与间隔不由上述普通图卡冷却替换。
 

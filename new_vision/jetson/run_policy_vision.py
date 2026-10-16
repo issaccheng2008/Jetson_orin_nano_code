@@ -320,8 +320,7 @@ def parse_args():
                              "behaviour that has been on the robot; lower it to stop "
                              "closer. Converted to a frame height by the camera "
                              "geometry (mount height, pitch, vfov); seeing a card "
-                             "earlier does not change walking commands. The same numeric "
-                             "value sets successful-card cooldown seconds")
+                             "earlier does not change walking commands")
     parser.add_argument("--card-tilt-ms", type=float,
                         default=float(os.getenv("CARD_TILT_MS", "1800")),
                         help="Legacy wait after stop before reading a card, used only "
@@ -340,6 +339,9 @@ def parse_args():
                              "tracking the line well, and keeping its estimate of where "
                              "the lane is beats restarting from the image middle. Turn "
                              "it on to break a lock that had already gone wrong")
+    parser.add_argument("--stop-cool-down", type=float,
+                        default=float(os.getenv("STOP_COOL_DOWN", "5")),
+                        help="Successful-card cooldown in seconds, starting when normal walking resumes")
     parser.add_argument("--card-failure-cooldown-s", type=float,
                         default=float(os.getenv("CARD_FAILURE_COOLDOWN_S", "0.5")),
                         help="Seconds after failed recognition returns to normal walking")
@@ -664,6 +666,8 @@ def parse_args():
         parser.error("card-stop-ms must be finite and nonnegative")
     if not math.isfinite(args.card_failure_cooldown_s) or args.card_failure_cooldown_s < 0:
         parser.error("card-failure-cooldown-s must be finite and nonnegative")
+    if not math.isfinite(args.stop_cool_down) or args.stop_cool_down < 0:
+        parser.error("stop-cool-down must be finite and nonnegative")
     if not math.isfinite(args.card_tilt_ms) or args.card_tilt_ms < 0:
         parser.error("card-tilt-ms must be finite and nonnegative")
     if not math.isfinite(args.card_settle_ms) or args.card_settle_ms < 0:
@@ -1174,7 +1178,7 @@ def main():
         window_origin_s = None
         startup_next_stop_at = 0.0
         card_dbg = {}
-        cards = CardFlow(args.card_trigger_dist_cm, args.card_failure_cooldown_s,
+        cards = CardFlow(args.stop_cool_down, args.card_failure_cooldown_s,
                          args.card_stop_ms / 1000., args.card_settle_ms / 1000.,
                          args.card_tilt_ms / 1000.)
         card_feedback = {}

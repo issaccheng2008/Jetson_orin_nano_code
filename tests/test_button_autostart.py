@@ -16,6 +16,27 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_success_cooldown_uses_its_own_config_instead_of_distance(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('STOP_COOL_DOWN=', 'CARD_TRIGGER_DIST_CM=')))
+            original += '\nCARD_TRIGGER_DIST_CM=17\n'
+            for setting, expected in (('', 5.), ('STOP_COOL_DOWN=0.8\n', .8)):
+                (checkout / 'config/button_start.env').write_text(original + setting)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                   '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    args = run_policy_vision.parse_args()
+                self.assertEqual(args.stop_cool_down, expected)
+                self.assertEqual(args.card_trigger_dist_cm, 17.)
+
     def test_card_failure_cooldown_defaults_and_configuration_reach_parser(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision
