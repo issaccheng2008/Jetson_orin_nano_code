@@ -30,7 +30,7 @@ from line_telemetry import LineTelemetry, execution_log_fields
 from command_video import line_lost, recording_frame
 from steering_command_window import SteeringCommandWindow, effective_policy_hold
 from start_gate import resolve_card_shapes
-from card_flow import CardFlow
+from card_flow import CardCompletion, CardFlow
 from recording_options import LOG_ITEMS, parse_log_items
 from performance_telemetry import RuntimeCounters, environment_metadata
 
@@ -1204,6 +1204,7 @@ def main():
                          args.card_stop_ms / 1000., args.card_settle_ms / 1000.,
                          args.card_tilt_ms / 1000.)
         card_feedback = {}
+        card_completion = CardCompletion()
         reported_card_decision = None
         steering_paired_count = 0
         steering_single_count = 0
@@ -1361,6 +1362,12 @@ def main():
             if attitude is not None:
                 attitude.poll()
             card_feedback = ordinary_card_feedback(attitude, processed)
+            if card_completion.observe(card_feedback):
+                print(f"[card] 已完成图卡动作 {card_completion.completed_count}/"
+                      f"{card_completion.LIMIT}（含启动首卡）", flush=True)
+                if not card_completion.enabled:
+                    print('[card] 已完成三个图卡动作；本轮关闭图卡停车检测和分类，继续巡线',
+                          flush=True)
             cards.advance(processed, card_feedback)
             stop_window = cards.active or processed < card_until
             window_open = stop_window or gate_window_open
@@ -1540,7 +1547,8 @@ def main():
                     raise RuntimeError('Stopped-card capture did not terminate; refusing duplicate open')
                 card_camera_reader = None
                 print('[card-camera] released after stopped recognition', flush=True)
-            if (shape is not None and not tilting and (frames % shape_period == 0)
+            if (card_completion.enabled and shape is not None
+                    and not tilting and (frames % shape_period == 0)
                     and not (startup_card_only and start_gate.shape_passed)):
                 classify_card = bool(
                     (gate_window_open and start_gate is not None
@@ -1749,6 +1757,7 @@ def main():
                 startup_first_card_clear_calls = 0
                 card_action = startup_first_card
                 card_event_id = max(1, (time.time_ns() // 1_000_000) & 0xFFFFFFFF)
+                card_completion.register(card_event_id)
                 card_until = processed + card_action_stop_s(card_action, args.card_hold_ms)
                 startup_next_stop_at = card_until + STARTUP_CARD_RETRIGGER_GAP_S
                 recognized_this_frame = True
@@ -1764,6 +1773,7 @@ def main():
                 action_number = shape_numbers[cards.winner]
                 cards.dispatch(time.monotonic(), event_id, action_number,
                                card_action_stop_s(action_number, args.card_hold_ms), card_feedback)
+                card_completion.register(event_id)
                 recognized_this_frame = True
             card_vote_decision = cards.decision
             if card_vote_decision is not reported_card_decision:
@@ -1961,6 +1971,9 @@ def main():
                     card_presence_mode="cue_only",
                     card_stop_cue_trigger_count=card_stop_cue_trigger_count,
                     card_stop_first_card_lock=bool(startup_first_card_lock),
+                    card_completed_count=card_completion.completed_count,
+                    card_completion_limit=card_completion.LIMIT,
+                    card_detection_enabled=card_completion.enabled,
                     card_stop_current_presence=(bool(card_dbg.get('presence')) if card_dbg else None),
                     card_stop_current_box=(bool(card_dbg.get('card_found')) if card_dbg else None),
                     card_stop_reach=card_reach, card_stop_reach_line=card_reach_line,

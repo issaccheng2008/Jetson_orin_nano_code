@@ -1,4 +1,4 @@
-"""Ordinary walking cards: proximity stop, re-pose, vote, action, restore.
+"""Card completion budget and ordinary proximity/re-pose/vote/action lifecycle.
 
 The startup card is owned by StartGate and never enters this state machine.
 Presence and camera geometry remain in ShapeDetector/the caller.
@@ -6,6 +6,35 @@ Presence and camera geometry remain in ShapeDetector/the caller.
 from collections import Counter
 import json
 import math
+
+
+class CardCompletion:
+    """Per-run budget shared by startup and ordinary classified card actions."""
+    LIMIT = 3
+
+    def __init__(self):
+        self.pending = set()
+        self.completed = set()
+
+    @property
+    def completed_count(self):
+        return len(self.completed)
+
+    @property
+    def enabled(self):
+        return self.completed_count < self.LIMIT
+
+    def register(self, event_id):
+        if event_id not in self.completed:
+            self.pending.add(event_id)
+
+    def observe(self, feedback):
+        event_id = feedback.get('action_id')
+        if event_id not in self.pending or not feedback.get('action_done', False):
+            return False
+        self.pending.remove(event_id)
+        self.completed.add(event_id)
+        return True
 
 
 class CardFlow:

@@ -32,7 +32,7 @@ class CardFlowIntegrationTests(unittest.TestCase):
 
     def replay(self, labels, seconds=6., *, distance=30, cooldown=30, failure=.5,
                pose_delay=.2, action_delay=3., present=lambda t: True,
-               quad=None, reach=.9, startup_args=()):
+               quad=None, reach=.9, startup_args=(), feedback_action_id=None):
         frame = np.zeros((720, 1280, 3), np.uint8)
         clock = [0.]
         calls, detections = [], []
@@ -71,7 +71,8 @@ class CardFlowIntegrationTests(unittest.TestCase):
         attitude.poll = poll
         attitude.executed_command = lambda: None
         attitude.card_task = lambda now: dict(restore_id=state['restore'],
-            restore_done=now >= state['restored_at'], action_id=state['action'],
+            restore_done=now >= state['restored_at'],
+            action_id=state['action'] if feedback_action_id is None else feedback_action_id,
             action_done=state['action'] != 0 and now >= state['done_at'])
         def publish(vx, wz, qr, **kwargs):
             calls.append((clock[0], vx, wz, qr, kwargs))
@@ -88,6 +89,9 @@ class CardFlowIntegrationTests(unittest.TestCase):
                 state['action'] = kwargs['event_id']
                 state['done_at'] = clock[0]+action_delay
         output = io.StringIO()
+        qr_reader = Mock(scans=0, geom_rejects=0, last_cost_ms=0.)
+        qr_reader.decode.return_value = SimpleNamespace(
+            payload='1', strategy='test', edge_px=100, cost_ms=0)
         with (patch('sys.argv', ['vision', '--headless', '--no-camera-async',
                   '--card-camera', '-1', '--shape-every', '7',
                   '--card-trigger-dist-cm', str(distance),
@@ -99,12 +103,67 @@ class CardFlowIntegrationTests(unittest.TestCase):
               patch('line_detector_v1_warp.LineDetector', return_value=lane),
               patch('shape_detector.ShapeDetector', return_value=shape),
               patch('attitude_input.AttitudeInput', return_value=attitude),
+              patch('qr_reader.QrReader', return_value=qr_reader),
               patch.object(run_policy_vision.time, 'monotonic', lambda: clock[0]),
+              patch.object(run_policy_vision.time, 'time_ns', lambda: int((100+clock[0])*1e9)),
               contextlib.redirect_stdout(output)):
             attitude.close = lambda: None
             client.return_value.publish.side_effect = publish
             self.assertEqual(run_policy_vision.main(), 0)
         return [row for row in calls if row[0] <= seconds], detections, output.getvalue()
+
+    def assert_three_actions_then_no_detection(self, calls, detections, action_delay):
+        events = {}
+        for t, *_, kw in calls:
+            if kw.get('event_id'):
+                events.setdefault(kw['event_id'], t)
+        self.assertEqual(len(events), 3)
+        done_at = max(events.values()) + action_delay
+        self.assertFalse(any(t >= done_at+1e-6 for t, _ in detections))
+        after = [row for row in calls if row[0] > done_at+1.]
+        self.assertTrue(after)
+        self.assertTrue(all(row[1] > 0 and not row[4].get('card_tilt') for row in after))
+
+    def test_three_completed_actions_disable_presence_and_classification(self):
+        calls, detections, text = self.replay(itertools.repeat('circle'), seconds=22.,
+                                              cooldown=0., action_delay=3.)
+        self.assert_three_actions_then_no_detection(calls, detections, 3.)
+        self.assertEqual(text.count('已完成三个图卡动作'), 1)
+
+    def test_third_action_keeps_minimum_hold_after_early_done(self):
+        calls, _, _ = self.replay(itertools.repeat('circle'), seconds=18.,
+                                  cooldown=0., action_delay=.2)
+        events = {}
+        for row in calls:
+            if row[4].get('event_id'):
+                events.setdefault(row[4]['event_id'], row[0])
+        self.assertEqual(len(events), 3)
+        third_at = max(events.values())
+        holding = [row for row in calls if third_at <= row[0] < third_at+3.-1e-6]
+        self.assertTrue(holding)
+        self.assertTrue(all(row[1] == 0 for row in holding))
+        self.assertTrue(any(row[0] >= third_at+3. and row[1] > 0 for row in calls))
+
+    def test_startup_card_counts_and_late_completion_is_not_lost(self):
+        calls, detections, _ = self.replay(itertools.repeat('circle'), seconds=28.,
+            cooldown=0., action_delay=5., present=lambda t: not 4. <= t <= 7.,
+            startup_args=('--start-gate', 'both', '--qr-every', '1',
+                          '--start-gate-shape-votes', '2', '--shape-every', '1',
+                          '--card-clear-calls', '1'))
+        self.assert_three_actions_then_no_detection(calls, detections, 5.)
+
+    def test_failure_does_not_use_a_success_slot(self):
+        calls, detections, _ = self.replay(lambda t: None if t < 3 else 'circle',
+            seconds=24., cooldown=0., action_delay=3.)
+        self.assert_three_actions_then_no_detection(calls, detections, 3.)
+
+    def test_unmatched_completion_never_disables_detection(self):
+        calls, detections, _ = self.replay(itertools.repeat('circle'), seconds=15.,
+            cooldown=0., action_delay=3., feedback_action_id=999)
+        self.assertEqual(len({row[4]['event_id'] for row in calls
+                              if row[4].get('event_id')}), 1)
+        self.assertTrue(any(row[0] > 10 and row[4].get('event_id') for row in calls))
+        self.assertFalse(any(row[0] > 2 and row[1] > 0 for row in calls))
 
     def test_every_walking_frame_checks_presence_even_during_cooldown(self):
         calls, detections, _ = self.replay([], seconds=4.)
