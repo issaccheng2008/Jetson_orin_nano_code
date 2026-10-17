@@ -20,6 +20,7 @@ from line_preprocess import extract_lane_candidates, sampled_otsu_threshold
 from photometric_thresholds import max_channel, measure, MAX_CHANNEL_REFERENCE
 from continuous_lane_heading import HeadingScanConfig, trace_heading
 from lane_boundary_path import BoundaryPathTracker
+from performance_telemetry import StageTimer
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1908,6 +1909,7 @@ class LineDetector:
             vis:         BGR visualization (bird_w x bird_h)
             debug:       diagnostic info dict
         """
+        performance = StageTimer('line')
         now = time.monotonic()
         if dt is None:
             dt = 0.1 if self._last_process_time is None else now - self._last_process_time
@@ -1934,6 +1936,7 @@ class LineDetector:
         # color/blocker paths; photometric matching is only for lane luminance.
         self._photometry = measure(max_channel(bgr), self.photometric_mode,
                                    MAX_CHANNEL_REFERENCE, lut_input="max_channel")
+        performance.lap('photometry')
 
         # ── Step 1: Warp to birdseye (single warp, derive gray on birdseye) ──
         bgr_bird = cv2.warpPerspective(bgr, self.M, (self.bird_w, self.bird_h))
@@ -1946,6 +1949,7 @@ class LineDetector:
         img_w = self.bird_w
         img_h = self.bird_h
         img_cx = self.center_x
+        performance.lap('warp')
         gray_detect, binary_clean, black_th, preprocess_debug = extract_lane_candidates(
             gray, self.preprocess_mode, self.th_offset, self.th_min, self.th_max,
             photometry=self._photometry, adaptive_c=self.adaptive_c, valid_mask=valid)
@@ -1953,6 +1957,7 @@ class LineDetector:
         binary_clean[~valid] = 0
         binary_observed = binary_clean.copy()
         gray_observed = gray_detect.copy()
+        performance.lap('preprocess')
         straight_evidence = {}
         if self.straight_guard_enabled:
             from straight_road_guard import measure_near_road
@@ -1988,6 +1993,7 @@ class LineDetector:
         track_is_dark = False
 
         previous_heading_time = state["heading_rows_time"]
+        performance.lap('straight_and_gap')
         previous_heading_age = (self._observation_clock_s - previous_heading_time
                                 if previous_heading_time is not None else float("inf"))
         heading_trace = trace_heading(
@@ -1997,6 +2003,7 @@ class LineDetector:
             self._px_to_ground_cm, self.cm_per_px_at,
             previous_rows=state["heading_rows"], previous_age_s=previous_heading_age,
             config=self.heading_scan, observed_mask=binary_observed)
+        performance.lap('heading_trace')
         if self.single_boundary_tracking:
             boundary_path = self._boundary_path_tracker.update(
                 binary_clean,
@@ -2025,6 +2032,7 @@ class LineDetector:
             state["heading_rows"] = []
             state["heading_rows_time"] = None
 
+        performance.lap('boundary_tracking')
         # ── Startup transient params ──
         startup_active = (
             self.startup_settle_frames > 0
@@ -2085,6 +2093,7 @@ class LineDetector:
         # the same unvalidated near candidate or as inferred heading points.
         roi_results = [q for r in roi_results if (q := self._qualified_band(r)) is not None]
 
+        performance.lap('band_scans')
         # ── Initialize outputs ──
         base_err_px = 0.0
         base_err_cm = 0.0
@@ -2149,6 +2158,7 @@ class LineDetector:
             else:
                 lane_reject_reason = 'accepted'
 
+        performance.lap('bottom_lock')
         # ── Red bar detection ──
         if self.red_detect_enable:
             res = self._detect_red_bar(bgr)
@@ -2176,6 +2186,7 @@ class LineDetector:
         if start_line_y is not None:
             _, start_line_z = self._px_to_ground_cm(float(self.center_x), float(start_line_y))
         state["start_line_z"] = start_line_z
+        performance.lap('red_and_start_line')
 
         # Defaults for lost-frame path
         ng_exit_z = 0.0
@@ -2492,7 +2503,8 @@ class LineDetector:
                 and not measurement_valid
                 and not duplicate_boundary_frame):
             from visible_lane_direction import visible_lane_direction
-            visible_direction = visible_lane_direction(binary_observed, self._px_to_ground_cm)
+            visible_direction = performance.call('visible_fallback', visible_lane_direction,
+                                                 binary_observed, self._px_to_ground_cm)
             if visible_direction is not None:
                 # The image supports a direction, but not an identified centre
                 # path. Publish that distinction and let the existing angular
@@ -2529,6 +2541,7 @@ class LineDetector:
         heading_deg = angle_err
         conf = clamp(avg_conf, 0.0, 1.0)
 
+        performance.lap('fusion_and_fallback')
         # ── Visualization (on birdseye) ──
         vis = self._build_visualization(
             gray, bgr_bird, roi_results, black_th, track_is_dark,
@@ -2558,6 +2571,7 @@ class LineDetector:
                     (6, min(self.bird_h-8,93)), cv2.FONT_HERSHEY_SIMPLEX,
                     .38, (255,255,0), 1)
 
+        performance.lap('visualization')
         # ── Debug info ──
         vis[~valid] = 0
         binary_raw_inv = 255 - binary_clean  # valid ground: black line on white bg
@@ -2644,6 +2658,10 @@ class LineDetector:
             "heading_rows": heading_trace["rows"],
             "lane_scan_reject_reason": heading_trace['reason'],
             "lane_scan_valid": heading_trace['valid'],
+            # Exact, unrounded input of Close+Fit's rowhdg label. Keep it
+            # separate from angle_err_deg, which may use direction fallback.
+            "rowhdg_deg": -heading_trace['heading_right_deg'],
+            "rowhdg_valid": bool(heading_trace['valid']),
             "lane_scan_observed_rows": heading_trace['observed_rows'],
             "lane_scan_paired_rows": heading_trace['paired_rows'],
             "lane_scan_span_cm": heading_trace['span_cm'],
@@ -2709,6 +2727,8 @@ class LineDetector:
         else:
             debug["tracking_mode"] = "LOST"
 
+        performance.lap('debug_pack')
+        debug.update(performance.finish())
         return dev_px, heading_deg, conf, vis, debug
 
     # ═══════════════════════════════════════════════════════════

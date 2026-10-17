@@ -3,6 +3,7 @@ import math
 
 import cv2
 import numpy as np
+from performance_telemetry import StageTimer
 
 
 def _complete_pass(mask, *, valid_mask=None, max_gap_px=30., angle_deg=55.):
@@ -11,11 +12,13 @@ def _complete_pass(mask, *, valid_mask=None, max_gap_px=30., angle_deg=55.):
     A bridge requires two observed components. There is no endpoint extension,
     no virtual opposite boundary and no temporal image replay.
     """
+    performance = StageTimer('gap_pass')
     output = mask.copy()
     added = np.zeros_like(mask)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
     endpoints = []
     widths = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
+    performance.lap('components_and_distance')
     for index in range(1, count):
         if stats[index, cv2.CC_STAT_AREA] < 12:
             continue
@@ -37,6 +40,7 @@ def _complete_pass(mask, *, valid_mask=None, max_gap_px=30., angle_deg=55.):
             if np.dot(tangent, tip-center) < 0:
                 tangent = -tangent
             endpoints.append((index, tip, tangent, thickness))
+    performance.lap('endpoints_and_svd')
     candidates = []
     cosine = math.cos(math.radians(angle_deg))
     for i, first in enumerate(endpoints):
@@ -54,6 +58,7 @@ def _complete_pass(mask, *, valid_mask=None, max_gap_px=30., angle_deg=55.):
                     max(first[3], second[3]) > 2.0*min(first[3], second[3])):
                 continue
             candidates.append((distance, i, j))
+    performance.lap('pair_candidates')
     used = set()
     bridges = 0
     for distance, i, j in sorted(candidates):
@@ -70,22 +75,32 @@ def _complete_pass(mask, *, valid_mask=None, max_gap_px=30., angle_deg=55.):
         used.update((i, j))
         bridges += 1
     added[(output > 0) & (mask == 0)] = 255
+    performance.lap('draw_bridges')
     return output, added, dict(lane_gap_bridges=bridges,
         lane_gap_added_pixels=int(np.count_nonzero(added)),
-        lane_gap_max_px=float(max_gap_px))
+        lane_gap_max_px=float(max_gap_px), gap_components=count-1,
+        gap_endpoints=len(endpoints), gap_candidates=len(candidates),
+        **performance.finish())
 
 
 def complete_lane_gaps(mask, *, valid_mask=None, max_gap_px=30., angle_deg=55.):
     """Three bounded joining rounds; added pixels never become real observations."""
     output = mask.copy()
     bridges = 0
+    profile = {}
+    passes = 0
     for _ in range(3):
         updated, added, info = _complete_pass(output, valid_mask=valid_mask,
             max_gap_px=max_gap_px, angle_deg=angle_deg)
         bridges += info['lane_gap_bridges']
+        passes += 1
+        for key, value in info.items():
+            if key.startswith('gap_'):
+                profile[key] = profile.get(key, 0) + value
         output = updated
         if not np.any(added):
             break
     added = np.where((output > 0) & (mask == 0), 255, 0).astype(np.uint8)
     return output, added, dict(lane_gap_bridges=bridges,
-        lane_gap_added_pixels=int(np.count_nonzero(added)), lane_gap_max_px=float(max_gap_px))
+        lane_gap_added_pixels=int(np.count_nonzero(added)), lane_gap_max_px=float(max_gap_px),
+        gap_passes=passes, **profile)

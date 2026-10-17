@@ -159,6 +159,8 @@ class ContinuousHeadingTests(unittest.TestCase):
         self.assertAlmostEqual(heading,debug['angle_err_deg'])
         self.assertAlmostEqual(heading,debug['heading_control_deg'])
         self.assertAlmostEqual(heading,-debug['heading_right_deg'])
+        self.assertEqual(debug['rowhdg_deg'], -debug['heading_right_deg'])
+        self.assertTrue(debug['rowhdg_valid'])
         self.assertAlmostEqual(heading,-12,delta=2)
         self.assertGreater(confidence,0)
         sampled=debug['heading_rows'][0]
@@ -172,6 +174,26 @@ class ContinuousHeadingTests(unittest.TestCase):
             self.assertFalse(lost[-1]['heading_control_valid'])
             self.assertEqual(lost[-1]['angle_err_deg'],0)
             self.assertEqual(lost[2],0)
+            self.assertFalse(lost[-1]['rowhdg_valid'])
+            self.assertEqual(lost[-1]['rowhdg_deg'], 0.)
+
+    def test_rowhdg_preserves_invalid_scan_when_visible_direction_takes_over(self):
+        from unittest.mock import patch
+        d = self.detector
+        d.set_lane_observation_mode('continuous', 50.)
+        d.visible_direction_fallback = True
+        d.photometric_mode = 'legacy'
+        frame = np.full((720, 1280, 3), 255, np.uint8)
+        fallback = dict(heading_deg=-32.10631880268863, points=20, span_cm=10., component_count=1)
+        with patch('visible_lane_direction.visible_lane_direction', return_value=fallback), \
+                patch('line_detector_v1_warp.cv2.putText', wraps=__import__('cv2').putText) as text:
+            *_, debug = d.process(frame, dt=.1)
+        self.assertEqual(debug['heading_control_source'], 'visible_line_direction')
+        self.assertEqual(debug['angle_err_deg'], fallback['heading_deg'])
+        self.assertEqual(debug['rowhdg_deg'], 0.)
+        self.assertFalse(debug['rowhdg_valid'])
+        self.assertTrue(any(call.args[1].startswith('rowhdg=') and 'valid=0' in call.args[1]
+                            for call in text.call_args_list))
 
 
 if __name__ == '__main__':

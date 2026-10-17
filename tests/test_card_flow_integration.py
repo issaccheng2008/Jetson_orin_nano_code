@@ -180,8 +180,11 @@ class CardFlowIntegrationTests(unittest.TestCase):
                 self.assertEqual(len(detections), len(calls))
                 self.assertTrue(all(not classify for _, classify in detections))
 
-    def test_verified_box_uses_width_instead_of_centroid(self):
-        for width, stopped in ((100., False), (130., True)):
-            quad = np.float32([[300, 300], [300+width, 300], [300+width, 400], [300, 400]])
-            calls, _, _ = self.replay([], seconds=.1, quad=quad, reach=.9)
-            self.assertEqual(calls[0][1] == 0., stopped)
+    def test_only_cue_height_can_stop_even_if_a_reader_returns_a_quad(self):
+        for width in (100., 200.):
+            for reach, stopped in ((.2, False), (.9, True)):
+                with self.subTest(width=width, reach=reach):
+                    quad = np.float32([[300, 300], [300+width, 300],
+                                       [300+width, 400], [300, 400]])
+                    calls, _, _ = self.replay([], seconds=.1, quad=quad, reach=reach)
+                    self.assertEqual(calls[0][1] == 0., stopped)

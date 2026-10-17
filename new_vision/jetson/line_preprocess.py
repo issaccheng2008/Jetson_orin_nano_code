@@ -10,6 +10,7 @@ import cv2
 import math
 import numpy as np
 from masked_ground import validity, gaussian as masked_gaussian, morphology as masked_morphology, clahe as masked_clahe
+from performance_telemetry import StageTimer
 
 
 def sampled_otsu_threshold(gray, valid_mask=None):
@@ -47,6 +48,7 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
     only affects candidate extraction, never the source image, red detector,
     shape detector, or the raw-gray centroid fallback.
     """
+    performance = StageTimer('line_preprocess')
     valid = validity(gray, valid_mask)
     masked = valid is not None and not np.all(valid)
     values = gray.ravel() if valid is None else gray[valid]
@@ -58,26 +60,32 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
         empty = np.zeros_like(gray)
         return empty, empty.copy(), float(th_min), dict(validity_debug,
             preprocess_mode=mode, preprocess_threshold_pixels=0,
-            preprocess_morph_pixels=0, preprocess_foreground_pixels=0, preprocess_components=0)
+            preprocess_morph_pixels=0, preprocess_foreground_pixels=0, preprocess_components=0,
+            **performance.finish())
     if mode == "canny":
         from canny_candidates import lane_canny
         mask, diagnostics = lane_canny(gray, valid_mask=valid)
         diagnostics.update(validity_debug)
+        diagnostics.update(performance.finish())
         # Downstream scanners require a thresholded response as well as a mask.
         # Use filled stroke evidence, never raw Canny double edges.
         return mask.copy(), mask, 127.0, diagnostics
     if mode not in ("legacy", "contrast"):
         raise ValueError("line preprocessing must be legacy, contrast or canny")
+    performance.lap('input_statistics')
     if masked:
         source = masked_clahe(gray, valid) if mode == "contrast" else gray
+        performance.lap('clahe')
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
         response = masked_morphology(source, cv2.MORPH_BLACKHAT, kernel, valid)
         validity_debug["preprocess_mask_backend"] = "cpu"
     else:
         source = (cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
                   if mode == "contrast" else gray)
+        performance.lap('clahe')
         response = cv2.morphologyEx(source, cv2.MORPH_BLACKHAT,
                                    cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31)))
+    performance.lap('blackhat')
     # For I' = a*I+b, blackhat and (I-local_mean) both scale by a;
     # b cancels. Reference z-score normalization therefore maps C to C*a,
     # where a = std_current/std_reference (not the variance ratio).
@@ -90,6 +98,7 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
     else:
         adaptive = cv2.adaptiveThreshold(response, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                         cv2.THRESH_BINARY, 31, effective_c) > 0
+    performance.lap('adaptive_threshold')
     threshold = (float(np.median(response[adaptive])) if np.count_nonzero(adaptive) > 100
                  else sampled_otsu_threshold(response, valid)) + th_offset
     threshold = float(np.clip(threshold, th_min, th_max))
@@ -97,6 +106,7 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
     if masked:
         mask[~valid] = 0
     threshold_pixels = int(np.count_nonzero(mask))
+    performance.lap('threshold_selection')
     k5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     operations = [(cv2.MORPH_CLOSE, k5)]
     if mode == "legacy":
@@ -117,6 +127,7 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
         mask = (masked_morphology(mask, cv2.MORPH_OPEN, k5, valid) if masked
                 else cv2.morphologyEx(mask, cv2.MORPH_OPEN, k5))
     morph_pixels = int(np.count_nonzero(mask))
+    performance.lap('cleanup_morphology')
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     retained = np.zeros(count, np.uint8)
     for i in range(1, count):
@@ -128,6 +139,7 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
             retained[i] = 255
     mask = retained[labels]
     response[mask == 0] = 0
+    performance.lap('component_filter')
     diagnostics = {
         "preprocess_mode": mode,
         "preprocess_min_stroke_px": 5 if mode == "contrast" else 0,
@@ -139,4 +151,5 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
         "preprocess_foreground_pixels": int(np.count_nonzero(mask)),
         "preprocess_components": int(np.count_nonzero(retained)),
     }
+    diagnostics.update(performance.finish())
     return response, mask, threshold, diagnostics

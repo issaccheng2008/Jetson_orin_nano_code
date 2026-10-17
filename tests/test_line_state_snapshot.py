@@ -92,7 +92,14 @@ class TrackingSnapshotTests(unittest.TestCase):
             for _ in range(self.detector.red_bar_confirm_frames):
                 _, _, _, _, debug = self.detector.process(frame)
                 self.detector.restore_tracking_state(snapshot)
-                self.assertEqual(self.detector.snapshot_tracking_state(), snapshot)
+                restored = self.detector.snapshot_tracking_state()
+                # Snapshots intentionally deep-copy the tracker. Compare its
+                # stored state, rather than unrelated object identities.
+                tracker = restored.pop('boundary_path_tracker')
+                self.assertIsNot(tracker, snapshot['boundary_path_tracker'])
+                self.assertEqual(vars(tracker), vars(snapshot['boundary_path_tracker']))
+                self.assertEqual(restored, {k: v for k, v in snapshot.items()
+                                           if k != 'boundary_path_tracker'})
             self.assertTrue(debug["red_bar_detected"])
             self.assertGreaterEqual(self.detector._state["red_bar_count"],
                                     self.detector.red_bar_confirm_frames)

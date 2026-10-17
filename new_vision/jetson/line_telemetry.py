@@ -60,6 +60,7 @@ class LineTelemetry:
         if self._latest_counts is None:
             return
         row = self._latest_counts
+        cue_only = row.get('card_presence_mode') == 'cue_only'
         paired = row['steering_paired_count']
         single = row['steering_single_count']
         box = row['card_stop_box_hit_count']
@@ -82,12 +83,12 @@ class LineTelemetry:
             if steering_total else '  单边占已计巡线帧: —（尚无有效巡线帧）',
             '',
             '行走中图卡停车候选（检测命中次；不是停车次数或不同图卡数）',
-            f'  找到图卡框: {box}',
-            f'  无框但 cue 命中: {cue}',
+            f'  找到图卡框: {box}' + ('（行走找框已删除，保留旧日志字段）' if cue_only else ''),
+            f'  cue 命中: {cue}' if cue_only else f'  无框但 cue 命中: {cue}',
             f'  框占两种命中: {100 * box / card_total:.1f}%'
             if card_total else '  框占两种命中: —（尚无候选）',
             '',
-            '每次视觉检测调用最多给框或 cue 其中一项加 1；',
+            '行走阶段仅执行 cue，停车后才完整找框和分类；' if cue_only else '每次视觉检测调用最多给框或 cue 其中一项加 1；',
             '这两项说明停车候选证据来源，不表示该帧已经触发停车。',
             *((
                 '',
@@ -142,6 +143,7 @@ class LineTelemetry:
 
         if all(key in row for key in COUNT_FIELDS) and row.get('host_time_ns') is not None:
             self._latest_counts = {key: row[key] for key in COUNT_FIELDS}
+            self._latest_counts['card_presence_mode'] = row.get('card_presence_mode')
             for key in ('card_stop_box_trigger_count', 'card_stop_cue_trigger_count'):
                 if key in row:
                     self._latest_counts[key] = row[key]

@@ -642,17 +642,8 @@ class VisionEntryPointTests(unittest.TestCase):
         self.assertNotAlmostEqual(published[1].args[1], -0.2)  # 不再固定转角
 
 
-    def test_the_box_width_decides_the_stop_when_there_is_a_box(self):
-        """cy is an angle, so the body pitching moves it without the card moving at
-        all. A 2026-10-01 lap pitched from +16 to -24 degrees; one card read cy=0.877
-        where the configured geometry says 13 cm, while its 121 px box says 27 cm.
-        The box width survives that: fx*10/zc, and zc moves only +-6% across 20..60
-        degrees of pitch, against cy swinging threefold. So when a box exists, the
-        width decides and cy is only logged.
-
-        Both wrong-way cases are driven here: cy past the line with a far box must
-        NOT stop, and cy short of the line with a close box MUST.
-        """
+    def test_cue_height_decides_the_stop_and_box_width_is_ignored(self):
+        """A wide stale box cannot stop early; a near cue can stop without it."""
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         camera = Mock()
         camera.isOpened.return_value = True
@@ -668,12 +659,10 @@ class VisionEntryPointTests(unittest.TestCase):
                              [cx + w / 2, cy + 30], [cx - w / 2, cy + 30]], np.float32)
 
         def update(*_a, **_k):
-            # cy is 0.90 the whole way -- past the 0.559 line from the very first call.
-            # Only the box width moves, from far (40 px) to close (140 px); the 30 cm
-            # threshold is 117.7 px.
-            w = 40.0 if reads[0] < 7 else 140.0
+            w = 140.0 if reads[0] < 7 else 40.0
+            cy = 0.20 if reads[0] < 7 else 0.90
             return None, {"presence": True, "card_found": True,
-                          "presence_cy_frac": 0.90, "quad_work": quad_of_width(w)}
+                          "presence_cy_frac": cy, "quad_work": quad_of_width(w)}
 
         shape.update.side_effect = update
         clock = [0.0]
@@ -703,12 +692,11 @@ class VisionEntryPointTests(unittest.TestCase):
         ):
             self.assertEqual(run_policy_vision.main(), 0)
         log = out.getvalue()
-        # cy never moves and is past its own line from read 2 on, so a cy-driven stop
-        # would have fired early. It must fire only once the box is actually close.
+        # Stop only after the cue becomes close; the box width moves the other way.
         self.assertEqual(log.count("停车读卡"), 1)
         fire = [ln for ln in log.splitlines() if "停车读卡" in ln][0]
-        self.assertIn("reach=140.000", fire)
-        self.assertIn("threshold=117.", fire)
+        self.assertIn("reach=0.900", fire)
+        self.assertIn("threshold=0.559", fire)
 
     def test_a_strong_presence_cue_stops_it_even_with_no_box(self):
         """Phase one, on the board: quad=512g0v0 for the whole approach while the cue

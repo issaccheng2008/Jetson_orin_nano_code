@@ -32,6 +32,7 @@ from steering_command_window import SteeringCommandWindow, effective_policy_hold
 from start_gate import resolve_card_shapes
 from card_flow import CardFlow
 from recording_options import LOG_ITEMS, parse_log_items
+from performance_telemetry import RuntimeCounters, environment_metadata
 
 # 图卡的中文名，只给日志用 —— 操作员看日志时认的是图形，不是 "pentagon"。
 CARD_NAMES_ZH = {
@@ -313,7 +314,7 @@ def parse_args():
                              "a separate fixed one-second vote window begins. "
                              "0 makes the feedback wait expire immediately")
     parser.add_argument("--card-trigger-frac", type=float, default=None,
-                        help="Explicit override: box centroid height in the frame "
+                        help="Explicit override: confirmed cue centroid height in the frame "
                              "(0=top, 1=bottom) at which the robot stops. Prefer "
                              "--card-trigger-dist-cm; this is the same thing in the "
                              "frame's own units, for tests that drive a fake cy")
@@ -358,8 +359,7 @@ def parse_args():
                         default="all",
                         help="Stopped-card box proposals. 'staged' tries component "
                              "and ring candidates first, then falls back to line/corner "
-                             "proposals if no box verifies. Experimental; walking "
-                             "presence always uses all proposals for stop reliability")
+                             "proposals if no box verifies. Walking presence uses only cue detection.")
     parser.add_argument("--card-clear-calls", type=int,
                         default=max(1, int(os.getenv("CARD_CLEAR_CALLS", "4"))),
                         help="First startup card departure confirmation calls only")
@@ -896,15 +896,12 @@ def main():
     from line_detector_v1_warp import LineDetector
     from utils import open_camera, show_debug_windows
 
-    from shape_detector import trigger_frac_at_dist, trigger_width_at_dist
-    # 两个阈值同源：同一个 --card-trigger-dist-cm，一个换成 cy、一个换成框宽。
-    # 有框时用后者（对机身俯仰不敏感），没框时只能退回前者。
+    from shape_detector import trigger_frac_at_dist
+    # Moving presence uses the cue height calibrated from stop distance.
     card_trigger_frac = (args.card_trigger_frac if args.card_trigger_frac is not None
                          else trigger_frac_at_dist(args.card_trigger_dist_cm))
-    card_trigger_width = trigger_width_at_dist(args.card_trigger_dist_cm)
     print(f"[card-stop] configured distance={args.card_trigger_dist_cm:g}cm; "
-          f"box width>={card_trigger_width:.1f}px; "
-          f"no-box cue cy>={card_trigger_frac:.3f}"
+          f"cue-only cy>={card_trigger_frac:.3f}"
           f"{' (explicit cy override)' if args.card_trigger_frac is not None else ' (distance-derived)'}; "
           "cue score only confirms presence, it does not set stop distance", flush=True)
 
@@ -1197,9 +1194,7 @@ def main():
         reported_card_decision = None
         steering_paired_count = 0
         steering_single_count = 0
-        card_stop_box_hit_count = 0
         card_stop_cue_hit_count = 0
-        card_stop_box_trigger_count = 0
         card_stop_cue_trigger_count = 0
         last_counts_log = -math.inf
         lateral_warned = None    # None until the lateral bound first trips
@@ -1227,6 +1222,7 @@ def main():
             "camera_width": width, "camera_height": height,
             "camera_controls": camera_control_report,
         }
+        dump_metadata['performance_environment'] = environment_metadata()
         dump_metadata["measurement_parameters"] = {
             name: getattr(detector, name) for name in (
                 "lock_width_cv_max", "observation_rmse_max_px", "measurement_quality_min",
@@ -1247,7 +1243,7 @@ def main():
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
                                 "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
                                 "line_preprocess.py", "masked_ground.py", "latest_camera.py", "photometric_thresholds.py", "canny_candidates.py",
-                                "recording_options.py", "recording_session.py"):
+                                "recording_options.py", "recording_session.py", "performance_telemetry.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
 
@@ -1303,6 +1299,8 @@ def main():
         prev_pair = 0.0
         prev_conf = 0.0
         previous_loop_start_ns = None
+        previous_loop_tail_ms = None
+        runtime_counters = RuntimeCounters()
         if args.camera_async:
             from latest_camera import LatestCamera
             camera_reader = LatestCamera(cap).start()
@@ -1483,7 +1481,7 @@ def main():
             startup_shape_candidate = None
             startup_shape_source = None
             card_shape_source = None
-            card_reach = card_reach_line = card_width_px = None
+            card_reach = card_reach_line = None
             # ── 阀1：二维码 ──
             # 只在还没扫到时跑，而且每 --qr-every 帧才解一次：detectAndDecode 是纯
             # CPU 的，1280x720 raw 十几毫秒、再放大一倍几十毫秒，逐帧跑会把主循环
@@ -1573,7 +1571,7 @@ def main():
                     _shape_name, card_dbg = shape.update(
                         frame,
                         classify=classify_card,
-                        proposal_mode=(args.shape_proposal_mode if classify_card else "all"))
+                        proposal_mode=args.shape_proposal_mode)
                 if dual_vote:
                     fused_shape, card_shape_source = resolve_card_shapes(
                         card_primary_shape, card_secondary_shape)
@@ -1589,22 +1587,12 @@ def main():
                         and not startup_first_card_pending
                         and not cards.active and processed >= card_until
                         and last_cmd_vx > 0.0):
-                    if card_dbg.get("card_found"):
-                        card_stop_box_hit_count += 1
-                    elif card_dbg.get("cue_hit"):
+                    if card_dbg.get("cue_hit"):
                         card_stop_cue_hit_count += 1
-                # "多近了"这一个量，动作闸和停车闸共用。有真框就量框宽（对机身俯仰
-                # 不敏感），没框才退回 cy。理由见下面停车那段。
-                _quad = card_dbg.get("quad_work")
-                card_width_px = None
-                if _quad is not None:
-                    _qx = np.asarray(_quad, dtype=float)[:, 0]
-                    card_width_px = float(_qx.max() - _qx.min())
-                if card_width_px is not None:
-                    card_reach, card_reach_line = card_width_px, card_trigger_width
-                else:
-                    card_reach = card_dbg.get("presence_cy_frac")
-                    card_reach_line = card_trigger_frac
+                # Only current, history-confirmed cue geometry can stop walking.
+                # Stopped/startup classifications never supply a width stop gate.
+                card_reach = card_dbg.get("presence_cy_frac")
+                card_reach_line = card_trigger_frac
                 if recording_started and args.shape_dump and (card_dbg.get("card_found")
                                                                or card_dbg.get("presence")):
                     dumped += 1
@@ -1639,10 +1627,7 @@ def main():
                         card_reach is not None and card_reach > card_reach_line,
                         card_feedback)):
                     detector.restore_tracking_state(tracking_before_frame)
-                    if card_width_px is not None:
-                        card_stop_box_trigger_count += 1
-                    else:
-                        card_stop_cue_trigger_count += 1
+                    card_stop_cue_trigger_count += 1
                     print(f"[card] 停车读卡：reach={card_reach:.3f}, "
                           f"threshold={card_reach_line:.3f}; 等待站定和重摆", flush=True)
                 # Why a card that is plainly in view did not become an action: the
@@ -1936,12 +1921,16 @@ def main():
                     attitude.executed_command() if attitude is not None else None)
                 line_log.write(
                     telemetry_debug, frame=frames, host_time_ns=command_host_time_ns,
+                    **runtime_counters.sample(),
+                    previous_loop_tail_ms=previous_loop_tail_ms,
                     **execution,
                     process_monotonic_s=processed, confidence=confidence,
                     camera_async=args.camera_async, **capture_metadata,
                     loop_period_ms=loop_period_ms, camera_read_ms=camera_read_ms,
                     line_process_ms=line_process_ms, qr_decode_ms=qr_decode_ms,
                     shape_update_ms=shape_update_ms, decision_ms=decision_ms,
+                    pre_line_ms=(line_process_start_ns-read_return_ns)/1e6,
+                    decision_other_ms=max(0., decision_ms-(shape_update_ms or 0.)-(qr_decode_ms or 0.)),
                     card_detection_mode=card_detection_mode,
                     card_frame_source=card_frame_source,
                     card_primary_shape=card_primary_shape,
@@ -1953,15 +1942,16 @@ def main():
                     card_camera_frame_age_ms=card_camera_meta.get('camera_frame_age_ms'),
                     steering_paired_count=steering_paired_count,
                     steering_single_count=steering_single_count,
-                    card_stop_box_hit_count=card_stop_box_hit_count,
+                    card_stop_box_hit_count=0,  # Legacy log field; width path removed.
                     card_stop_cue_hit_count=card_stop_cue_hit_count,
-                    card_stop_box_trigger_count=card_stop_box_trigger_count,
+                    card_stop_box_trigger_count=0,
+                    card_presence_mode="cue_only",
                     card_stop_cue_trigger_count=card_stop_cue_trigger_count,
                     card_stop_first_card_lock=bool(startup_first_card_lock),
                     card_stop_current_presence=(bool(card_dbg.get('presence')) if card_dbg else None),
                     card_stop_current_box=(bool(card_dbg.get('card_found')) if card_dbg else None),
                     card_stop_reach=card_reach, card_stop_reach_line=card_reach_line,
-                    card_stop_reach_units=('pixels' if card_width_px is not None else 'fraction'),
+                    card_stop_reach_units='fraction',
                     **cards.diagnostics(processed),
                     card_vote_reason=(card_vote_decision or {}).get('reason'),
                     card_vote_winner=(card_vote_decision or {}).get('winner'),
@@ -2050,9 +2040,9 @@ def main():
                     print(f"[counts] {time.strftime('%H:%M:%S')} frame={frames} "
                           f"累计有效巡线帧: 双边={steering_paired_count} "
                           f"单边={steering_single_count} | "
-                          f"累计行走中图卡候选命中: 框={card_stop_box_hit_count} "
+                          f"累计行走中图卡候选命中（仅cue）: "
                           f"cue={card_stop_cue_hit_count} "
-                          f"| 实际停车事件: 框宽={card_stop_box_trigger_count} "
+                          f"| 实际停车事件: "
                           f"cue高度={card_stop_cue_trigger_count} "
                           f"(候选命中不等于停车)", flush=True)
                     last_counts_log = processed
@@ -2102,6 +2092,8 @@ def main():
                 show_debug_windows(debug, visualization)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
+            # Includes recording, telemetry, console and GUI after command send.
+            previous_loop_tail_ms = (time.perf_counter_ns()-udp_publish_start_ns)/1e6 - udp_publish_ms
     finally:
         try:
             if line_log is not None:

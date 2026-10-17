@@ -188,6 +188,7 @@ class CardFlow:
 
     def diagnostics(self, now):
         return dict(card_phase=self.phase, card_retry=self.retry,
+                    card_action_success=self.success, card_flow_event_id=self.event_id,
                     card_vote_total=sum(self.votes.values()),
                     card_vote_attempts=self.attempts,
                     card_vote_abstentions=self.abstentions,

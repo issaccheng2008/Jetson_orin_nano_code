@@ -1,5 +1,13 @@
 # Jetson Orin Nano humanoid runtime
 
+Moving card presence now uses only the corrected-gray cue detector. It skips
+card-box binarization, line/corner proposals and box verification. Walking stops
+only when current cue geometry passes the configured height/distance gate and
+the existing presence-history and cooldown gates. Startup and stopped shape
+classification retain full card-box detection. Legacy box-stop log counters
+remain zero for log-reader compatibility; `card_presence_mode` is `cue_only`.
+Numbered recording sessions and detailed performance timing remain enabled.
+
 The runtime supports standard forward walking from `Humanoid_Robot_RSL_RL`
 and one-foot standing from `Humanoid_Robot_One_Foot_Standing`. Select the
 interface with `--policy walking` (default) or `--policy one-foot`.
@@ -101,6 +109,11 @@ the walking vision command to enable shape actions. Bar crossing remains outside
 this integration.
 
 ## Tests
+
+Offline vision logs can be opened with `python new_vision/scripts/view_vision_log.py`
+or `new_vision/scripts/view_vision_log.bat` on Windows. `LOG="vision"` records
+the exact Close+Fit `rowhdg` value and validity, plus fresh policy-adopted yaw
+feedback. See [the viewer guide](docs/vision_log_viewer_zh.md).
 
 ```bash
 python -m unittest discover -s tests -v

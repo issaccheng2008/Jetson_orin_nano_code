@@ -75,8 +75,8 @@ def _card_ink(gray, backend=None):
             if backend is not None else cv2.morphologyEx(ink, cv2.MORPH_CLOSE, kernel))
 
 
-def _triggers_at(z_cm):
-    """图卡（10cm，平放地面）在真实距离 z_cm 处的 (框宽px, 框中心y)，工作图坐标。
+def _trigger_y_at(z_cm):
+    """地面距离对应的 cue 中心高度，工作图坐标。
 
     pinhole 模型：zc = h·sinθ + z·cosθ（相机到卡的斜距），
     y = cy + fy·(h·cosθ − z·sinθ)/zc。相机装高/俯角/vfov 固定之后，
@@ -86,12 +86,10 @@ def _triggers_at(z_cm):
     th = math.radians(_CAM["pitch_deg"])
     vfov = math.radians(_CAM["vfov_deg"])
     fy = WORK_H / (2.0 * math.tan(vfov / 2.0))
-    hfov = 2.0 * math.atan(math.tan(vfov / 2.0) * WORK_W / WORK_H)
-    fx = WORK_W / (2.0 * math.tan(hfov / 2.0))
     z = max(1.0, to_model_z(z_cm))
     zc = h * math.sin(th) + z * math.cos(th)
     y_c = WORK_H / 2.0 + fy * (h * math.cos(th) - z * math.sin(th)) / zc
-    return fx * 10.0 / zc, y_c
+    return y_c
 
 
 def trigger_frac_at_dist(z_cm):
@@ -103,20 +101,10 @@ def trigger_frac_at_dist(z_cm):
 
     ⚠️ 这个量对**机身俯仰**极敏感：cy 是角度，相机一低头，同一张卡在画面里就
     滑下去一大截。2026-10-01 实测机身在一趟里从 +16° 倾到 −24°，cy 读数因此
-    差了 15cm 的距离。**框宽没有这个问题** —— 见 trigger_width_at_dist。
+    差了 15cm 的距离。行走停车采用 cue 高度，因此需要保持相机安装标定。
     """
-    return _triggers_at(z_cm)[1] / WORK_H
+    return _trigger_y_at(z_cm) / WORK_H
 
-
-def trigger_width_at_dist(z_cm):
-    """地面距离 → 图卡该有多宽（px，工作图坐标）。停车判据用它比用 cy 稳。
-
-    框宽 = fx·10/zc，fx 只来自 vfov，和俯角无关；zc = h·sinθ + z·cosθ 虽然含
-    θ，但在 20°~60° 这个区间里变化只有 ±6%（实测 39.3~44.2cm，对 30cm 的卡）。
-    而 cy 在同一区间里能从 1.03 翻到 0.32 —— 差三倍还多。所以机身怎么倾，
-    框宽基本不动，cy 会废掉。
-    """
-    return _triggers_at(z_cm)[0]
 
 
 class ShapeDetector:
@@ -345,9 +333,14 @@ class ShapeDetector:
     def update(self, bgr_or_gray, *, classify=True, proposal_mode="all"):
         """Return ``(shape_name, debug_dict)`` for one frame, without issuing actions.
 
-        Presence mode skips classification. The caller owns stopping, voting,
+        Presence mode runs only the cue on corrected gray. Full box detection
+        is reserved for classification. The caller owns stopping, voting,
         action dispatch and cooldown. Inputs are normalized to 960 x 540.
         """
+        from performance_telemetry import StageTimer
+        performance = StageTimer('shape')
+        self._segment_profile = {}
+        self._binary_profile = {}
         update_started = time.perf_counter()
         stage_started = update_started
         if len(bgr_or_gray.shape) == 3:
@@ -374,6 +367,7 @@ class ShapeDetector:
             shape_adaptive_c_applied=self.preprocess_mode == "selective",
             shape_preprocess=self.preprocess_mode, cue_score_raw=0.0,
             cue_score_reference=0.0, cue_evaluated=False)
+        performance.lap('photometry')
         if self.roi_ratio < 1.0:
             self._roi_y0 = int(h0 * (1.0 - self.roi_ratio))
             roi = gray[self._roi_y0:, :]
@@ -398,6 +392,34 @@ class ShapeDetector:
 
         if proposal_mode not in ("all", "staged"):
             raise ValueError("proposal_mode must be all or staged")
+        performance.lap('resize')
+
+        if not classify:
+            # Moving presence needs corrected gray only. Never build card-box
+            # binaries, distance maps, proposals or classifications on this path.
+            dbg = dict(card_found=False, gray=gray, shape=None,
+                       presence_box=None, presence_box_work=None,
+                       presence_cue=0., presence_cy_frac=None,
+                       quad_total=0, quad_geom=0, scores=[], geom_rejects={},
+                       shape_proposal_mode='none', shape_proposal_source=None,
+                       shape_proposal_fallback=False, shape_presence_mode='cue_only',
+                       shape_classification_path='deferred_until_stop',
+                       shape_preprocess_ms=(time.perf_counter()-update_started)*1000.,
+                       shape_proposals_ms=0., shape_verification_ms=0.,
+                       shape_classify_ms=0., shape_quad_total=0, shape_quad_geom=0,
+                       shape_camera_pitch_deg=self.cfg['cam_pitch_deg'])
+            dbg.update(self._photometric_debug)
+            dbg['shape_adaptive_c_applied'] = False
+            started = time.perf_counter()
+            self._observe_presence_cue(gray, dbg)
+            dbg['shape_presence_ms'] = (time.perf_counter()-started)*1000.
+            dbg['shape_adaptive_c_applied'] = False
+            self.last_quad = None
+            if self.vision_backend is not None:
+                dbg.update(self.vision_backend.diagnostics())
+            dbg['shape_total_ms'] = (time.perf_counter()-update_started)*1000.
+            dbg.update(performance.finish())
+            return None, dbg
 
         # S1 线宽选择性二值化（线=白255）
         if self.preprocess_mode == "canny":
@@ -413,12 +435,14 @@ class ShapeDetector:
             self._photometric_debug.update({"shape_" + k: v for k, v in local_debug.items()})
         else:
             raise ValueError("shape preprocessing must be selective, canny or local_dark")
+        performance.lap('binary_filter')
         dt = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
         # 卡框是一条闭合细环，而上面那条链是为压 2cm 巡线调的，卡框在它里面是碎的。
         # ring 通道用它自己那张原始灰度 Otsu 墨迹图，后续的闭合度/线宽/环内含量
         # 也在同一张图上量 —— 拿一套阈值去量一张被锯碎的图，是在惩罚正确的框。
         ink = (binary.copy() if self.preprocess_mode in ("canny", "local_dark")
                else _card_ink(gray, self.vision_backend))
+        performance.lap('distance_and_ink')
         preprocess_ms = (time.perf_counter() - stage_started) * 1000.0
         stage_started = time.perf_counter()
 
@@ -426,20 +450,20 @@ class ShapeDetector:
         # 的环轮廓，本身就是框线外缘，既不该被 _refine_quad 滑到框线上，也不该在
         # 线宽选择性二值图上受检。在 6card 上把 refine 全局关掉是 21/31（更差），
         # 只有 ring 这一路该跳过它。
-        staged = proposal_mode == "staged" and classify
+        staged = proposal_mode == "staged"
         if staged:
             # The stopped-card experiment starts with the cheap independent
             # components and ring channels. The complete line/corner set remains
             # available when those cannot produce a verified card box.
-            quads = [(q, False, "cc") for q in self._cc_quads(binary)]
-            quads += [(q, True, "ring") for q in self._ring_quads(ink)]
+            quads = [(q, False, "cc") for q in performance.call('proposal_cc', self._cc_quads, binary)]
+            quads += [(q, True, "ring") for q in performance.call('proposal_ring', self._ring_quads, ink)]
         else:
-            hsegs, lsegs = self._detect_segments(binary)
-            quads = [(q, False, "hough") for q in self._hough_quads(binary, hsegs)]
-            quads += [(q, False, "lsd") for q in self._lsd_quads(binary, lsegs)]
-            quads += [(q, False, "corner") for q in self._corner_quads(binary, hsegs + lsegs)]
-            quads += [(q, False, "cc") for q in self._cc_quads(binary)]
-            quads += [(q, True, "ring") for q in self._ring_quads(ink)]
+            hsegs, lsegs = performance.call('proposal_segments', self._detect_segments, binary)
+            quads = [(q, False, "hough") for q in performance.call('proposal_hough', self._hough_quads, binary, hsegs)]
+            quads += [(q, False, "lsd") for q in performance.call('proposal_lsd', self._lsd_quads, binary, lsegs)]
+            quads += [(q, False, "corner") for q in performance.call('proposal_corner', self._corner_quads, binary, hsegs + lsegs)]
+            quads += [(q, False, "cc") for q in performance.call('proposal_cc', self._cc_quads, binary)]
+            quads += [(q, True, "ring") for q in performance.call('proposal_ring', self._ring_quads, ink)]
         proposal_counts = {source: sum(item[2] == source for item in quads)
                            for source in ("hough", "lsd", "corner", "cc", "ring")}
         proposals_ms = (time.perf_counter() - stage_started) * 1000.0
@@ -486,10 +510,10 @@ class ShapeDetector:
         best, best_score, scores, quad_geom, best_source = select_best(quads)
         proposal_fallback = staged and best is None
         if proposal_fallback:
-            hsegs, lsegs = self._detect_segments(binary)
-            extra = [(q, False, "hough") for q in self._hough_quads(binary, hsegs)]
-            extra += [(q, False, "lsd") for q in self._lsd_quads(binary, lsegs)]
-            extra += [(q, False, "corner") for q in self._corner_quads(binary, hsegs + lsegs)]
+            hsegs, lsegs = performance.call('proposal_segments', self._detect_segments, binary)
+            extra = [(q, False, "hough") for q in performance.call('proposal_hough', self._hough_quads, binary, hsegs)]
+            extra += [(q, False, "lsd") for q in performance.call('proposal_lsd', self._lsd_quads, binary, lsegs)]
+            extra += [(q, False, "corner") for q in performance.call('proposal_corner', self._corner_quads, binary, hsegs + lsegs)]
             for source in ("hough", "lsd", "corner"):
                 proposal_counts[source] = sum(item[2] == source for item in extra)
             # The cheap candidates have already been checked. If the complete
@@ -522,68 +546,65 @@ class ShapeDetector:
                     for source, count in proposal_counts.items()})
 
         if best is not None:
-            if classify:
-                stage_started = time.perf_counter()
-                # 分类的 warp 用 binary|ink 的并集。binary 是为"压掉 2cm 巡线"调的，
-                # 同一套阈值会把卡上 0.5cm 的细笔画锯断 —— 星形轮廓的环断了一处，
-                # findContours 就从断口钻进环内绕一圈，面积塌掉而凸包不变，solidity
-                # 从 0.65 掉到 0.35，正好落进十字那一档（<0.36）。2026-10-02 实车：
-                # 同一张静止的五角星在 0.278~0.685 之间逐帧跳，被投成了十字。
-                # 并上 ink（ring 通道本来就在用的原始灰度 Otsu 墨迹图，上面已经算过）
-                # 把断口补回来，同时不动 binary 已经认对的那部分。
-                # 实测：6card 31 张实拍 27/31 零跨类错，和只用 binary 一模一样
-                # （只用 ink 会掉到 24/31 并多出 3 个跨类错）；出问题那趟的 21 帧
-                # dump 里五角星 15/16 判对（binary 只有 11/16），十字 5/5。
-                def classify_box(quad):
-                    warp = self._warp_card(cv2.bitwise_or(binary, ink), quad)
-                    dbg["warp"] = warp
-                    # Rectify original gray before extracting the inner mark.
-                    from card_appearance import card_appearance
-                    appearance = card_appearance(gray, quad)
-                    dbg.update({"shape_" + key: value
-                                for key, value in appearance.diagnostics().items()})
-                    dbg["appearance_gray"] = appearance.gray
-                    dbg["appearance_binary"] = appearance.binary
-                    local_result = (self._classify_contour(appearance.symbol)
-                                    if appearance.symbol is not None else None)
-                    # Keep the old binary reader's independent answer for the
-                    # stopped vote. Agreement on one verified box across two new
-                    # frames can close the vote early; it never replaces the
-                    # grayscale-first result on a disagreement.
-                    legacy_result = self._classify(warp, dbg)
-                    dbg["shape_local_candidate"] = local_result
-                    dbg["shape_legacy_candidate"] = legacy_result
-                    dbg["shape_classification_path"] = (
-                        "local_gray" if local_result is not None else "legacy")
-                    result = local_result if local_result is not None else legacy_result
-                    dbg["shape_rules"] = result
-                    return result
+            stage_started = time.perf_counter()
+            # 分类的 warp 用 binary|ink 的并集。binary 是为"压掉 2cm 巡线"调的，
+            # 同一套阈值会把卡上 0.5cm 的细笔画锯断 —— 星形轮廓的环断了一处，
+            # findContours 就从断口钻进环内绕一圈，面积塌掉而凸包不变，solidity
+            # 从 0.65 掉到 0.35，正好落进十字那一档（<0.36）。2026-10-02 实车：
+            # 同一张静止的五角星在 0.278~0.685 之间逐帧跳，被投成了十字。
+            # 并上 ink（ring 通道本来就在用的原始灰度 Otsu 墨迹图，上面已经算过）
+            # 把断口补回来，同时不动 binary 已经认对的那部分。
+            # 实测：6card 31 张实拍 27/31 零跨类错，和只用 binary 一模一样
+            # （只用 ink 会掉到 24/31 并多出 3 个跨类错）；出问题那趟的 21 帧
+            # dump 里五角星 15/16 判对（binary 只有 11/16），十字 5/5。
+            def classify_box(quad):
+                warp = self._warp_card(cv2.bitwise_or(binary, ink), quad)
+                dbg["warp"] = warp
+                # Rectify original gray before extracting the inner mark.
+                from card_appearance import card_appearance
+                appearance = card_appearance(gray, quad)
+                dbg.update({"shape_" + key: value
+                            for key, value in appearance.diagnostics().items()})
+                dbg["appearance_gray"] = appearance.gray
+                dbg["appearance_binary"] = appearance.binary
+                local_result = (self._classify_contour(appearance.symbol)
+                                if appearance.symbol is not None else None)
+                # Keep the old binary reader's independent answer for the
+                # stopped vote. Agreement on one verified box across two new
+                # frames can close the vote early; it never replaces the
+                # grayscale-first result on a disagreement.
+                legacy_result = self._classify(warp, dbg)
+                dbg["shape_local_candidate"] = local_result
+                dbg["shape_legacy_candidate"] = legacy_result
+                dbg["shape_classification_path"] = (
+                    "local_gray" if local_result is not None else "legacy")
+                result = local_result if local_result is not None else legacy_result
+                dbg["shape_rules"] = result
+                return result
 
-                shape = classify_box(best)
-                if staged and shape is None and not proposal_fallback:
-                    hsegs, lsegs = self._detect_segments(binary)
-                    extra = [(q, False, "hough") for q in self._hough_quads(binary, hsegs)]
-                    extra += [(q, False, "lsd") for q in self._lsd_quads(binary, lsegs)]
-                    extra += [(q, False, "corner") for q in self._corner_quads(binary, hsegs + lsegs)]
-                    for source in ("hough", "lsd", "corner"):
-                        proposal_counts[source] = sum(item[2] == source for item in extra)
-                    # Re-score the complete set with the previous frame's track
-                    # prior. This is equivalent to the all-channel selection.
-                    best, best_score, scores, quad_geom, best_source = select_best(quads + extra)
-                    quad_total = len(quads) + len(extra)
-                    proposal_fallback = True
-                    dbg.update(quad_total=quad_total, quad_geom=quad_geom,
-                               scores=scores[:8],
-                               shape_proposal_fallback=True,
-                               shape_proposal_source=best_source,
-                               shape_proposal_counts=proposal_counts)
-                    dbg.update({"shape_candidates_" + source: count
-                                for source, count in proposal_counts.items()})
-                    if best is not None:
-                        shape = classify_box(best)
-                dbg["shape_classify_ms"] = (time.perf_counter() - stage_started) * 1000.0
-            else:
-                dbg["shape_classification_path"] = "deferred_until_stop"
+            shape = classify_box(best)
+            if staged and shape is None and not proposal_fallback:
+                hsegs, lsegs = performance.call('proposal_segments', self._detect_segments, binary)
+                extra = [(q, False, "hough") for q in performance.call('proposal_hough', self._hough_quads, binary, hsegs)]
+                extra += [(q, False, "lsd") for q in performance.call('proposal_lsd', self._lsd_quads, binary, lsegs)]
+                extra += [(q, False, "corner") for q in performance.call('proposal_corner', self._corner_quads, binary, hsegs + lsegs)]
+                for source in ("hough", "lsd", "corner"):
+                    proposal_counts[source] = sum(item[2] == source for item in extra)
+                # Re-score the complete set with the previous frame's track
+                # prior. This is equivalent to the all-channel selection.
+                best, best_score, scores, quad_geom, best_source = select_best(quads + extra)
+                quad_total = len(quads) + len(extra)
+                proposal_fallback = True
+                dbg.update(quad_total=quad_total, quad_geom=quad_geom,
+                           scores=scores[:8],
+                           shape_proposal_fallback=True,
+                           shape_proposal_source=best_source,
+                           shape_proposal_counts=proposal_counts)
+                dbg.update({"shape_candidates_" + source: count
+                            for source, count in proposal_counts.items()})
+                if best is not None:
+                    shape = classify_box(best)
+            dbg["shape_classify_ms"] = (time.perf_counter() - stage_started) * 1000.0
             self._cue_hist.append(1)   # 找框成功 = 强存在证据，时间窗记命中
             # quad映射回原图分辨率（找框在960×540上做，含 ROI 偏移）
             q_orig = best.astype(np.float32) * np.array(
@@ -617,6 +638,10 @@ class ShapeDetector:
         if self.vision_backend is not None:
             dbg.update(self.vision_backend.diagnostics())
         dbg["shape_total_ms"] = (time.perf_counter() - update_started) * 1000.0
+        dbg.update(performance.finish())
+        dbg.update(self._segment_profile)
+        dbg.update(self._binary_profile)
+        dbg.update(shape_quad_total=quad_total, shape_quad_geom=quad_geom)
         dbg["shape"] = shape
         return shape, dbg
 
@@ -626,15 +651,22 @@ class ShapeDetector:
 
     def _observe_presence_cue(self, gray, dbg):
         """Add current-frame cue evidence to the shared presence history."""
+        cue_started = time.perf_counter_ns()
         box, cue_score = self._presence_cue(gray)
+        dbg['cue_closed_ring_ms'] = (time.perf_counter_ns()-cue_started)/1e6
+        dbg['cue_broken_border_ms'] = 0.
+        dbg['cue_broken_invoked'] = False
         dbg["cue_presence_path"] = "closed_ring"
         # Preserve successful old cues and their position. Only repair a
         # missed/low-score border, requiring support from original ink and
         # a separate interior marking; this path never supplies a class.
         if box is None or cue_score < self.cfg["cue_score_min"]:
             from card_presence import find_broken_border_presence
+            repair_started = time.perf_counter_ns()
             repair_box, repair_score, repair_debug = find_broken_border_presence(
                 gray, self._photometry, self.cfg, backend=self.vision_backend)
+            dbg['cue_broken_border_ms'] = (time.perf_counter_ns()-repair_started)/1e6
+            dbg['cue_broken_invoked'] = True
             dbg.update(repair_debug)
             if repair_box is not None:
                 box, cue_score = repair_box, repair_score
@@ -775,6 +807,8 @@ class ShapeDetector:
         不反转（YOLO要白底黑线，找框要黑底白线=线白）。
         找框保留：各向异性闭（桥接竖边断点）、笔画宽过滤（核31会
         增强2cm巡线，必须按线宽拒掉）、细长度过滤（拒圆斑污渍）。"""
+        from performance_telemetry import StageTimer
+        performance = StageTimer('shape_binary')
         kbh = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                         (self.cfg["bh_kernel"],
                                          self.cfg["bh_kernel"]))
@@ -782,6 +816,7 @@ class ShapeDetector:
               if self.vision_backend is not None
               else cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kbh))
 
+        performance.lap('blackhat')
         photo = self._photometry or measure(gray, self.photometric_mode)
         # Compensate reduced contrast, but do not increase the old rejection
         # threshold on close-up cards. Their black ink raises the scene std;
@@ -790,6 +825,7 @@ class ShapeDetector:
         binary = cv2.adaptiveThreshold(
             gd, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
             self.cfg["adaptive_block"], adaptive_c)
+        performance.lap('adaptive_threshold')
 
         # close(3×3)（YOLO方案形态学）
         k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -803,8 +839,13 @@ class ShapeDetector:
             for operation, kernel in operations:
                 binary = cv2.morphologyEx(binary, operation, kernel)
 
+        performance.lap('cleanup_morphology')
         binary = self._stroke_width_filter(binary)
-        return self._elongation_filter(binary)
+        performance.lap('stroke_width_filter')
+        binary = self._elongation_filter(binary)
+        performance.lap('elongation_filter')
+        self._binary_profile = performance.finish()
+        return binary
 
     def _elongation_filter(self, binary, area_max=60.0):
         """小CC细长度过滤：面积<area_max且长宽比<2的CC删除（圆斑污渍）。
@@ -866,6 +907,8 @@ class ShapeDetector:
     def _detect_segments(self, binary):
         """HoughLinesP + LSD 线段一次检出，供各候选通道共用。"""
         c = self.cfg
+        segment_profile = getattr(self, '_segment_profile', {})
+        started = time.perf_counter_ns()
         hough_segs = []
         lines = cv2.HoughLinesP(binary, 1, np.pi / 180,
                                 c["hough_thresh"],
@@ -873,12 +916,16 @@ class ShapeDetector:
                                 maxLineGap=c["max_gap"])
         if lines is not None:
             hough_segs = [tuple(int(v) for v in ln) for ln in lines[:, 0]]
+        segment_profile['shape_segments_hough_ms'] = segment_profile.get('shape_segments_hough_ms', 0.) + (time.perf_counter_ns()-started)/1e6
+        started = time.perf_counter_ns()
         lsd_segs = []
         if self._lsd is None:
             self._lsd = cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD)
         det = self._lsd.detect(binary)[0]
         if det is not None:
             lsd_segs = [tuple(int(v) for v in s[0]) for s in det]
+        segment_profile['shape_segments_lsd_ms'] = segment_profile.get('shape_segments_lsd_ms', 0.) + (time.perf_counter_ns()-started)/1e6
+        self._segment_profile = segment_profile
         return hough_segs, lsd_segs
 
     def _hough_quads(self, binary, segs=None):
