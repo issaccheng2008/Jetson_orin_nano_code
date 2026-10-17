@@ -17,6 +17,9 @@ from policy_bridge import ConnectorClient
 
 
 class HeadingIntegrationTests(unittest.TestCase):
+    def test_debug_profile_records_effective_defaults_and_preserves_execution_feedback(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(
+            record_video=False, actual_feedback=True, debug_profile=True)
     def test_video_receives_actual_feedback_instead_of_visual_command(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(actual_feedback=True)
     def test_camera_options_validate_before_hardware(self):
@@ -111,7 +114,7 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_signed_table_and_heading_intervals_reach_publication_and_manifest(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(custom_config=True)
 
-    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False, custom_config=False, actual_feedback=False, video_source='bird_pair'):
+    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False, custom_config=False, actual_feedback=False, video_source='bird_pair', debug_profile=False):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         lane_mask = np.zeros((400, 320), dtype=np.uint8)
         lane_mask[:, 100:115] = 255
@@ -130,6 +133,13 @@ class HeadingIntegrationTests(unittest.TestCase):
             return True, frame
 
         camera.read.side_effect = read
+        latest = Mock()
+        latest.start.return_value = latest
+        latest.read.side_effect = lambda: (*camera.read(), {})
+        latest.close.return_value = True
+        shape = Mock()
+        shape.action_map = {'circle': 1}
+        shape.update.return_value = (None, dict(presence=False, card_found=False))
         detector = Mock()
         detector.bird_w, detector.bird_h = 320, 400
         def process(_frame, **_kw):
@@ -142,6 +152,8 @@ class HeadingIntegrationTests(unittest.TestCase):
         detector.process.side_effect = process
         camera_extra = ['--camera-exposure-mode','manual','--camera-exposure-ms','5'] if camera_settings else []
         camera_extra += ['--video-source', video_source]
+        if debug_profile:
+            camera_extra += ['--vision-profile', 'debug']
         table = [[-90,-10,-.2],[-10,10,.1],[10,90,.3]]
         if custom_config:
             camera_extra += ['--steering-angle-wz-table',json.dumps(table),
@@ -160,13 +172,17 @@ class HeadingIntegrationTests(unittest.TestCase):
             patch('attitude_input.AttitudeInput') as attitude_input,
             patch('camera_controls.apply_camera_controls',side_effect=lambda *a: order.append('settings') or camera_report) as camera_controls,
             patch("utils.open_camera", return_value=camera),
+            patch('camera_devices.resolve_devices', side_effect=lambda main, card, main_path=None, card_path=None:
+                  (main_path or main, None)),
             patch("line_detector_v1_warp.LineDetector", return_value=detector),
+            patch('latest_camera.LatestCamera', return_value=latest),
+            patch('shape_detector.ShapeDetector', return_value=shape),
             patch.object(run_policy_vision.time, "monotonic", lambda: clock[0]),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             applied = dict(velocity=[.2,0.,-.5], enabled=True, send_result='written',
                            policy_mode='walking49', monotonic_s=0., step=0)
-            attitude_input.return_value.value = 45.
+            attitude_input.return_value.value = 60. if debug_profile else 45.
             attitude_input.return_value.executed_command.return_value = applied
             if video_error:
                 video.side_effect = MemoryError('recorder unavailable')
@@ -197,11 +213,22 @@ class HeadingIntegrationTests(unittest.TestCase):
                     for line in p.read_text().splitlines()]
             manifests = [json.loads(p.read_text()) for p in Path(tmp).rglob('run_manifest.json')]
             self.assertEqual(manifests[0]['camera_controls'],camera_report)
+            if debug_profile:
+                recorded = manifests[0]['arguments']
+                self.assertEqual(recorded['vision_profile'], 'debug')
+                self.assertEqual(recorded['line_preprocess'], 'legacy')
+                self.assertIsNone(recorded['steering_angle_wz_table'])
+                self.assertIsNone(recorded['heading_regions_cm'])
+                self.assertFalse(recorded['attitude_pitch_correction'])
+                self.assertTrue(all(row['robot_cmd_wz'] == -.5 for row in rows))
+                self.assertTrue(shape.set_camera_pitch_deg.call_args_list)
+                self.assertTrue(all(call.args == (45.,) for call in shape.set_camera_pitch_deg.call_args_list))
             if custom_config:
                 self.assertEqual(manifests[0]['arguments']['steering_angle_wz_table'], table)
                 self.assertEqual(manifests[0]['arguments']['heading_regions_cm'], [[24,26],[28,30]])
             self.assertEqual(order[0],'settings')
-            self.assertEqual(camera_controls.call_args.args[0],'/dev/video0')
+            self.assertEqual(camera_controls.call_args.args[0],
+                             '/dev/robot_main_camera' if debug_profile else '/dev/video0')
             self.assertEqual(camera_controls.call_args.args[1].camera_exposure_mode, 'manual' if camera_settings else 'keep')
         self.assertEqual(len(rows), 42)
         if custom_config:

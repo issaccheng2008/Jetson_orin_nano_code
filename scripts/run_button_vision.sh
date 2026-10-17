@@ -23,6 +23,7 @@ case "${LANE_GAP_FILL:-1}" in
     *) printf 'LANE_GAP_FILL must be 0 or 1\n' >&2; exit 2 ;;
 esac
 command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
+    --vision-profile "$VISION_PROFILE"
     --lane-observation-mode "${LANE_OBSERVATION_MODE:-continuous}" "$gap_flag"
     --lane-strictness-pct "${LANE_STRICTNESS_PCT:-50}"
     --lane-gap-max-cm "${LANE_GAP_MAX_CM:-12}"

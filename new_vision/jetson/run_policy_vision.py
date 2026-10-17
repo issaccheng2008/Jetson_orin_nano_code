@@ -90,6 +90,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     from camera_controls import add_arguments as add_camera_arguments, validate_args as validate_camera_args
     add_camera_arguments(parser)
+    parser.add_argument('--vision-profile', choices=('configured', 'debug'), default='configured',
+                        help='debug uses standalone debug perception/steering defaults; preserves robot wiring and logging')
     parser.add_argument('--recording-root', default='',
                         help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths; '
                              'button mode creates recordings only after the STM32 start button is received.')
@@ -142,6 +144,8 @@ def parse_args():
                         help="Low-pass on the incoming pitch; the gait swing is a "
                              "zero-mean 1.7 Hz oscillation and only the slow lean is "
                              "wanted. 0.4 s leaves 23%% of it (+/-8 deg), 1.2 s 7.8%%")
+    parser.add_argument('--attitude-pitch-correction', action=argparse.BooleanOptionalAction, default=True,
+                        help='Use received attitude for camera geometry; disabling keeps action/execution feedback reception')
     parser.add_argument("--vx", type=float, default=0.2,
                         help="Forward speed with valid detection, m/s")
     parser.add_argument("--max-wz", type=float, default=0.5,
@@ -582,6 +586,8 @@ def parse_args():
     from steering_command_window import add_arguments as add_window_arguments
     add_window_arguments(parser)
     args = parser.parse_args()
+    from vision_debug_profile import apply_debug_profile
+    apply_debug_profile(args, parser)
     if args.log_items is None:
         args.log_items = tuple(name for name in LOG_ITEMS if name != 'video' or args.record_video)
     else:
@@ -808,6 +814,15 @@ def fmt(value, spec):
 
 def main():
     args = parse_args()
+    from vision_debug_profile import runtime_debug_environment
+    with runtime_debug_environment(args):
+        return _run(args)
+
+
+def _run(args):
+    print(f'[vision-profile] {args.vision_profile}; '
+          f'camera attitude correction={args.attitude_pitch_correction}; '
+          'manifest arguments contain effective settings', flush=True)
     from startup_sequence import parse_sequence, StartupSequence
     startup_sequence = StartupSequence(parse_sequence(
         args.startup_sequence, args.startup_first_walk_s, args.vx, args.max_wz))
@@ -1078,9 +1093,11 @@ def main():
               f"bias={args.bias_straight_cm}->{args.bias_cm}"
               f"(dead {args.bias_dead_px}, full {args.bias_gate_px})", flush=True)
         if attitude is not None:
+            geometry_note = ('相机俯角按机身姿态修正' if args.attitude_pitch_correction
+                             else '仅接收动作/执行反馈；视觉使用静态安装角')
             print(f"Body attitude: udp://{args.attitude_bind}:{args.attitude_port}"
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
-                  f" 会被机身俯仰实时修正", flush=True)
+                  f" {geometry_note}", flush=True)
         if args.wz_mode in ("heading", "segments"):
             print(f'[steering-position] recovery={args.position_recovery_cm:g}cm; '
                   f'full_scale={args.position_recovery_full_scale_cm:g}cm; '
@@ -1244,7 +1261,7 @@ def main():
                                 "lane_gap_completion.py", "visible_lane_direction.py", "straight_road_guard.py",
                                 "shape_detector.py", "card_flow.py", "policy_bridge.py", "card_vote_camera.py", "camera_devices.py",
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
-                                "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
+                                "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py", "vision_debug_profile.py",
                                 "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
                                 "line_preprocess.py", "masked_ground.py", "latest_camera.py", "photometric_thresholds.py", "canny_candidates.py",
                                 "recording_options.py", "recording_session.py"):
@@ -1382,7 +1399,9 @@ def main():
                 # 而重摆只属于停车窗口。起跑门控期间机身是被 hold_upright 扳直的、
                 # 姿态广播是活的，那几秒必须喂实时值 —— 机身还在从后仰走回直立的
                 # 路上，拿静态 45° 去算几何就是拿错假设分类。
-                if not cards.tilt_requested:
+                # Debug profile explicitly uses static geometry, while the
+                # feedback channel above continues handling action completion.
+                if args.attitude_pitch_correction and not cards.tilt_requested:
                     effective_pitch = attitude.value
             if shape is not None:
                 shape.set_camera_pitch_deg(effective_pitch)

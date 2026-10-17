@@ -12,6 +12,8 @@ PA1（低电平亮）表示本次 vision 和 connector 已成功启动：vision 
 
 ## 在 Jetson 上安装
 
+本分支的按钮视觉默认使用 `VISION_PROFILE=debug`，视觉及转向参数与 standalone debug 对齐；下面逐项调参说明适用于 `VISION_PROFILE=configured`。启用、有效参数及反馈保留方式见 [视觉 debug 对齐说明](vision_debug_parity_zh.md)。本机 `config/button_start.env` 不会被 Git 覆盖。
+
 以平时运行机器人程序的普通用户登录，仓库放在 `~/jetson_orin_code`。不要给整个安装命令加 `sudo`。
 
 ```bash

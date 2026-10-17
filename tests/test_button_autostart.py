@@ -16,6 +16,12 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def configured_template(self):
+        # These tests exercise independent tuning in configured mode. Debug
+        # profile startup has its own parity tests, including old-config fallback.
+        return (REPO / 'config/button_start.env.example').read_text().replace(
+            'VISION_PROFILE=debug', 'VISION_PROFILE=configured')
+
     def test_log_line_reaches_parser_and_missing_setting_keeps_legacy_behavior(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision
@@ -23,7 +29,7 @@ class ButtonAutostartTests(unittest.TestCase):
             checkout = Path(tmp) / 'robot'
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
-            template = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+            template = '\n'.join(line for line in self.configured_template().splitlines()
                                  if not line.startswith('LOG=')) + '\n'
             for setting, expected in (('LOG="vision control video"\nRECORD_VIDEO=0\n', ('vision', 'control', 'video')),
                                       ('LOG=none\n', ()), ('RECORD_VIDEO=0\n', None)):
@@ -47,7 +53,7 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'config', checkout / 'config',
                             ignore=shutil.ignore_patterns('button_start.env'))
             original = '\n'.join(line for line in
-                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                self.configured_template().splitlines()
                 if not line.startswith(('STOP_COOL_DOWN=', 'CARD_TRIGGER_DIST_CM=')))
             original += '\nCARD_TRIGGER_DIST_CM=17\n'
             for setting, expected in (('', 5.), ('STOP_COOL_DOWN=0.8\n', .8)):
@@ -68,7 +74,7 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'config', checkout / 'config',
                             ignore=shutil.ignore_patterns('button_start.env'))
             original = '\n'.join(line for line in
-                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                self.configured_template().splitlines()
                 if not line.startswith('CARD_FAILURE_COOLDOWN_S=')) + '\n'
             for setting, expected in (('', .5), ('CARD_FAILURE_COOLDOWN_S=0.8\n', .8)):
                 (checkout / 'config/button_start.env').write_text(original + setting)
@@ -85,7 +91,7 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'config', checkout / 'config',
                             ignore=shutil.ignore_patterns('button_start.env'))
             original = '\n'.join(line for line in
-                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                self.configured_template().splitlines()
                 if not line.startswith('CARD_CAMERA_ENABLED=')) + '\n'
             for extra, enabled in (('', False), ('CARD_CAMERA_ENABLED=1\n', True)):
                 (checkout / 'config/button_start.env').write_text(original +
@@ -103,7 +109,7 @@ class ButtonAutostartTests(unittest.TestCase):
             checkout = Path(temporary) / 'robot'
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
-            original = (REPO / 'config/button_start.env.example').read_text()
+            original = self.configured_template()
             (checkout / 'config/button_start.env').write_text(original + "\nWZ_MODE=segments\n"
                 "HEADING_REGIONS_CM=''\nHEADING_NEAR_CM=27\nHEADING_FAR_CM=34\n"
                 "STEERING_ANGLE_WZ_TABLE='[[-90,-10,-0.2],[-10,10,0],[10,90,0.3]]'\n"
@@ -131,7 +137,7 @@ class ButtonAutostartTests(unittest.TestCase):
             checkout=Path(temporary)/'robot'
             shutil.copytree(REPO/'scripts',checkout/'scripts')
             shutil.copytree(REPO/'config',checkout/'config',ignore=shutil.ignore_patterns('button_start.env'))
-            original=(REPO/'config/button_start.env.example').read_text()
+            original=self.configured_template()
             (checkout/'config/button_start.env').write_text(original+'\nSTRAIGHT_ROAD_GUARD=0\n'
                 'STRAIGHT_NEAR_CM=12\nSTRAIGHT_FAR_CM=42\nSTRAIGHT_CONFIRM_S=1.5\n'
                 'STRAIGHT_EXIT_S=0.8\nSTRAIGHT_HOLD_S=4\n')
@@ -149,7 +155,7 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
             original = '\n'.join(line for line in
-                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                self.configured_template().splitlines()
                 if not line.startswith(('STEERING_COMMAND_', 'STEERING_LOSS_FALLBACK_WZ='))) + '\n'
             for extra, expected in [('', (.5, 'lower', .3)),
                     ('STEERING_COMMAND_WINDOW_S=0.7\nSTEERING_COMMAND_MEDIAN=upper\nSTEERING_LOSS_FALLBACK_WZ=-0.25\n',
@@ -170,7 +176,7 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'config', checkout / 'config',
                             ignore=shutil.ignore_patterns('button_start.env'))
             original = '\n'.join(line for line in
-                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                self.configured_template().splitlines()
                 if not line.startswith(('HEADING_FAR_CM=', 'HEADING_REGIONS_CM='))) + '\n'
             for setting, expected in (('', 29), ('HEADING_FAR_CM=30\n', 30)):
                 (checkout / 'config/button_start.env').write_text(original + setting)
@@ -184,7 +190,7 @@ class ButtonAutostartTests(unittest.TestCase):
             checkout = Path(temporary) / 'robot'
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
-            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+            original = '\n'.join(line for line in self.configured_template().splitlines()
                 if not line.startswith('POSITION_')) + '\n'
             defaults = dict(POSITION_RECOVERY_CM='8',
                 POSITION_RECOVERY_FULL_SCALE_CM='12', POSITION_CONFIRM_FRAMES='2')
@@ -206,7 +212,7 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config',
                             ignore=shutil.ignore_patterns('button_start.env'))
-            original = (REPO / 'config/button_start.env.example').read_text()
+            original = self.configured_template()
             for extra in ('', 'WZ_MODE=segments\nCAMERA_EXPOSURE_MODE=manual\nCAMERA_EXPOSURE_MS=5\n',
                           'POSITION_GAIN=2\nSHAPE_CUE_SCORE_MIN=2\n', 'LINE_PREPROCESS=legacy\n'):
                 with self.subTest(config=extra):
@@ -224,7 +230,7 @@ class ButtonAutostartTests(unittest.TestCase):
             checkout = Path(temporary) / 'robot'
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
-            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+            original = '\n'.join(line for line in self.configured_template().splitlines()
                 if not line.startswith(('CAMERA_EXPOSURE_', 'CAMERA_BRIGHTNESS=', 'CAMERA_CONTRAST=',
                     'CAMERA_SATURATION=', 'CAMERA_SHARPNESS=', 'CAMERA_WHITE_BALANCE_', 'CAMERA_POWER_LINE_'))) + '\n'
             for extra in ('', 'CAMERA_EXPOSURE_MODE=manual\nCAMERA_EXPOSURE_MS=5\nCAMERA_BRIGHTNESS=-2\n'
@@ -246,7 +252,7 @@ class ButtonAutostartTests(unittest.TestCase):
             checkout = Path(temporary) / 'robot'
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
-            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+            original = '\n'.join(line for line in self.configured_template().splitlines()
                 if not line.startswith('STARTUP_FIRST_WALK_S=')) + '\n'
             for value in (None, '0.3', '1.0'):
                 (checkout / 'config/button_start.env').write_text(original+(f'STARTUP_FIRST_WALK_S={value}\n' if value else ''))
@@ -265,7 +271,7 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
             original = '\n'.join(line for line in
-                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                self.configured_template().splitlines()
                 if not line.startswith('VIDEO_SOURCE=')) + '\n'
             for extra, expected in [('', 'bird_pair'), ('VIDEO_SOURCE=binary\n', 'binary'), ('VIDEO_SOURCE=camera\n', 'camera')]:
                 (checkout / 'config/button_start.env').write_text(original + extra)
@@ -278,7 +284,7 @@ class ButtonAutostartTests(unittest.TestCase):
             checkout = Path(temporary) / 'robot'
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
-            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+            original = '\n'.join(line for line in self.configured_template().splitlines()
                 if not line.startswith(('RECORD_VIDEO=', 'VIDEO_'))) + '\n'
             for extra, flag, fps, width in (('', '--record-video', '10', '960'),
                     ('RECORD_VIDEO=0\nVIDEO_FPS=5\nVIDEO_WIDTH=640\n', '--no-record-video', '5', '640')):
@@ -293,7 +299,7 @@ class ButtonAutostartTests(unittest.TestCase):
             checkout = Path(temporary) / 'robot'
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
-            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+            original = '\n'.join(line for line in self.configured_template().splitlines()
                                  if not line.startswith(('COMMAND_MIN_HOLD_S=', 'STEERING_'))) + '\n'
             for extra, expected in (('', ('0', 'legacy')), ('COMMAND_MIN_HOLD_S=0.23\nSTEERING_FILTER_MODE=active\nSTEERING_FILTER_ALGORITHM=ema\nSTEERING_FILTER_MIN_HZ=1\nSTEERING_FILTER_ROBUST_TAU_S=0.7\nSTEERING_LOSS_MAX_S=0.6\nSTEERING_SEGMENT_FALLBACK=0\n', ('0.23','active'))):
                 (checkout / 'config/button_start.env').write_text(original+extra)
@@ -317,7 +323,7 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config',
                             ignore=shutil.ignore_patterns('button_start.env'))
-            old_config = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+            old_config = '\n'.join(line for line in self.configured_template().splitlines()
                                    if not line.startswith('WZ_BIAS=')) + '\n'
             for bias in (None, '0.1', '-0.1'):
                 with self.subTest(bias=bias):
@@ -382,7 +388,7 @@ class ButtonAutostartTests(unittest.TestCase):
             config = checkout / 'config/button_start.env'
             # Copy the real template but omit the new setting to represent an
             # existing installed file, which git pull deliberately preserves.
-            old_config = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+            old_config = '\n'.join(line for line in self.configured_template().splitlines()
                                    if not line.startswith('WZ_MODE=')) + '\n'
             for mode in (None, 'heading', 'segments', 'segment'):
                 with self.subTest(mode=mode):
@@ -403,7 +409,7 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'scripts', checkout / 'scripts')
             shutil.copytree(REPO / 'config', checkout / 'config',
                             ignore=shutil.ignore_patterns('button_start.env'))
-            old_config = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+            old_config = '\n'.join(line for line in self.configured_template().splitlines()
                                    if not line.startswith('LOST_HOLD_S=')) + '\n'
             for hold in (None, '0.5'):
                 with self.subTest(hold=hold):

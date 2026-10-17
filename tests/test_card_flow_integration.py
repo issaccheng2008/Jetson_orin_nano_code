@@ -32,7 +32,7 @@ class CardFlowIntegrationTests(unittest.TestCase):
 
     def replay(self, labels, seconds=6., *, distance=30, cooldown=30, failure=.5,
                pose_delay=.2, action_delay=3., present=lambda t: True,
-               quad=None, reach=.9, startup_args=()):
+               quad=None, reach=.9, startup_args=(), pitch=45.):
         frame = np.zeros((720, 1280, 3), np.uint8)
         clock = [0.]
         calls, detections = [], []
@@ -60,10 +60,12 @@ class CardFlowIntegrationTests(unittest.TestCase):
             return None, dict(presence=present(clock[0]), presence_cy_frac=reach,
                               card_found=quad is not None, quad_work=quad, shape=name)
         shape.update.side_effect = update
-        attitude = SimpleNamespace(value=45., last_packet_s=0., card_tilt_status_seen=True,
+        attitude = SimpleNamespace(value=pitch, last_packet_s=0., card_tilt_status_seen=True,
                                    card_tilt_event_id=0, card_tilt_done=False)
         state = dict(tilt=False, start=0., restore=0, restored_at=0., action=0, done_at=0.)
+        self.feedback_polls = 0
         def poll():
+            self.feedback_polls += 1
             attitude.last_packet_s = clock[0]
             attitude.card_tilt_event_id = state['tilt_id'] if state['tilt'] else 0
             attitude.card_tilt_done = state['tilt'] and clock[0] >= state['start']+pose_delay
@@ -104,7 +106,28 @@ class CardFlowIntegrationTests(unittest.TestCase):
             attitude.close = lambda: None
             client.return_value.publish.side_effect = publish
             self.assertEqual(run_policy_vision.main(), 0)
+        self.shape_calls = shape
         return [row for row in calls if row[0] <= seconds], detections, output.getvalue()
+
+    def test_static_geometry_keeps_receiving_card_and_execution_feedback(self):
+        for correction, expected in ((True, 60.), (False, 45.)):
+            with self.subTest(correction=correction):
+                flags = () if correction else ('--no-attitude-pitch-correction',)
+                self.replay([], seconds=1., present=lambda t: False, pitch=60., startup_args=flags)
+                self.assertGreater(self.feedback_polls, 0)
+                self.assertTrue(self.shape_calls.set_camera_pitch_deg.call_args_list)
+                self.assertTrue(all(call.args == (expected,)
+                    for call in self.shape_calls.set_camera_pitch_deg.call_args_list))
+
+    def test_static_geometry_completes_card_action_and_resumes_walking(self):
+        calls, _, _ = self.replay(['circle']*6, seconds=10., pitch=60.,
+            startup_args=('--no-attitude-pitch-correction',))
+        event_at = next(t for t, *_, kw in calls if kw.get('event_id'))
+        resumed = next(t for t, vx, *_ in calls if t > event_at and vx > 0)
+        self.assertGreaterEqual(resumed, event_at+3.)
+        self.assertGreater(self.feedback_polls, 0)
+        self.assertTrue(all(call.args == (45.,)
+            for call in self.shape_calls.set_camera_pitch_deg.call_args_list))
 
     def test_every_walking_frame_checks_presence_even_during_cooldown(self):
         calls, detections, _ = self.replay([], seconds=4.)

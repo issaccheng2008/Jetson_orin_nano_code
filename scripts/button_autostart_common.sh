@@ -10,8 +10,9 @@ load_button_config() {
         return 1
     fi
     # User-owned configuration is trusted shell syntax, not a systemd EnvironmentFile.
-    # Older installed configs lack this setting; preserve their heading behavior.
+    # Older installed configs default to debug perception/steering on this branch.
     WZ_MODE=heading
+    VISION_PROFILE=debug
     SINGLE_BOUNDARY_TRACKING=1
     LINE_PREPROCESS=legacy
     LINE_ADAPTIVE_C=-12
