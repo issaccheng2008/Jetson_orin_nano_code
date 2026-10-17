@@ -118,7 +118,7 @@ Vision 异常退出后，systemd 在 5 秒后重启并重新等待本次运行�
 
 相机曝光和画质也在同一配置文件调整。固定 5 ms 使用 `CAMERA_EXPOSURE_MODE=manual`、`CAMERA_EXPOSURE_MS=5`；亮度、对比度、饱和度、锐度、白平衡和抗闪烁设置详见 [相机曝光与画质参数](相机曝光与画质参数.md)。默认 keep/空不会改变现有相机状态。
 
-lane 分支收到本次 PC2 按钮事件后，才创建 `records/hz_test/日期/test_时间_唯一编号/` 并按 `LOG` 选择保存数据；按钮前不生成测试文件。日期无效时最多等待 60 秒恢复，仍无效则退出且不启动步态，详见 [测试数据每日归档](测试数据每日归档.md)。副摄像头默认禁用，在 `config/button_start.env` 设置 `CARD_CAMERA_ENABLED=1` 可恢复已保存的双摄配置。服务启动和等待按钮的控制台提示仍由 journal 保存。
+收到本次 PC2 按钮事件后，才创建 `records/hz_finalltest/1/`、`2/` 等递增编号目录，并按 `LOG` 选择保存数据；按钮前不生成测试文件。`records/hz_finalltest/test_counter.txt` 保存最后分配的编号，重启后继续递增；创建记录不再等待校时，日期只作参考。详见 [测试记录编号与归档](测试数据每日归档.md)。副摄像头默认禁用，在 `config/button_start.env` 设置 `CARD_CAMERA_ENABLED=1` 可恢复已保存的双摄配置。服务启动和等待按钮的控制台提示仍由 journal 保存。
 
 只需修改上位机本地 `config/button_start.env` 的一行：
 

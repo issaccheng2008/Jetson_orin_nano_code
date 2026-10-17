@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import threading
 import tempfile
+from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -167,6 +168,20 @@ class StartupSerialTests(unittest.TestCase):
 
 
 class ButtonVisionIntegrationTests(unittest.TestCase):
+    def test_epoch_clock_does_not_delay_button_or_duplicate_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with (patch('recording_session.datetime') as clock,
+                  patch('time.sleep', side_effect=lambda seconds:
+                        self.assertLess(seconds, 1., 'clock wait on button path'))):
+                clock.now.return_value = datetime(1970, 1, 1, tzinfo=timezone.utc)
+                launcher, _, order, _ = self.run_scenario(card=True, press_at=6,
+                    extra_args=('--recording-root', tmp, '--log-items', 'vision'))
+            self.assertEqual(order[:2], ['serial_closed', 'gait_started'])
+            launcher.start.assert_called_once()
+            self.assertEqual(launcher.recording_directory, Path(tmp).resolve() / '1')
+            self.assertEqual((Path(tmp) / 'test_counter.txt').read_text().strip(), '1')
+            self.assertEqual(len(list(Path(tmp).glob('*/recording_manifest.json'))), 1)
+
     def run_scenario(self, card, press_at=None, walk_s=None, sequence=None,
                      extra_args=(), on_poll=None, on_launch=None, connector_ready=True):
         clock, reads = [0.0], [0]
@@ -284,7 +299,7 @@ class ButtonVisionIntegrationTests(unittest.TestCase):
                         extra_args=('--recording-root', str(root), '--record-video'),
                         on_poll=check_waiting, on_launch=check_launch)
                 session = launcher.recording_directory
-                self.assertEqual(len(list(root.glob('*/*/recording_manifest.json'))), 1)
+                self.assertEqual(len(list(root.glob('*/recording_manifest.json'))), 1)
                 rows = [json.loads(row) for row in next(session.glob(
                     'vision/run_*/line_frames.jsonl')).read_text(encoding='utf-8').splitlines()]
                 self.assertTrue(rows)

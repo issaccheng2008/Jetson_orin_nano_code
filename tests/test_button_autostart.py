@@ -94,7 +94,7 @@ class ButtonAutostartTests(unittest.TestCase):
                                                    '--dry-run', cwd=checkout))
                 self.assertEqual(command[command.index('--card-camera') + 1], '1' if enabled else '-1')
                 self.assertEqual('--card-camera-device' in command, enabled)
-                self.assertTrue(command[command.index('--recording-root') + 1].endswith('/records/hz_test'))
+                self.assertTrue(command[command.index('--recording-root') + 1].endswith('/records/hz_finalltest'))
 
     def test_array_and_near_distance_config_reaches_real_parser(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))

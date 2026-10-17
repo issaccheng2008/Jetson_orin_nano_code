@@ -91,7 +91,7 @@ def parse_args():
     from camera_controls import add_arguments as add_camera_arguments, validate_args as validate_camera_args
     add_camera_arguments(parser)
     parser.add_argument('--recording-root', default='',
-                        help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths; '
+                        help='Group all test recordings under ROOT/number using persistent test_counter.txt; no clock wait. Overrides individual dump paths; '
                              'button mode creates recordings only after the STM32 start button is received.')
     parser.add_argument('--log-items', type=parse_log_items, default=None,
                         help='LOG selection: space/comma separated vision control video motor policy shape loss; '
