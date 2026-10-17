@@ -21,6 +21,8 @@ LEFT_OFFSET_CONFIRM_FRAMES = 2
 
 
 class HeadingSteeringController:
+    _supports_position_blend = True
+
     def __init__(self, inner, lookahead_cm=50.0, right_tolerance_deg=12.0,
                  left_tolerance_deg=4.0, full_scale_deg=20.0, max_step=0.5,
                  allow_right=True, corridor_cm=8.0,
@@ -28,11 +30,22 @@ class HeadingSteeringController:
                  straight_wz=0.0, min_hold_s=COMMAND_HOLD_S, filter_config=None,
                  recovery_config=None, segment_fallback=False,
                  position_recovery_cm=8.0, position_recovery_full_scale_cm=12.0,
-                 position_confirm_frames=2, angle_wz_table=None):
+                 position_confirm_frames=2, angle_wz_table=None,
+                 position_gain=1.0, position_dead_cm=2.0,
+                 position_lookahead_cm=50.0, position_max_deg=12.0,
+                 steering_position_blend_weight=0.3):
         from steering_recovery import TurnHistory
         self._turn_history = (TurnHistory(recovery_config, straight_wz*inner.yaw_sign)
                               if recovery_config is not None else None)
         self.segment_fallback = segment_fallback
+        from steering_config import validate_position_blend
+        validate_position_blend(steering_position_blend_weight, position_gain,
+                                position_dead_cm, position_lookahead_cm, position_max_deg)
+        self.steering_position_blend_weight = float(steering_position_blend_weight)
+        self.position_gain = float(position_gain)
+        self.position_dead_cm = float(position_dead_cm)
+        self.position_lookahead_cm = float(position_lookahead_cm)
+        self.position_max_deg = float(position_max_deg)
         position_values = (position_recovery_cm,
                            position_recovery_full_scale_cm, position_confirm_frames)
         if (not all(math.isfinite(v) for v in position_values)
@@ -92,11 +105,14 @@ class HeadingSteeringController:
         if not self.left_levels or (self.allow_right and not self.right_levels):
             raise ValueError("wz caps must leave at least one level in each enabled direction")
         self.filter_config = filter_config
+        self._position_blend_active = (self._supports_position_blend
+            and filter_config is not None and self.angle_wz_table is not None)
         self._observation_filter = None
         if filter_config is not None:
             from steering_filter import GeometryFilter, validate_ladder
             if filter_config.algorithm != 'none':
-                self._observation_filter = GeometryFilter(filter_config)
+                self._observation_filter = GeometryFilter(filter_config,
+                    filter_demand=self._position_blend_active)
             if self.angle_wz_table is None:
                 validate_ladder(self.left_levels, self._cap(+1), self.full_scale_deg, filter_config.hysteresis_deg)
                 validate_ladder(self.right_levels, self._cap(-1), self.full_scale_deg, filter_config.hysteresis_deg)
@@ -377,6 +393,23 @@ class HeadingSteeringController:
         filtered_heading = median(s[2] for s in self._samples[-3:])
         if filtered_geometry is not None:
             filtered_near, _, filtered_heading, _, _ = filtered_geometry
+        table_demand = demand
+        if self._position_blend_active:
+            filtered_demand = (filtered_geometry[3] if filtered_geometry is not None
+                               else median(s[1] for s in self._samples[-3:]))
+            position_available = not (source == 'visible_line_direction'
+                                      and not debug.get('position_valid', True))
+            error = math.copysign(max(0., abs(filtered_near)-self.position_dead_cm), filtered_near)
+            correction = (-self.position_gain*math.degrees(math.atan2(error, self.position_lookahead_cm))
+                          if position_available else 0.)
+            correction = max(-self.position_max_deg, min(self.position_max_deg, correction))
+            combined = filtered_demand + correction
+            table_demand = filtered_demand + self.steering_position_blend_weight*correction
+            self.diagnostics.update(steering_filtered_demand_deg=filtered_demand,
+                steering_position_correction_deg=correction,
+                steering_combined_demand_deg=combined,
+                steering_position_blend_weight=self.steering_position_blend_weight,
+                steering_blended_demand_deg=table_demand)
         if self.filter_config is not None and self.filter_config.algorithm == 'robust':
             # Heading trends and spatial confirmation use robust observations.
             self._samples[-1] = (self._clock, demand, filtered_heading, filtered_near)
@@ -399,8 +432,8 @@ class HeadingSteeringController:
             steering_position_confirm_frames=self._position_frames,
             steering_position_recovery_cm=self.position_recovery_cm)
         if self.angle_wz_table is not None:
-            self.diagnostics.update(steering_table_input_deg=demand,
-                                    steering_table_wz=self._map_angle(demand)*self.yaw_sign)
+            self.diagnostics.update(steering_table_input_deg=table_demand,
+                                    steering_table_wz=self._map_angle(table_demand)*self.yaw_sign)
         self.diagnostics.update(steering_left_offset_confirmed=left_offset_confirmed,
                                 steering_left_offset_release_cm=LEFT_OFFSET_RELEASE_CM)
         self.inner.last_err_eff = demand  # Units explicitly renamed in entry-point logging.
@@ -410,9 +443,11 @@ class HeadingSteeringController:
             self.diagnostics.update(steering_reason="minimum_hold",
                 command_hold_remaining_s=self.turn_left, steering_applied_wz=self._command[1])
             return self._command
-        candidate, decision = self._decision(demand, filtered_near, filtered_heading)
+        candidate, decision = self._decision(table_demand, filtered_near, filtered_heading)
         if self.angle_wz_table is not None:
-            # Valid-frame table output follows this frame's raw target bearing.
+            if self._position_blend_active:
+                decision = 'blended_demand_table'
+            # Direct lookup: filtering/blending never reintroduces level hysteresis.
             # Stops, missing-geometry recovery and downstream command windows
             # still own their independent timing and safety policies.
             self.diagnostics.update(steering_decision=decision, steering_corridor_cm=self.corridor_cm)

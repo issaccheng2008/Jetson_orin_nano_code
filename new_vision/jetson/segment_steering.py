@@ -23,10 +23,17 @@ MAX_BEARING_JUMP_DEG = 10.0
 
 
 class SegmentSteeringController(HeadingSteeringController):
+    _supports_position_blend = False
+
     def __init__(self, inner, segment_regions_cm=SEGMENTS_CM, **options):
         self.segment_regions_cm = validate_segment_regions(segment_regions_cm)
         super().__init__(inner, **options)
         self.shadow = HeadingSteeringController(deepcopy(inner), **options)
+        # The segment comparison retains its original raw target-angle behavior.
+        self.shadow._position_blend_active = False
+        if self.shadow._observation_filter is not None:
+            self.shadow._observation_filter.filter_demand = False
+            self.shadow._observation_filter.reset()
         self._segment_depth = self.lookahead_cm
         self._confirmation = 0
         self._previous_target = None

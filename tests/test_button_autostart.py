@@ -179,6 +179,19 @@ class ButtonAutostartTests(unittest.TestCase):
                 with patch.dict(os.environ, {}, clear=True), patch('sys.argv', command[2:]):
                     self.assertEqual(run_policy_vision.parse_args().heading_far_cm, expected)
 
+    def test_position_blend_weight_defaults_and_override_reach_cli(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('STEERING_POSITION_BLEND_WEIGHT=')) + '\n'
+            for override, expected in (('', '0.3'), ('STEERING_POSITION_BLEND_WEIGHT=0.8\n', '0.8')):
+                (checkout / 'config/button_start.env').write_text(original + override)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertEqual(command[command.index('--steering-position-blend-weight')+1], expected)
+                self.assertEqual(command[command.index('--steering-command-window-s')+1], '0.5')
+
     def test_position_defaults_and_all_configured_values_reach_cli(self):
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary) / 'robot'
@@ -186,9 +199,9 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
             original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
                 if not line.startswith('POSITION_')) + '\n'
-            defaults = dict(POSITION_RECOVERY_CM='8',
+            defaults = dict(POSITION_GAIN='1', POSITION_DEAD_CM='2', POSITION_LOOKAHEAD_CM='50', POSITION_MAX_DEG='12', POSITION_RECOVERY_CM='8',
                 POSITION_RECOVERY_FULL_SCALE_CM='12', POSITION_CONFIRM_FRAMES='2')
-            configured = dict(POSITION_RECOVERY_CM='6',
+            configured = dict(POSITION_GAIN='2', POSITION_DEAD_CM='1', POSITION_LOOKAHEAD_CM='40', POSITION_MAX_DEG='8', POSITION_RECOVERY_CM='6',
                 POSITION_RECOVERY_FULL_SCALE_CM='3', POSITION_CONFIRM_FRAMES='3')
             for overrides in ({}, configured):
                 (checkout / 'config/button_start.env').write_text(original +

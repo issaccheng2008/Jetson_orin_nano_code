@@ -144,11 +144,14 @@ def load_log(path):
                 status = '未知/过期'
             host_ns = (row['host_time_ns'] if type(row.get('host_time_ns')) is int
                        else int(host) if host is not None else None)
+            table_input = finite(measurement.get('steering_table_input_deg'))
+            if table_input is None:
+                table_input = finite(measurement.get('steering_demand_deg'))
             frames.append(VisionFrame(frame, host_ns,
                 elapsed, heading, filtered, state, finite(row.get('wz')), robot_wz, status,
                 finite(measurement.get('rowhdg_deg')),
                 measurement.get('rowhdg_valid') if type(measurement.get('rowhdg_valid')) is bool else None,
-                finite(measurement.get('steering_demand_deg'))
+                table_input
                 if state not in ('丢线', '起步等待') else None))
     if not frames:
         raise ValueError(f'日志没有有效的视觉帧（跳过 {skipped} 行）：{path}')

@@ -5,6 +5,14 @@ import math
 DEFAULT_SEGMENT_REGIONS_CM = ((20., 32.), (32., 44.), (44., 56.))
 
 
+def validate_position_blend(weight, gain, dead_cm, lookahead_cm, max_deg):
+    if (not all(math.isfinite(v) for v in (weight, gain, dead_cm, lookahead_cm, max_deg))
+            or not 0 <= weight <= 1 or gain < 0 or dead_cm < 0
+            or lookahead_cm <= 0 or max_deg < 0):
+        raise ValueError('position blend settings must be finite: weight in [0,1], '
+                         'gain/deadband/cap >= 0, lookahead > 0')
+
+
 def _rows(value, columns, name):
     try:
         if isinstance(value, str):
@@ -43,7 +51,7 @@ def validate_angle_wz_table(value, cap=.5, right_cap=None, allow_right=True):
 
 
 def table_level(table, demand):
-    """Use current raw target bearing; bins are [lo,hi), endpoints saturate."""
+    """Look up a signed input angle; bins are [lo,hi), endpoints saturate."""
     index = next((i for i, (_, hi, _) in enumerate(table) if demand < hi-1e-9), len(table)-1)
     return table[index][2]
 

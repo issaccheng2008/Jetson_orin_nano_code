@@ -37,6 +37,7 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --startup-first-walk-s "$STARTUP_FIRST_WALK_S"
     --startup-sequence "$STARTUP_SEQUENCE"
     --steering-filter-mode "$STEERING_FILTER_MODE" --steering-filter-algorithm "$STEERING_FILTER_ALGORITHM"
+    --steering-position-blend-weight "$STEERING_POSITION_BLEND_WEIGHT"
     --steering-filter-min-hz "$STEERING_FILTER_MIN_HZ" --steering-filter-max-hz "$STEERING_FILTER_MAX_HZ"
     --steering-filter-beta "$STEERING_FILTER_BETA" --steering-filter-derivative-hz "$STEERING_FILTER_DERIVATIVE_HZ"
     --steering-filter-robust-tau-s "$STEERING_FILTER_ROBUST_TAU_S"
@@ -107,7 +108,8 @@ for setting in HEADING_REGIONS_CM HEADING_NEAR_CM HEADING_FAR_CM STEERING_ANGLE_
         command+=("--${flag//_/-}" "${!setting}")
     fi
 done
-position_names=(POSITION_RECOVERY_CM POSITION_RECOVERY_FULL_SCALE_CM POSITION_CONFIRM_FRAMES)
+position_names=(POSITION_GAIN POSITION_DEAD_CM POSITION_LOOKAHEAD_CM POSITION_MAX_DEG
+                POSITION_RECOVERY_CM POSITION_RECOVERY_FULL_SCALE_CM POSITION_CONFIRM_FRAMES)
 for setting in "${position_names[@]}"; do
     flag="${setting,,}"
     command+=("--${flag//_/-}" "${!setting}")

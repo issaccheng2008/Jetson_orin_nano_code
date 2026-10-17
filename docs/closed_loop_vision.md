@@ -41,6 +41,13 @@ Only the policy process should open the STM32 serial device.
 
 ## Timed yaw windows (heading and segments)
 
+Active heading steering with an angle table first blends the filtered target
+bearing F and the position-corrected bearing C=F+P. Set
+`STEERING_POSITION_BLEND_WEIGHT=0.3` for `0.7*F+0.3*C`; this is independent of
+the downstream time window. See [F/C configuration](steering_fc_angle_blend_zh.md)
+for modes, endpoints, and diagnostic fields. Filtered lane heading is a separate
+measurement and is not F.
+
 With `STEERING_COMMAND_WINDOW_S=0.5`, each completed visual frame sends a
 candidate `wz` mapped from the filtered steering demand, including geometric
 protection and the straight-road restriction. The packet includes

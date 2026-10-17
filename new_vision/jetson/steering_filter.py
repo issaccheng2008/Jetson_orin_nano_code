@@ -112,14 +112,17 @@ def make_angle_filter(config):
 
 
 class GeometryFilter:
-    """Smooth heading/near position while preserving the current target bearing."""
-    def __init__(self, config):
+    """Smooth geometry, optionally including the independent target bearing."""
+    def __init__(self, config, filter_demand=False):
         self.config = config
+        self.filter_demand = filter_demand
         self.reset()
 
     def reset(self):
         self.source = self.last_time = None
         self.heading = make_angle_filter(self.config)
+        if self.filter_demand:
+            self.demand = make_angle_filter(self.config)
         self.near = (Identity() if self.config.algorithm == 'none'
                      else LowPass(self.config.position_tau_s))
 
@@ -134,7 +137,7 @@ class GeometryFilter:
         dt = now-self.last_time if self.last_time is not None else 0.
         self.source, self.last_time = source, now
         return (self.near.update(near, dt), z, self.heading.update(heading, dt),
-                demand, source)
+                self.demand.update(demand, dt) if self.filter_demand else demand, source)
 
 
 def validate_ladder(levels, cap, full_scale, width):

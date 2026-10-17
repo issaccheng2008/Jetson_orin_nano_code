@@ -42,7 +42,7 @@ Linux 桌面若缺少 Tkinter，安装系统包 `python3-tk`。此工具是桌�
 | rowhdg 原始角（°） | `measurement.rowhdg_deg`，与实时 Close+Fit 的 `rowhdg` 使用同一个逐行拟合值，日志保存未取整的精度；`rowhdg_valid=false` 时仍显示原数值并标注“无效” |
 | 偏转角（°） | `measurement.steering_heading_deg`，回退到有效 `heading_control_deg` 或有效单边 `single_edge_heading_deg`；正值表示前方线路向左 |
 | 滤波后偏转角（°） | `measurement.steering_filtered_heading_deg`，兼容 `steering_filter_heading_deg`；直接显示录制值，不重新计算滤波 |
-| 查表目标角（°） | `measurement.steering_demand_deg`，由原始航向与横向位置计算的前视目标方向；保留日志原始精度，UI 显示三位小数。缺失时显示“未记录”，丢线/起步等待时不显示残留角度 |
+| 查表目标角（°） | 优先读取 `measurement.steering_table_input_deg`，启用 F/C 加权时为实际加权输入；旧日志缺少该字段时回退到 `steering_demand_deg`。保留录制精度，UI 显示三位小数；丢线/起步等待时不显示残留角度 |
 | 识别线的情况 | 双线、左单线、右单线、单线、丢线、起步等待或未记录 |
 | vision 输出角速度（rad/s） | 顶层 `wz`，vision 发给 connector 的指令 |
 | 实机采用角速度（rad/s） | `robot_cmd_wz`，来自策略进程反馈的实际采用指令；经过 connector、指令保持、动作接管等环节，并确认串口写出且电机使能。它不是 IMU 测得的身体旋转速度 |
@@ -53,7 +53,7 @@ Linux 桌面若缺少 Tkinter，安装系统包 `python3-tk`。此工具是桌�
 
 保持运行配置 `LOG="vision"` 即可。更新后的 `run_policy_vision.py` 会把现有姿态/策略反馈通道里的实机指令快照一并写入 vision JSONL，不需要启用 control 或 video 日志。新增字段为 `robot_cmd_wz`、`robot_cmd_status`、反馈时间、策略步号、模式及使能状态；`rowhdg_deg`、`rowhdg_valid` 记录在 `measurement` 中。headless 和实时窗口模式均记录相同字段。
 
-`measurement.steering_demand_deg` 同样包含在 vision 日志中，无有效方向时记录 null。配置 `STEERING_ANGLE_WZ_TABLE` 时，普通有效帧直接以此角度查表：已删除目标方向历史滤波、额外位置修正及其 `POSITION_GAIN`、`POSITION_DEAD_CM`、`POSITION_LOOKAHEAD_CM`、`POSITION_MAX_DEG` 参数。查表结果不再被角度滞回、预测刹车或位置分支改写；航向滤波仍单独记录。外部停机、丢线补偿、直道限制、配置的指令保持及 connector 的中位数窗口仍生效，实机反馈可能晚于视觉候选变化。
+`measurement.steering_demand_deg` 保留原始目标角。启用 heading 角度表和 active 滤波时，实际查表输入为 F/C 加权后的 `steering_table_input_deg`；F 是滤波后的目标角，C 是 F 加额外位置修正。默认 F 占 0.7、C 占 0.3，详见 [F/C 查表角加权](steering_fc_angle_blend_zh.md)。查表后的角度滞回、预测刹车保持关闭；外部停机、丢线补偿、直道限制、配置的指令保持及 connector 中位数窗口仍生效。界面的“滤波后偏转角”仍是线路方向，不是 F。
 
 旧日志仍展示原来记录的目标角和命令，不会按新规则重新计算。因此旧日志的“查表目标角”可能与当时经过滤波和位置修正后生成的命令不直接对应。
 

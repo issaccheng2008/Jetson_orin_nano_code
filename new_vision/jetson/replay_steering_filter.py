@@ -53,8 +53,14 @@ def replay(rows, arguments, filter_config, *, recovery_config=_FROM_MANIFEST,
         straight_wz=get('heading_straight_wz',0.), min_hold_s=0., filter_config=filter_config,
         recovery_config=recovery_config, segment_fallback=segment_fallback,
         position_recovery_cm=get('position_recovery_cm', 0.),
+        steering_position_blend_weight=get('steering_position_blend_weight', .3),
+        position_gain=get('position_gain', 1.), position_dead_cm=get('position_dead_cm', 2.),
+        position_lookahead_cm=get('position_lookahead_cm', 50.), position_max_deg=get('position_max_deg', 12.),
         position_recovery_full_scale_cm=get('position_recovery_full_scale_cm', 12.),
         position_confirm_frames=get('position_confirm_frames', 2))
+    if 'steering_position_blend_weight' not in arguments:
+        # Pre-feature table recordings used raw bearing even with a geometry filter.
+        controller._position_blend_active = False
     result, previous = [], None
     for row in rows:
         now = float(row['process_monotonic_s'])
@@ -78,6 +84,12 @@ def replay(rows, arguments, filter_config, *, recovery_config=_FROM_MANIFEST,
             new_vx=vx, new_wz=wz, raw_heading_deg=diag.get('steering_heading_deg'),
             filtered_heading_deg=diag.get('steering_filter_heading_deg',diag.get('steering_filtered_heading_deg')),
             raw_demand_deg=diag.get('steering_demand_deg'),
+            filtered_demand_deg=diag.get('steering_filtered_demand_deg'),
+            position_correction_deg=diag.get('steering_position_correction_deg'),
+            combined_demand_deg=diag.get('steering_combined_demand_deg'),
+            position_blend_weight=diag.get('steering_position_blend_weight'),
+            blended_demand_deg=diag.get('steering_blended_demand_deg'),
+            table_input_deg=diag.get('steering_table_input_deg'),
             geometry_source=diag.get('steering_heading_source'),
             decision=diag.get('steering_decision'), reason=diag.get('steering_reason'),
             braked=diag.get('steering_braked'), compute_us=elapsed_us))
@@ -160,8 +172,8 @@ def main():
     args.output_dir.mkdir(parents=True,exist_ok=True)
     summary = {name:summarize(result) for name,result in variants.items()}
     summary['semantics'] = ('Current controller on recorded observations, visual candidates only; '
-        'not an exact historical-controller reproduction. Demand smoothing and additive position correction '
-        'have been removed; differences from older recordings are expected. No closed-loop trajectory, '
+        'not an exact historical-controller reproduction. New manifests restore active heading-table '
+        'F+w*P blending; manifests without its setting retain raw table demand. No closed-loop trajectory, '
         'connector bias, watchdog or model hold simulation.')
     summary['recording_manifest'] = str(args.manifest or args.line_frames.with_name('run_manifest.json'))
     summary['filter_settings'] = config.__dict__

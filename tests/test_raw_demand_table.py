@@ -1,4 +1,4 @@
-"""Configured tables consume current geometry, without demand-history corrections."""
+"""Legacy configured tables retain current raw geometry without blending."""
 import math
 from pathlib import Path
 import sys
@@ -17,7 +17,7 @@ TABLE = [[-90, -45, -.1], [-45, -15, 0], [-15, 15, .1],
 class RawDemandTableTests(unittest.TestCase):
     def make(self, **options):
         return HeadingSteeringController(SteeringController(), angle_wz_table=TABLE,
-            filter_config=FilterConfig(algorithm='robust'), **options)
+            filter_config=None, **options)
 
     def test_frame_839_geometry_maps_to_point_one_after_larger_demands(self):
         c = self.make()
@@ -37,7 +37,7 @@ class RawDemandTableTests(unittest.TestCase):
     def test_each_frame_uses_exact_table_boundary_without_history_or_prediction(self):
         for yaw in (-1, 1):
             c = HeadingSteeringController(SteeringController(yaw_sign=yaw),
-                angle_wz_table=TABLE, filter_config=FilterConfig(algorithm='robust'))
+                angle_wz_table=TABLE, filter_config=None)
             for angle, expected in ((70., .5), (50., .3), (20., .22),
                     (15., .22), (14.9, .1), (-15., .1), (-15.1, 0.),
                     (-45., 0.), (-45.1, -.1), (0., .1)):

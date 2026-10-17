@@ -436,7 +436,11 @@ def parse_args():
     parser.add_argument("--heading-straight-wz", type=float, default=0.0,
                         help="heading mode: the wz published when no correction is "
                              "needed; must stay below the smallest turn level")
-    for name, default in (('recovery-cm', 8.), ('recovery-full-scale-cm', 12.)):
+    parser.add_argument('--steering-position-blend-weight', type=float,
+                        default=os.getenv('STEERING_POSITION_BLEND_WEIGHT', '0.3'),
+                        help='Active heading angle table: C weight in (1-w)*F+w*C; finite [0,1]')
+    for name, default in (('gain', 1.), ('dead-cm', 2.), ('lookahead-cm', 50.), ('max-deg', 12.),
+                          ('recovery-cm', 8.), ('recovery-full-scale-cm', 12.)):
         parser.add_argument('--position-'+name, type=float, default=default,
                             help='heading/segments independent near-position '+name)
     parser.add_argument('--position-confirm-frames', type=int, default=2,
@@ -602,6 +606,12 @@ def parse_args():
                 raise ValueError('heading near interval must be entirely below the lookahead target')
             args.heading_near_cm = sum(args.heading_regions_cm[0])/2
             args.heading_far_cm = sum(args.heading_regions_cm[1])/2
+    except ValueError as exc:
+        parser.error(str(exc))
+    from steering_config import validate_position_blend
+    try:
+        validate_position_blend(args.steering_position_blend_weight, args.position_gain,
+                                args.position_dead_cm, args.position_lookahead_cm, args.position_max_deg)
     except ValueError as exc:
         parser.error(str(exc))
     position_values = (args.position_recovery_cm, args.position_recovery_full_scale_cm)
@@ -878,6 +888,9 @@ def main():
             left_levels=tuple(args.heading_left_wz),
             right_levels=tuple(args.heading_right_wz),
             straight_wz=args.heading_straight_wz,
+            steering_position_blend_weight=args.steering_position_blend_weight,
+            position_gain=args.position_gain, position_dead_cm=args.position_dead_cm,
+            position_lookahead_cm=args.position_lookahead_cm, position_max_deg=args.position_max_deg,
             position_recovery_cm=args.position_recovery_cm,
             position_recovery_full_scale_cm=args.position_recovery_full_scale_cm,
             position_confirm_frames=args.position_confirm_frames), args)
@@ -1104,8 +1117,8 @@ def main():
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
             if args.steering_angle_wz_table is not None:
                 print(f'[steering-angle-table] {json.dumps(args.steering_angle_wz_table)}; '
-                      'input=steering_demand_deg (raw target bearing); output=signed rad/s; '
-                      'no demand smoothing or additive position correction; '
+                      f'input=steering_table_input_deg; active heading uses F+w*P, w={args.steering_position_blend_weight:g}; '
+                      'F=filtered target demand, P=bounded position correction; output=signed rad/s; '
                       'stop/loss protection and connector windows retained', flush=True)
             if args.heading_regions_cm is not None:
                 print(f'[heading-regions] {json.dumps(args.heading_regions_cm)} cm; '

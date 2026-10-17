@@ -292,7 +292,8 @@ class VisionLogViewer:
         self.position_text.set(f'+{selected.elapsed_s:.3f} s  /  {cursor.frames[-1].elapsed_s:.3f} s'
                                f'     ·     {cursor.index + 1:,} / {len(cursor.frames):,}')
         notes = ['rowhdg 为 Close+Fit 逐行拟合原始角；“无效”数值仍保留，不代表有效方向。'
-                 '查表目标角为 steering_demand_deg 原值，未做目标方向历史滤波或额外位置修正；'
+                 '查表目标角优先显示实际 steering_table_input_deg（启用 F/C 加权时为加权角）；'
+                 '旧日志缺少该字段时显示原始 steering_demand_deg；滤波后偏转角仍表示线路方向，并非 F。'
                  '旧日志仍按原有控制逻辑生成命令。实机列为采用的指令角速度。']
         if self._missing_execution:
             notes.append('此旧日志未记录实机反馈，实机列显示“未记录”。')

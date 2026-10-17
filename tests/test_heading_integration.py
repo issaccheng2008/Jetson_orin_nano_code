@@ -101,9 +101,9 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_recording_can_be_disabled(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(record_video=False)
 
-    def test_vision_only_records_raw_table_input_without_other_logs(self):
+    def test_vision_only_records_blended_table_input_without_other_logs(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(
-            filter_mode='active', record_video=False, custom_config=True)
+            filter_mode='active', record_video=False, custom_config=True, blend_weight=.8, blend_geometry=True)
 
     def test_video_initialization_failure_does_not_stop_publication(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(video_error=True)
@@ -111,7 +111,7 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_signed_table_and_heading_intervals_reach_publication_and_manifest(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(custom_config=True)
 
-    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False, custom_config=False, actual_feedback=False, video_source='bird_pair'):
+    def test_default_entrypoint_held_levels_and_auditable_log(self, filter_mode='legacy', record_video=True, video_error=False, camera_settings=False, custom_config=False, actual_feedback=False, video_source='bird_pair', blend_weight=.3, blend_geometry=False):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         lane_mask = np.zeros((400, 320), dtype=np.uint8)
         lane_mask[:, 100:115] = 255
@@ -136,12 +136,15 @@ class HeadingIntegrationTests(unittest.TestCase):
             order.append('detect')
             angle = (20., 40., -20., 0.)[min(3, (count[0]-1)//11)]
             return 0, 0, .9, _frame.copy(), dict(
-                fused_err_cm=0., base_err_cm=0., near_error_cm=0., near_z_cm=0.,
+                fused_err_cm=0., base_err_cm=0., near_error_cm=12. if blend_geometry else 0., near_z_cm=0.,
                 angle_err_deg=0., lost_frames=0, measurement_valid=True,
                 heading_control_valid=True, heading_control_deg=angle, binary=lane_mask, bird_color=frame[:400,:320])
         detector.process.side_effect = process
         camera_extra = ['--camera-exposure-mode','manual','--camera-exposure-ms','5'] if camera_settings else []
         camera_extra += ['--video-source', video_source]
+        if blend_geometry:
+            camera_extra += ['--position-gain','2','--position-dead-cm','1',
+                             '--position-lookahead-cm','40','--position-max-deg','5']
         table = [[-90,-10,-.2],[-10,10,.1],[10,90,.3]]
         if custom_config:
             camera_extra += ['--steering-angle-wz-table',json.dumps(table),
@@ -151,6 +154,7 @@ class HeadingIntegrationTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmp,
             patch("sys.argv", ["run_policy_vision.py", "--no-camera-async", "--headless", "--no-shape-detect",
                                '--steering-filter-mode', filter_mode,
+                               '--steering-position-blend-weight', str(blend_weight),
                                '--steering-filter-algorithm', 'one-euro',
                                '--record-video' if record_video else '--no-record-video',
                                "--attitude-port", "5007" if actual_feedback else "0", "--recording-root", tmp, *camera_extra]),
@@ -220,10 +224,18 @@ class HeadingIntegrationTests(unittest.TestCase):
             from steering_config import table_level
             for row in rows:
                 measurement = row['measurement']
-                self.assertEqual(measurement['steering_table_input_deg'], measurement['steering_demand_deg'])
-                self.assertEqual(row['wz'], table_level(table, measurement['steering_demand_deg']))
-                self.assertNotIn('steering_filtered_demand_deg', measurement)
-                self.assertNotIn('steering_position_correction_deg', measurement)
+                self.assertEqual(row['wz'], table_level(table, measurement['steering_table_input_deg']))
+                if filter_mode == 'active':
+                    self.assertEqual(measurement['steering_position_blend_weight'], blend_weight)
+                    self.assertEqual(measurement['steering_table_input_deg'], measurement['steering_blended_demand_deg'])
+                    if blend_geometry:
+                        self.assertEqual(measurement['steering_position_correction_deg'], -5.)
+                        self.assertAlmostEqual(measurement['steering_table_input_deg'],
+                            measurement['steering_filtered_demand_deg']-5*blend_weight)
+                else:
+                    self.assertEqual(measurement['steering_table_input_deg'], measurement['steering_demand_deg'])
+                    self.assertNotIn('steering_filtered_demand_deg', measurement)
+                    self.assertNotIn('steering_position_correction_deg', measurement)
         if filter_mode == 'active':
             self.assertTrue(all('steering_demand_deg' in r['measurement'] for r in rows))
         elif filter_mode == 'shadow':

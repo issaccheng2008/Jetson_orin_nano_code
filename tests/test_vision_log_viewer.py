@@ -72,6 +72,21 @@ class VisionLogDataTests(unittest.TestCase):
         frames = self.data.load_log(self.write_log(rows)).frames
         self.assertEqual([f.demand_deg for f in frames], [values[0], 0., -12.3, None, None, None, None])
 
+    def test_lookup_column_prefers_actual_blend_and_keeps_legacy_fallback(self):
+        rows = [self.row(1, measurement=dict(measurement_valid=True,
+                    steering_demand_deg=10., steering_table_input_deg=24.,
+                    steering_filtered_demand_deg=30., steering_combined_demand_deg=10.)),
+                self.row(2, measurement=dict(measurement_valid=True,
+                    steering_demand_deg=15., steering_table_input_deg=0.)),
+                self.row(3, measurement=dict(measurement_valid=True,
+                    steering_demand_deg=-12.)),
+                self.row(4, measurement=dict(measurement_valid=True,
+                    steering_demand_deg=9., steering_table_input_deg=float('nan'))),
+                self.row(5, measurement=dict(measurement_valid=False,
+                    steering_demand_deg=10., steering_table_input_deg=24.))]
+        frames = self.data.load_log(self.write_log(rows)).frames
+        self.assertEqual([f.demand_deg for f in frames], [24., 0., -12., 9., None])
+
     def test_rowhdg_is_independent_raw_value_even_for_invalid_scan_or_lost_lane(self):
         rows = [self.row(1, measurement=dict(measurement_valid=True, steering_heading_deg=-32.,
                     rowhdg_deg=0., rowhdg_valid=False)),

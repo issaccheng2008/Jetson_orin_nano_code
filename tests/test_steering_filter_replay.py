@@ -18,6 +18,30 @@ from steering_recovery import RecoveryConfig
 
 
 class SteeringFilterReplayTests(unittest.TestCase):
+    def test_new_manifest_replays_custom_blend_and_position_settings(self):
+        from steering_filter import FilterConfig
+        from test_steering_position_blend import TABLE
+        cfg = FilterConfig(algorithm='ema')
+        settings = dict(steering_position_blend_weight=.8, position_gain=2,
+                        position_dead_cm=1, position_lookahead_cm=40, position_max_deg=5)
+        c = HeadingSteeringController(SteeringController(), angle_wz_table=TABLE,
+                                      filter_config=cfg, **settings)
+        rows = self.recorded_rows(c, [(detection(12, near=10),1.,.1)]*3)
+        result = importlib.import_module('replay_steering_filter').replay(rows,
+            dict(wz_mode='heading', steering_angle_wz_table=TABLE, **settings), cfg)
+        self.assertEqual([r['new_wz'] for r in result], [r['wz'] for r in rows])
+        self.assertAlmostEqual(result[-1]['table_input_deg'], rows[-1]['measurement']['steering_table_input_deg'])
+        self.assertEqual(result[-1]['position_blend_weight'],.8)
+
+    def test_old_table_manifest_does_not_enable_blending(self):
+        from steering_filter import FilterConfig
+        from test_steering_position_blend import TABLE
+        c = HeadingSteeringController(SteeringController(), angle_wz_table=TABLE)
+        rows = self.recorded_rows(c, [(detection(a,near=10),1.,.1) for a in (0,40,0)])
+        result = importlib.import_module('replay_steering_filter').replay(rows,
+            dict(wz_mode='heading', steering_angle_wz_table=TABLE), FilterConfig(algorithm='robust'))
+        self.assertEqual([r['new_wz'] for r in result], [r['wz'] for r in rows])
+
     def test_historical_table_recording_reports_expected_command_changes(self):
         from test_raw_demand_table import TABLE
         module = importlib.import_module('replay_steering_filter')

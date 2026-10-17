@@ -21,7 +21,7 @@ class PositionCliTests(unittest.TestCase):
         import run_policy_vision
         with patch('sys.argv', ['vision']):
             defaults = run_policy_vision.parse_args()
-        self.assertFalse(hasattr(defaults, 'position_gain'))
+        self.assertEqual(defaults.position_gain, 1.)
         self.assertEqual(defaults.position_recovery_cm, 8.)
         with patch('sys.argv', ['vision', '--position-recovery-cm', '6', '--position-recovery-full-scale-cm', '3',
                 '--position-confirm-frames', '3']):
