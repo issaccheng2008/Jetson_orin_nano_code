@@ -27,26 +27,18 @@ class HeadingSteeringController:
                  left_levels=(0.37, 0.43, 0.5), right_levels=(0.3, 0.5),
                  straight_wz=0.0, min_hold_s=COMMAND_HOLD_S, filter_config=None,
                  recovery_config=None, segment_fallback=False,
-                 position_gain=1.0, position_dead_cm=2.0,
-                 position_lookahead_cm=50.0, position_max_deg=12.0,
                  position_recovery_cm=8.0, position_recovery_full_scale_cm=12.0,
                  position_confirm_frames=2, angle_wz_table=None):
         from steering_recovery import TurnHistory
         self._turn_history = (TurnHistory(recovery_config, straight_wz*inner.yaw_sign)
                               if recovery_config is not None else None)
         self.segment_fallback = segment_fallback
-        position_values = (position_gain, position_dead_cm, position_lookahead_cm,
-                           position_max_deg, position_recovery_cm,
+        position_values = (position_recovery_cm,
                            position_recovery_full_scale_cm, position_confirm_frames)
         if (not all(math.isfinite(v) for v in position_values)
-                or min(position_gain, position_dead_cm, position_max_deg, position_recovery_cm) < 0
-                or position_lookahead_cm <= 0 or position_recovery_full_scale_cm <= 0
+                or position_recovery_cm < 0 or position_recovery_full_scale_cm <= 0
                 or position_confirm_frames < 1 or int(position_confirm_frames) != position_confirm_frames):
             raise ValueError('invalid near position settings')
-        self.position_gain = position_gain
-        self.position_dead_cm = position_dead_cm
-        self.position_lookahead_cm = position_lookahead_cm
-        self.position_max_deg = position_max_deg
         self.position_recovery_cm = position_recovery_cm
         self.position_recovery_full_scale_cm = position_recovery_full_scale_cm
         self.position_confirm_frames = int(position_confirm_frames)
@@ -83,7 +75,7 @@ class HeadingSteeringController:
         self.min_hold_s = float(min_hold_s)
         from steering_config import validate_angle_wz_table
         self.angle_wz_table = validate_angle_wz_table(angle_wz_table,
-            self._cap(+1), filter_config.hysteresis_deg if filter_config is not None else 0.,
+            self._cap(+1),
             right_cap=self._cap(-1), allow_right=allow_right)
         if self.angle_wz_table is not None:
             from steering_config import table_level
@@ -263,11 +255,6 @@ class HeadingSteeringController:
         return self.straight_wz
 
     def _filtered_level(self, demand):
-        if self.angle_wz_table is not None:
-            from steering_config import table_level
-            level = table_level(self.angle_wz_table, demand, self._command[1]*self.yaw_sign,
-                                self.filter_config.hysteresis_deg)
-            return level if level >= 0 or self.allow_right else self.straight_wz
         from steering_filter import select_level
         cfg = self.filter_config
         current = self._command[1]*self.yaw_sign
@@ -284,15 +271,17 @@ class HeadingSteeringController:
             gate=gate, width=cfg.hysteresis_deg)
 
     def _decision(self, demand, near, heading):
+        if self.angle_wz_table is not None:
+            return self._map_angle(demand), 'raw_demand_table'
         candidate = (self._filtered_level(demand) if self.filter_config is not None
                      else self._map_angle(demand))
         # Already pointing toward the line: do not keep turning just to erase
         # residual position error. Straight walking lets that error converge.
         corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
         projected_inside = abs(demand) <= corridor_angle
-        if self.position_gain == 0 and near < 0 and heading < 0 and demand > 0 and projected_inside:
+        if near < 0 and heading < 0 and demand > 0 and projected_inside:
             return self.straight_wz, "returning_from_right"
-        if self.position_gain == 0 and near > 0 and heading > 0 and demand < 0 and projected_inside:
+        if near > 0 and heading > 0 and demand < 0 and projected_inside:
             return self.straight_wz, "returning_from_left"
         # Near position protection is independent of the relaxed angular gate.
         if demand >= corridor_angle or (near <= -self.corridor_cm and heading >= 0):
@@ -303,11 +292,6 @@ class HeadingSteeringController:
                                  or (near >= self.corridor_cm and heading <= 0)):
             return min(candidate, -self.right_levels[0]), "left_corridor"
         return candidate, "target_bearing"
-
-    def _position_correction(self, near):
-        error = math.copysign(max(0., abs(near)-self.position_dead_cm), near)
-        correction = -self.position_gain*math.degrees(math.atan2(error, self.position_lookahead_cm))
-        return max(-self.position_max_deg, min(self.position_max_deg, correction))
 
     def _confirm_position(self, near):
         # Independent of trend/angle history, which may be reset or heavily filtered.
@@ -377,7 +361,7 @@ class HeadingSteeringController:
         self._loss_s = 0.0
         self.inner.lost_s = 0.0
         near, z, angle, demand, source = geometry
-        position_recovery = self._confirm_position(near)
+        position_recovery = self.angle_wz_table is None and self._confirm_position(near)
         filtered_geometry = (self._observation_filter.apply(geometry, self._clock)
                              if self._observation_filter is not None else None)
         # Confirm position independently of the trend samples, which are cleared
@@ -389,51 +373,54 @@ class HeadingSteeringController:
         left_offset_confirmed = self._left_offset_frames >= LEFT_OFFSET_CONFIRM_FRAMES
         self._samples.append((self._clock, demand, angle, near))
         self._samples = [s for s in self._samples if self._clock-s[0] <= TREND_WINDOW_S+1e-9]
-        filtered = median(s[1] for s in self._samples[-3:])
         filtered_near = median(s[3] for s in self._samples[-3:])
         filtered_heading = median(s[2] for s in self._samples[-3:])
         if filtered_geometry is not None:
-            filtered_near, _, filtered_heading, filtered, _ = filtered_geometry
+            filtered_near, _, filtered_heading, _, _ = filtered_geometry
         if self.filter_config is not None and self.filter_config.algorithm == 'robust':
-            # Forecast and spatial confirmation must not bypass robust smoothing.
-            self._samples[-1] = (self._clock, filtered, filtered_heading, filtered_near)
-        position_correction = self._position_correction(filtered_near)
-        combined = filtered + position_correction
+            # Heading trends and spatial confirmation use robust observations.
+            self._samples[-1] = (self._clock, demand, filtered_heading, filtered_near)
         if self.filter_config is not None:
             self.diagnostics.update(steering_filter_mode='active',
                 steering_filter_algorithm=self.filter_config.algorithm,
                 steering_filter_heading_deg=filtered_heading,
-                steering_filter_demand_deg=filtered, steering_filter_near_cm=filtered_near,
+                steering_filter_near_cm=filtered_near,
                 steering_hysteresis_deg=self.filter_config.hysteresis_deg)
         rate, angle_rate = self._trend(1), self._trend(2)
-        predicted = filtered + PREDICTION_HORIZON_S*rate if rate is not None else filtered
+        predicted = demand + PREDICTION_HORIZON_S*rate if rate is not None else demand
         self.diagnostics.update(steering_heading_source=source, steering_near_cm=near,
             steering_near_z_cm=z, steering_heading_deg=angle,
             steering_filtered_heading_deg=filtered_heading,
-            steering_demand_deg=demand, steering_filtered_demand_deg=filtered,
+            steering_demand_deg=demand,
             steering_predicted_demand_deg=predicted, steering_demand_rate_deg_s=rate,
             steering_predicted_heading_deg=(angle+PREDICTION_HORIZON_S*angle_rate if angle_rate is not None else angle),
             steering_prediction_valid=rate is not None, steering_braked=False)
-        self.diagnostics.update(steering_position_correction_deg=position_correction,
-            steering_combined_demand_deg=combined, steering_position_recovery=position_recovery,
+        self.diagnostics.update(steering_position_recovery=position_recovery,
             steering_position_confirm_frames=self._position_frames,
             steering_position_recovery_cm=self.position_recovery_cm)
         if self.angle_wz_table is not None:
-            self.diagnostics['steering_table_wz'] = self._map_angle(combined)*self.yaw_sign
+            self.diagnostics.update(steering_table_input_deg=demand,
+                                    steering_table_wz=self._map_angle(demand)*self.yaw_sign)
         self.diagnostics.update(steering_left_offset_confirmed=left_offset_confirmed,
                                 steering_left_offset_release_cm=LEFT_OFFSET_RELEASE_CM)
-        self.inner.last_err_eff = combined  # Units explicitly renamed in entry-point logging.
+        self.inner.last_err_eff = demand  # Units explicitly renamed in entry-point logging.
         if not position_recovery and self._started is not None and self._clock-self._started < self.min_hold_s:
             if self._turn_history is not None:
                 self._turn_history.observe(self._clock, self._command, dt)
             self.diagnostics.update(steering_reason="minimum_hold",
                 command_hold_remaining_s=self.turn_left, steering_applied_wz=self._command[1])
             return self._command
-        candidate, decision = self._decision(combined, filtered_near, filtered_heading)
+        candidate, decision = self._decision(demand, filtered_near, filtered_heading)
+        if self.angle_wz_table is not None:
+            # Valid-frame table output follows this frame's raw target bearing.
+            # Stops, missing-geometry recovery and downstream command windows
+            # still own their independent timing and safety policies.
+            self.diagnostics.update(steering_decision=decision, steering_corridor_cm=self.corridor_cm)
+            return self._adopt_command(candidate, decision, dt)
         # Subject to this branch's command timing, confirmed left position takes
         # priority over a distant leftward target. Only veto geometric left yaw;
         # forward speed and the original right-recovery decision stay intact.
-        if self.position_gain == 0 and self.position_recovery_cm == 0 and left_offset_confirmed and candidate > 0:
+        if self.position_recovery_cm == 0 and left_offset_confirmed and candidate > 0:
             candidate, decision = self.straight_wz, "left_offset_release"
         self.diagnostics["steering_decision"] = decision
         self.diagnostics["steering_corridor_cm"] = self.corridor_cm
@@ -441,7 +428,7 @@ class HeadingSteeringController:
         # Forecast assumes the CURRENT action continues. Use it only to reduce
         # that same correction, never to predict a new action's unmeasured effect.
         if rate is not None and current*candidate > 0 and current*rate < 0:
-            forecast = self._map_angle(predicted + position_correction)
+            forecast = self._map_angle(predicted)
             reduced = min(abs(current), abs(candidate), abs(forecast)) if candidate*forecast > 0 else 0.0
             if decision in ("right_corridor", "left_corridor"):
                 corridor_angle = math.degrees(math.atan2(self.corridor_cm, self._target_distance_cm()))
@@ -489,7 +476,7 @@ class HeadingSteeringController:
                                       self.full_scale_deg)
             severe_right_offset = near <= -right_offset_threshold
             severe_rightward_body_heading = (filtered_heading >= strong_left_heading
-                                              and filtered > 0.0)
+                                              and demand > 0.0)
             self.diagnostics.update(
                 steering_right_boundary_offset_threshold_cm=right_offset_threshold,
                 steering_right_boundary_heading_threshold_deg=strong_left_heading,
@@ -504,6 +491,9 @@ class HeadingSteeringController:
                                            'right_boundary_severe_heading_left'),
                         steering_right_boundary_floor_wz=floor)
                     candidate = floor
+        return self._adopt_command(candidate, decision, dt)
+
+    def _adopt_command(self, candidate, decision, dt):
         selected = (self.inner.vx, candidate*self.yaw_sign)
         changed = selected != self._command or self._started is None
         if changed:

@@ -99,11 +99,11 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(c.command(detection(measurement_valid=False),0,.1),valid)
 
     def test_modal_recovery_weights_previous_published_command_duration(self):
-        c = self.controller(position_gain=0, position_recovery_cm=0)
+        c = self.controller(position_recovery_cm=0)
         left = c.command(detection(30), 1, .01)
         self.assertEqual(left, (.2, .5))
         self.assertEqual(c.command(detection(-80), 1, .3), (.2, -.5))
-        self.assertEqual(c.command(detection(80), 1, .01), (.2, 0.))
+        self.assertEqual(c.command(detection(0), 1, .01), (.2, 0.))
         # Left was applied for .30 s; right was applied for only .01 s.
         self.assertEqual(c.command(detection(measurement_valid=False), 0, .01), left)
 
@@ -172,7 +172,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue(c.diagnostics['steering_left_offset_confirmed'])
 
     def test_vetoed_turn_is_removed_before_default_left_search(self):
-        c=self.controller(position_gain=0, position_recovery_cm=0)
+        c=self.controller(position_recovery_cm=0)
         c.command(detection(60,z=25),1,.1)
         for _ in range(2):c.command(detection(60,near=6,z=25),1,.1)
         self.assertEqual(c.diagnostics['steering_decision'],'left_offset_release')

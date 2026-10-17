@@ -240,8 +240,7 @@ class DetectorControlIntegrationTests(unittest.TestCase):
         d.red_detect_enable=False
         d.preprocess_mode='contrast'
         self.controller=HeadingSteeringController(SteeringController(),
-                                                  min_hold_s=.5,position_gain=0.,
-                                                  position_recovery_cm=0.)
+                                                  min_hold_s=.5,position_recovery_cm=0.)
 
     def test_entry_rollback_and_cold_side_options(self):
         with patch('sys.argv',['run_policy_vision.py','--no-single-boundary-tracking',
@@ -284,7 +283,7 @@ class DetectorControlIntegrationTests(unittest.TestCase):
         lost=d.process(blank,dt=.1,frame_token=99)[-1]
         self.assertFalse(lost['measurement_valid'])
 
-    def test_right_boundary_uses_configured_left_search_strength_only_when_turning_left(self):
+    def test_right_boundary_uses_raw_table_instead_of_loss_search_floor(self):
         d = self.detector
         paired = d.process(self.frame(offset=-20.), dt=.1, frame_token=0)[-1]
         right = d.process(self.frame(('right',), offset=-20.), dt=.1,
@@ -292,19 +291,18 @@ class DetectorControlIntegrationTests(unittest.TestCase):
         self.assertEqual(right['tracking_mode'], 'RIGHT_ONLY')
         self.assertTrue(right['measurement_valid'])
         controller = HeadingSteeringController(
-            SteeringController(), min_hold_s=0., position_gain=0.,
-            position_recovery_cm=0., recovery_config=RecoveryConfig(.8, .8, .5),
+            SteeringController(), min_hold_s=0., position_recovery_cm=0., recovery_config=RecoveryConfig(.8, .8, .5),
             angle_wz_table=[[-90, -45, -.2], [-45, -15, -.1],
                             [-15, 15, .1], [15, 50, .25], [50, 90, .3]])
         command = controller.command(right, right['measurement_quality'], .1)
-        self.assertEqual(command[1], .5)
+        self.assertEqual(command[1], controller._map_angle(controller.diagnostics['steering_demand_deg']))
         self.assertEqual(controller.diagnostics['steering_decision'],
-                         'right_boundary_severe_offset_left')
+                         'raw_demand_table')
+        self.assertNotIn('steering_right_boundary_floor_wz', controller.diagnostics)
         self.assertEqual(controller.diagnostics['steering_heading_source'],
                          'right_boundary')
         paired_controller = HeadingSteeringController(
-            SteeringController(), min_hold_s=0., position_gain=0.,
-            position_recovery_cm=0., recovery_config=RecoveryConfig(.8, .8, .5),
+            SteeringController(), min_hold_s=0., position_recovery_cm=0., recovery_config=RecoveryConfig(.8, .8, .5),
             angle_wz_table=[[-90, -45, -.2], [-45, -15, -.1],
                             [-15, 15, .1], [15, 50, .25], [50, 90, .3]])
         paired_command = paired_controller.command(
@@ -320,8 +318,7 @@ class DetectorControlIntegrationTests(unittest.TestCase):
                           frame_token=1)[-1]
         self.assertEqual(right['tracking_mode'], 'RIGHT_ONLY')
         controller = HeadingSteeringController(
-            SteeringController(), min_hold_s=0., position_gain=0.,
-            position_recovery_cm=0., recovery_config=RecoveryConfig(.8, .8, .5),
+            SteeringController(), min_hold_s=0., position_recovery_cm=0., recovery_config=RecoveryConfig(.8, .8, .5),
             angle_wz_table=[[-90, -45, -.2], [-45, -15, -.1],
                             [-15, 15, .1], [15, 50, .25], [50, 90, .3]])
         command = controller.command(right, right['measurement_quality'], .1)
@@ -354,7 +351,7 @@ class DetectorControlIntegrationTests(unittest.TestCase):
         left=d.process(self.frame(('left',),offset=3.),dt=.1,frame_token=2)[-1]
         self.assertEqual(left['tracking_mode'],'LEFT_ONLY')
         c=SegmentSteeringController(SteeringController(),min_hold_s=.5,
-                                    position_gain=0.,position_recovery_cm=0.)
+                                    position_recovery_cm=0.)
         command=c.command(left,left['measurement_quality'],.1)
         self.assertGreater(command[0],0.)
         self.assertEqual(c.diagnostics['steering_heading_source'],'left_boundary')
@@ -379,7 +376,7 @@ class DetectorControlIntegrationTests(unittest.TestCase):
                 debug=d.process(self.frame((side,),offset=offset),dt=.1,frame_token=1)[-1]
                 self.assertTrue(debug['measurement_valid'],debug['reject_reason'])
                 c=HeadingSteeringController(SteeringController(),min_hold_s=.5,
-                                            position_gain=0.,position_recovery_cm=0.)
+                                            position_recovery_cm=0.)
                 wz=c.command(debug,debug['measurement_quality'],.1)[1]
                 # Within the spatial corridor straight is also a valid recovery.
                 self.assertGreaterEqual(wz*expected_sign,0.,

@@ -107,8 +107,7 @@ for setting in HEADING_REGIONS_CM HEADING_NEAR_CM HEADING_FAR_CM STEERING_ANGLE_
         command+=("--${flag//_/-}" "${!setting}")
     fi
 done
-position_names=(POSITION_GAIN POSITION_DEAD_CM POSITION_LOOKAHEAD_CM POSITION_MAX_DEG
-                POSITION_RECOVERY_CM POSITION_RECOVERY_FULL_SCALE_CM POSITION_CONFIRM_FRAMES)
+position_names=(POSITION_RECOVERY_CM POSITION_RECOVERY_FULL_SCALE_CM POSITION_CONFIRM_FRAMES)
 for setting in "${position_names[@]}"; do
     flag="${setting,,}"
     command+=("--${flag//_/-}" "${!setting}")

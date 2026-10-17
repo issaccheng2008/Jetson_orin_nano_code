@@ -186,11 +186,9 @@ class ButtonAutostartTests(unittest.TestCase):
             shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
             original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
                 if not line.startswith('POSITION_')) + '\n'
-            defaults = dict(POSITION_GAIN='1', POSITION_DEAD_CM='2', POSITION_LOOKAHEAD_CM='50',
-                POSITION_MAX_DEG='12', POSITION_RECOVERY_CM='8',
+            defaults = dict(POSITION_RECOVERY_CM='8',
                 POSITION_RECOVERY_FULL_SCALE_CM='12', POSITION_CONFIRM_FRAMES='2')
-            configured = dict(POSITION_GAIN='2', POSITION_DEAD_CM='1', POSITION_LOOKAHEAD_CM='30',
-                POSITION_MAX_DEG='9', POSITION_RECOVERY_CM='6',
+            configured = dict(POSITION_RECOVERY_CM='6',
                 POSITION_RECOVERY_FULL_SCALE_CM='3', POSITION_CONFIRM_FRAMES='3')
             for overrides in ({}, configured):
                 (checkout / 'config/button_start.env').write_text(original +

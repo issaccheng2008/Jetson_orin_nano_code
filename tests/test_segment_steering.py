@@ -41,7 +41,6 @@ def controller(**options):
     inner = options.pop('inner_options', {})
     # Keep baseline geometry regressions under their original timing policy.
     options.setdefault('min_hold_s', .5)
-    options.setdefault('position_gain', 0.)
     options.setdefault('position_recovery_cm', 0.)
     return SegmentSteeringController(SteeringController(**inner), **options)
 

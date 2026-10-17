@@ -21,17 +21,14 @@ class PositionCliTests(unittest.TestCase):
         import run_policy_vision
         with patch('sys.argv', ['vision']):
             defaults = run_policy_vision.parse_args()
-        self.assertEqual(defaults.position_gain, 1.)
+        self.assertFalse(hasattr(defaults, 'position_gain'))
         self.assertEqual(defaults.position_recovery_cm, 8.)
-        with patch('sys.argv', ['vision', '--position-gain', '2', '--position-dead-cm', '1',
-                '--position-lookahead-cm', '30', '--position-max-deg', '9',
-                '--position-recovery-cm', '6', '--position-recovery-full-scale-cm', '3',
+        with patch('sys.argv', ['vision', '--position-recovery-cm', '6', '--position-recovery-full-scale-cm', '3',
                 '--position-confirm-frames', '3']):
             args = run_policy_vision.parse_args()
-        self.assertEqual((args.position_gain, args.position_dead_cm, args.position_lookahead_cm,
-                          args.position_max_deg, args.position_recovery_cm,
+        self.assertEqual((args.position_recovery_cm,
                           args.position_recovery_full_scale_cm, args.position_confirm_frames),
-                         (2., 1., 30., 9., 6., 3., 3))
+                         (6., 3., 3))
 
     def test_invalid_position_cli_settings_are_rejected_before_hardware(self):
         import run_policy_vision
@@ -58,31 +55,14 @@ class PositionSteeringTests(unittest.TestCase):
                 self.assertEqual(output[0], .2)
                 self.assertTrue(c.diagnostics['steering_position_recovery'])
 
-    def test_position_term_is_separate_from_filtered_direction(self):
-        for gain in (0., 1., 2.):
-            c = HeadingSteeringController(SteeringController(), position_gain=gain,
-                position_recovery_cm=0, position_dead_cm=1)
-            # Direction precisely cancels near offset in the old bearing.
-            angle = math.degrees(math.atan(6/25))
-            output = c.command(detection(angle, near=6, z=25), 1, .1)
-            if gain == 0:
-                self.assertEqual(output[1], 0)
-            else:
-                self.assertLess(output[1], 0)
-            self.assertAlmostEqual(c.diagnostics['steering_filtered_demand_deg'], 0, places=6)
-            self.assertAlmostEqual(c.diagnostics['steering_position_correction_deg'],
-                -gain*math.degrees(math.atan2(5, 50)))
-            self.assertAlmostEqual(c.diagnostics['steering_combined_demand_deg'],
-                c.diagnostics['steering_position_correction_deg'])
-
-    def test_dead_band_and_bounded_correction(self):
-        c = HeadingSteeringController(SteeringController(), position_gain=10,
-            position_recovery_cm=0, position_max_deg=7, position_dead_cm=2)
-        c.command(detection(0, near=1, z=25), 1, .1)
-        self.assertEqual(c.diagnostics['steering_position_correction_deg'], 0)
-        for _ in range(3):
-            c.command(detection(0, near=100, z=25), 1, .1)
-        self.assertEqual(c.diagnostics['steering_position_correction_deg'], -7)
+    def test_target_bearing_has_no_additive_position_term(self):
+        c = HeadingSteeringController(SteeringController(), position_recovery_cm=0)
+        angle = math.degrees(math.atan(3/25))
+        output = c.command(detection(angle, near=3, z=25), 1, .1)
+        self.assertAlmostEqual(c.diagnostics['steering_demand_deg'], 0., places=6)
+        self.assertEqual(output, (.2, 0.))
+        self.assertNotIn('steering_position_correction_deg', c.diagnostics)
+        self.assertNotIn('steering_filtered_demand_deg', c.diagnostics)
 
     def test_active_filter_cannot_delay_confirmed_position_recovery(self):
         c = HeadingSteeringController(SteeringController(max_wz_right=.3),
@@ -117,9 +97,7 @@ class PositionSteeringTests(unittest.TestCase):
             self.assertLess(output[1]*side, 0)
 
     def test_invalid_position_parameters(self):
-        for option, value in (('position_gain', -1), ('position_dead_cm', -1),
-                ('position_lookahead_cm', 0), ('position_max_deg', float('nan')),
-                ('position_recovery_cm', -1), ('position_recovery_full_scale_cm', 0),
+        for option, value in (('position_recovery_cm', -1), ('position_recovery_full_scale_cm', 0),
                 ('position_confirm_frames', 0), ('position_confirm_frames', 1.5)):
             with self.subTest(option=option):
                 with self.assertRaises(ValueError):

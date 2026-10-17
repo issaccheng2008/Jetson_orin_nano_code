@@ -101,6 +101,10 @@ class HeadingIntegrationTests(unittest.TestCase):
     def test_recording_can_be_disabled(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(record_video=False)
 
+    def test_vision_only_records_raw_table_input_without_other_logs(self):
+        self.test_default_entrypoint_held_levels_and_auditable_log(
+            filter_mode='active', record_video=False, custom_config=True)
+
     def test_video_initialization_failure_does_not_stop_publication(self):
         self.test_default_entrypoint_held_levels_and_auditable_log(video_error=True)
 
@@ -127,6 +131,7 @@ class HeadingIntegrationTests(unittest.TestCase):
 
         camera.read.side_effect = read
         detector = Mock()
+        detector.bird_w, detector.bird_h = 320, 400
         def process(_frame, **_kw):
             order.append('detect')
             angle = (20., 40., -20., 0.)[min(3, (count[0]-1)//11)]
@@ -210,8 +215,17 @@ class HeadingIntegrationTests(unittest.TestCase):
         self.assertTrue(all(r['body_track_deviation_deg'] == r['measurement']['heading_control_deg'] for r in rows))
         self.assertTrue(all(r["mode"] == "heading" for r in rows))
         self.assertTrue(all("steering_heading_deg" in r["measurement"] for r in rows))
+        self.assertTrue(all(isinstance(r['measurement']['steering_demand_deg'], float) for r in rows))
+        if custom_config:
+            from steering_config import table_level
+            for row in rows:
+                measurement = row['measurement']
+                self.assertEqual(measurement['steering_table_input_deg'], measurement['steering_demand_deg'])
+                self.assertEqual(row['wz'], table_level(table, measurement['steering_demand_deg']))
+                self.assertNotIn('steering_filtered_demand_deg', measurement)
+                self.assertNotIn('steering_position_correction_deg', measurement)
         if filter_mode == 'active':
-            self.assertTrue(all('steering_filter_demand_deg' in r['measurement'] for r in rows))
+            self.assertTrue(all('steering_demand_deg' in r['measurement'] for r in rows))
         elif filter_mode == 'shadow':
             self.assertTrue(all('steering_filter_shadow_wz' in r['measurement'] for r in rows))
         walking = [s for s in sent if s[1] != 0]

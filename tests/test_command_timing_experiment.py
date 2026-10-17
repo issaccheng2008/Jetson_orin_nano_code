@@ -82,8 +82,9 @@ class CommandTimingExperimentTests(unittest.TestCase):
             c.command(reading(20.), 1., .05)
         self.assertTrue(c.diagnostics['steering_prediction_valid'])
         self.assertGreaterEqual(c._samples[-1][0]-c._samples[0][0], .3)
-        # A single opposite observation is still rejected by the existing median.
-        self.assertGreater(c.command(reading(-40.), 1., .05)[1], 0.)
+        # Demand history no longer delays a new opposite target.
+        self.assertLess(c.command(reading(-40.), 1., .05)[1], 0.)
+        self.assertAlmostEqual(c.diagnostics['steering_demand_deg'], -40.)
 
     def test_model_default_releases_only_yaw_with_linear_speed_unchanged(self):
         for direction in (-1, 1):

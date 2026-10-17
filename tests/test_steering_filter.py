@@ -35,7 +35,8 @@ class SteeringFilterTests(unittest.TestCase):
         fixed.apply(initial, 0.)
         a, b = adaptive.apply(step, .14), fixed.apply(step, .14)
         self.assertGreater(a[2], b[2])
-        self.assertGreater(a[3], b[3])
+        self.assertEqual(a[3], step[3])
+        self.assertEqual(b[3], step[3])
         self.assertLess(a[2], 40.)
         self.assertGreater(a[2], 0.)
 
@@ -59,6 +60,8 @@ class SteeringFilterTests(unittest.TestCase):
             else:
                 self.assertTrue(0 < out[0] < 5)
                 self.assertTrue(0 < out[2] < 30)
+            self.assertEqual(out[3], second[3])
+            self.assertFalse(hasattr(f, 'demand'))
 
     def test_invalid_settings_are_rejected(self):
         for kwargs in ({'beta': -1}, {'min_cutoff_hz': 0}, {'max_cutoff_hz': 1},
@@ -114,7 +117,7 @@ class SteeringFilterTests(unittest.TestCase):
             c.command(segment_detection(bend), 1., .15)
         self.assertTrue(c.diagnostics['segment_control_active'])
         self.assertEqual(c.diagnostics['steering_heading_source'], 'measured_segments')
-        self.assertAlmostEqual(c.diagnostics['steering_filter_demand_deg'],
+        self.assertAlmostEqual(c.diagnostics['steering_demand_deg'],
                                c.diagnostics['segment_target_bearing_deg'])
         c.command(detection(-30.), 1., .15)
         self.assertEqual(c.diagnostics['steering_heading_source'], 'ground_x_z')
@@ -132,11 +135,11 @@ class SteeringFilterTests(unittest.TestCase):
         self.assertEqual(c.hold, (0., 0.))
         self.assertEqual(trial.hold, (0., 0.))
 
-    def test_disabling_new_filter_keeps_legacy_median_for_hysteresis_only_trial(self):
+    def test_disabling_heading_filter_does_not_smooth_target_demand(self):
         c = self.make_controller(filter_config=self.module.FilterConfig(algorithm='none'))
         for _ in range(10):
             c.command(detection(20.), 1., .05)
-        self.assertGreater(c.command(detection(-40.), 1., .05)[1], 0.)
+        self.assertLess(c.command(detection(-40.), 1., .05)[1], 0.)
 
 
 if __name__ == '__main__':

@@ -25,7 +25,7 @@ def _rows(value, columns, name):
         raise ValueError(f'{name} must be a JSON array of finite numeric {columns}-value rows') from exc
 
 
-def validate_angle_wz_table(value, cap=.5, hysteresis_deg=0., right_cap=None, allow_right=True):
+def validate_angle_wz_table(value, cap=.5, right_cap=None, allow_right=True):
     if value is None or value == '':
         return None
     rows = _rows(value, 3, 'steering-angle-wz-table')
@@ -35,32 +35,17 @@ def validate_angle_wz_table(value, cap=.5, hysteresis_deg=0., right_cap=None, al
             or not any(rate > 0 for _, _, rate in rows)
             or (allow_right and not any(rate < 0 for _, _, rate in rows))
             or any(not -90 <= lo < hi <= 90 or not -right_cap <= rate <= cap for lo,hi,rate in rows)
-            or any(a[1] != b[0] for a, b in zip(rows, rows[1:]))
-            or any(hi-lo <= 2*hysteresis_deg for lo, hi, _ in rows)):
+            or any(a[1] != b[0] for a, b in zip(rows, rows[1:]))):
         raise ValueError('angle table must cover [-90,+90] without gaps/overlap, '
                          'include turn levels for enabled directions; '
-                         f'limits are [-{right_cap:g},+{cap:g}] rad/s and bins must be wider than twice hysteresis')
+                         f'limits are [-{right_cap:g},+{cap:g}] rad/s')
     return rows
 
 
-def table_level(table, demand, current=0., width=0.):
-    """Use signed final decision angle; bins are [lo,hi), endpoints saturate.
-
-    Keep an adjacent applied level within the configured boundary hysteresis.
-    Never retain a command pointing in the opposite direction.
-    """
+def table_level(table, demand):
+    """Use current raw target bearing; bins are [lo,hi), endpoints saturate."""
     index = next((i for i, (_, hi, _) in enumerate(table) if demand < hi-1e-9), len(table)-1)
-    level = table[index][2]
-    # Exactly zero always uses its configured rate, including a nonzero bias.
-    if demand == 0:
-        return level
-    if width > 0 and current*level >= 0:
-        for neighbour, boundary in ((index-1, table[index][0]), (index+1, table[index][1])):
-            if (0 <= neighbour < len(table) and abs(demand-boundary) < width
-                    and table[neighbour][2] == current):
-                level = current
-                break
-    return level
+    return table[index][2]
 
 
 def validate_heading_regions(value):

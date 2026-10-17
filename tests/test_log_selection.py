@@ -25,6 +25,27 @@ from recording_options import LOG_ITEMS, parse_log_items
 
 
 class LogSelectionTests(unittest.TestCase):
+    def test_vision_only_records_execution_feedback_without_video(self):
+        scenario = test_button_start.ButtonVisionIntegrationTests()
+        feedback = dict(velocity=[.2, 0., -.17], enabled=True, send_result='written',
+                        host_unix_s=1700000000., monotonic_s=3., step=123, policy_mode='walking49')
+        attitude = Mock()
+        attitude.value = 45.
+        attitude.card_task.return_value = {}
+        attitude.card_tilt_status_seen = False
+        attitude.executed_command.return_value = feedback
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.CommandVideo') as video, \
+                patch('attitude_input.AttitudeInput', return_value=attitude):
+            launcher, *_ = scenario.run_scenario(card=False, press_at=6,
+                extra_args=('--recording-root', tmp, '--log-items', 'vision', '--attitude-port', '5010'))
+            path, = launcher.recording_directory.glob('vision/run_*/line_frames.jsonl')
+            rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
+            self.assertTrue(rows)
+            self.assertEqual(rows[-1].get('robot_cmd_wz'), -.17)
+            self.assertEqual(rows[-1].get('robot_cmd_status'), 'written')
+            self.assertEqual(attitude.poll.call_count, 60 + len(rows))
+            video.assert_not_called()
+
     def test_lists_all_none_and_invalid_names(self):
         self.assertEqual(parse_log_items('all'), LOG_ITEMS)
         self.assertEqual(parse_log_items('none'), ())

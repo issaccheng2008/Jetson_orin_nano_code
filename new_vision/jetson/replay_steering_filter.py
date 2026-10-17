@@ -52,9 +52,6 @@ def replay(rows, arguments, filter_config, *, recovery_config=_FROM_MANIFEST,
         right_levels=tuple(get('heading_right_wz',(.3,.5))),
         straight_wz=get('heading_straight_wz',0.), min_hold_s=0., filter_config=filter_config,
         recovery_config=recovery_config, segment_fallback=segment_fallback,
-        position_gain=get('position_gain', 0.), position_dead_cm=get('position_dead_cm', 2.),
-        position_lookahead_cm=get('position_lookahead_cm', 50.),
-        position_max_deg=get('position_max_deg', 12.),
         position_recovery_cm=get('position_recovery_cm', 0.),
         position_recovery_full_scale_cm=get('position_recovery_full_scale_cm', 12.),
         position_confirm_frames=get('position_confirm_frames', 2))
@@ -81,7 +78,6 @@ def replay(rows, arguments, filter_config, *, recovery_config=_FROM_MANIFEST,
             new_vx=vx, new_wz=wz, raw_heading_deg=diag.get('steering_heading_deg'),
             filtered_heading_deg=diag.get('steering_filter_heading_deg',diag.get('steering_filtered_heading_deg')),
             raw_demand_deg=diag.get('steering_demand_deg'),
-            filtered_demand_deg=diag.get('steering_filtered_demand_deg'),
             geometry_source=diag.get('steering_heading_source'),
             decision=diag.get('steering_decision'), reason=diag.get('steering_reason'),
             braked=diag.get('steering_braked'), compute_us=elapsed_us))
@@ -119,15 +115,14 @@ def plot_variants(variants, output):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    base, active = variants['legacy'], variants['combined']
+    base, active = variants['current_unfiltered'], variants['combined']
     times = [(r['host_time_ns']-base[0]['host_time_ns'])/1e9 for r in base]
     fig, axes = plt.subplots(2,1,figsize=(16,7),sharex=True,layout='constrained')
     def values(rows, field):
         return [float('nan') if r[field] is None else r[field] for r in rows]
     axes[0].plot(times,values(active,'raw_demand_deg'),color='#94a3b8',label='Raw selected target demand')
-    axes[0].plot(times,values(active,'filtered_demand_deg'),color='#15803d',label='Filtered target demand')
     axes[0].set_ylabel('Demand angle (degrees)')
-    for name,color in (('legacy','#2563eb'),('hysteresis_only','#a855f7'),('filter_only','#f59e0b'),('combined','#15803d')):
+    for name,color in (('current_unfiltered','#2563eb'),('hysteresis_only','#a855f7'),('filter_only','#f59e0b'),('combined','#15803d')):
         axes[1].step(times,[r['new_wz'] for r in variants[name]],where='post',label=name,color=color,alpha=.8,lw=1.2)
     axes[1].set_ylabel('Visual WZ command (rad/s)')
     axes[1].set_xlabel('Time since vision recording start (s)')
@@ -156,17 +151,18 @@ def main():
         arguments = manifest['arguments']
         if arguments.get('wz_mode') not in ('heading','segments'):
             raise ValueError('replay supports heading/segments recordings only')
-        if arguments.get('steering_filter_mode','legacy') not in ('legacy', 'shadow'):
-            raise ValueError('use a legacy or shadow recording for an exact legacy-output reference')
         variants = {name:replay(rows,arguments,cfg) for name,cfg in (
-            ('legacy',None), ('hysteresis_only',replace(config,algorithm='none')),
+            ('current_unfiltered',None), ('hysteresis_only',replace(config,algorithm='none')),
             ('filter_only',replace(config,hysteresis_deg=0.,enter_deg=0.,exit_deg=0.)),
             ('combined',config))}
     except (ValueError,KeyError,OSError) as exc:
         parser.error(str(exc))
     args.output_dir.mkdir(parents=True,exist_ok=True)
     summary = {name:summarize(result) for name,result in variants.items()}
-    summary['semantics'] = 'Same recorded observations, visual candidates only; no closed-loop trajectory, connector bias, watchdog or model hold simulation.'
+    summary['semantics'] = ('Current controller on recorded observations, visual candidates only; '
+        'not an exact historical-controller reproduction. Demand smoothing and additive position correction '
+        'have been removed; differences from older recordings are expected. No closed-loop trajectory, '
+        'connector bias, watchdog or model hold simulation.')
     summary['recording_manifest'] = str(args.manifest or args.line_frames.with_name('run_manifest.json'))
     summary['filter_settings'] = config.__dict__
     for name,result in variants.items():
@@ -178,8 +174,6 @@ def main():
     if args.plot:
         plot_variants(variants,args.output_dir)
     print(json.dumps(summary,ensure_ascii=False,indent=2))
-    if summary['legacy']['differs_from_recording_frames']:
-        parser.error('legacy replay differs from recording; inspect source/timing before interpreting comparisons')
 
 
 if __name__ == '__main__':

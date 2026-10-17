@@ -18,15 +18,34 @@ from steering_recovery import RecoveryConfig
 
 
 class SteeringFilterReplayTests(unittest.TestCase):
+    def test_historical_table_recording_reports_expected_command_changes(self):
+        from test_raw_demand_table import TABLE
+        module = importlib.import_module('replay_steering_filter')
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            rows = [dict(frame=i, host_time_ns=round((100+i*.1)*1e9),
+                process_monotonic_s=10+i*.1, confidence=1., vx=.2, wz=.5,
+                measurement=dict(detection(angle), steering_reason='continue_block'))
+                for i, angle in enumerate((60., 60., 0.))]
+            (root/'line_frames.jsonl').write_text('\n'.join(json.dumps(r) for r in rows))
+            (root/'run_manifest.json').write_text(json.dumps({'arguments':{
+                'wz_mode':'heading', 'steering_filter_mode':'active',
+                'steering_angle_wz_table': TABLE}}))
+            with patch('sys.argv', ['replay', str(root/'line_frames.jsonl'),
+                    '--output-dir', str(root/'out')]), contextlib.redirect_stdout(io.StringIO()):
+                module.main()
+            summary = json.loads((root/'out/summary.json').read_text(encoding='utf-8'))
+            self.assertEqual(summary['current_unfiltered']['differs_from_recording_frames'], 1)
+
     def test_signed_asymmetric_zero_bias_replays_for_both_wire_signs(self):
         for zero_rate in (-.1,.1):
             for sign in (-1,1):
                 table = [[-90,-3,-.2],[-3,0,-.1],[0,10,zero_rate],[10,90,.3]]
                 controller = HeadingSteeringController(SteeringController(yaw_sign=sign),
-                    angle_wz_table=table, position_gain=0,position_recovery_cm=0,corridor_cm=100)
+                    angle_wz_table=table, position_recovery_cm=0,corridor_cm=100)
                 rows = self.recorded_rows(controller,[(detection(a),1.,.1) for a in (-4,-2,0,5,20)])
                 arguments = dict(wz_mode='heading',yaw_sign=sign,steering_angle_wz_table=table,
-                                 heading_corridor_cm=100,position_gain=0,position_recovery_cm=0)
+                                 heading_corridor_cm=100,position_recovery_cm=0)
                 result = importlib.import_module('replay_steering_filter').replay(rows,arguments,None)
                 self.assertEqual([r['new_wz'] for r in result],[r['wz'] for r in rows])
 
@@ -35,7 +54,7 @@ class SteeringFilterReplayTests(unittest.TestCase):
         from test_steering_config import SteeringConfigTests, TABLE
         regions = ((20, 32), (32, 44), (44, 56), (56, 68))
         for mode, controller_type in (('heading', HeadingSteeringController), ('segments', SegmentSteeringController)):
-            options = dict(angle_wz_table=TABLE, position_gain=0, position_recovery_cm=0,
+            options = dict(angle_wz_table=TABLE, position_recovery_cm=0,
                            lookahead_cm=65, corridor_cm=100)
             if mode == 'segments':
                 options['segment_regions_cm'] = regions
@@ -59,7 +78,7 @@ class SteeringFilterReplayTests(unittest.TestCase):
 
     def test_old_manifest_does_not_enable_new_position_control(self):
         controller = HeadingSteeringController(SteeringController(),
-            position_gain=0, position_recovery_cm=0)
+            position_recovery_cm=0)
         frame = detection(math.degrees(math.atan(6/25)), near=6, z=25)
         rows = self.recorded_rows(controller, [(frame, 1., .1)]*2)
         result = importlib.import_module('replay_steering_filter').replay(
@@ -67,9 +86,8 @@ class SteeringFilterReplayTests(unittest.TestCase):
         self.assertEqual([r['new_wz'] for r in result], [0., 0.])
 
     def test_manifest_position_settings_reproduce_real_controller(self):
-        for options in (dict(position_gain=0, position_recovery_cm=0),
-                dict(position_gain=2, position_dead_cm=1, position_lookahead_cm=20,
-                     position_max_deg=9, position_recovery_cm=6,
+        for options in (dict(position_recovery_cm=0),
+                dict(position_recovery_cm=6,
                      position_recovery_full_scale_cm=2, position_confirm_frames=3)):
             with self.subTest(options=options):
                 controller = HeadingSteeringController(SteeringController(), **options)
@@ -82,7 +100,7 @@ class SteeringFilterReplayTests(unittest.TestCase):
 
     def test_manifest_loss_recovery_and_explicit_ablation_override(self):
         controller = HeadingSteeringController(SteeringController(),
-            position_gain=0, position_recovery_cm=0, recovery_config=RecoveryConfig())
+            position_recovery_cm=0, recovery_config=RecoveryConfig())
         rows = self.recorded_rows(controller, [(detection(30), 1., .1),
             (detection(measurement_valid=False), 0., .3)])
         arguments = dict(wz_mode='heading', steering_loss_mode='history-stop',
@@ -99,7 +117,7 @@ class SteeringFilterReplayTests(unittest.TestCase):
         from segment_steering import SegmentSteeringController
         from test_segment_steering import detection as segment_detection, bend
         controller = SegmentSteeringController(SteeringController(),
-            position_gain=0, position_recovery_cm=0, segment_fallback=True)
+            position_recovery_cm=0, segment_fallback=True)
         frame = segment_detection(bend, heading_control_valid=False,
             near_observation_paired=True, near_observation_quality=.9)
         rows = self.recorded_rows(controller, [(frame, 1., .1)]*5)
@@ -115,7 +133,7 @@ class SteeringFilterReplayTests(unittest.TestCase):
         for mode in ('history-turn', 'history-stop'):
             with self.subTest(mode=mode):
                 controller = HeadingSteeringController(SteeringController(),
-                    position_gain=0, position_recovery_cm=0, recovery_config=RecoveryConfig())
+                    position_recovery_cm=0, recovery_config=RecoveryConfig())
                 bad = detection(measurement_valid=False)
                 rows = self.recorded_rows(controller, [(detection(-30), 1., .1),
                     (bad, 0., .2), (bad, 0., .7), (bad, 0., .1)])

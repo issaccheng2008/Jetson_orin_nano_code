@@ -26,7 +26,7 @@ import numpy as np
 
 from camera_config import load as load_camera
 from policy_bridge import ConnectorClient, SteeringController
-from line_telemetry import LineTelemetry
+from line_telemetry import LineTelemetry, execution_log_fields
 from command_video import line_lost, recording_frame
 from steering_command_window import SteeringCommandWindow, effective_policy_hold
 from start_gate import resolve_card_shapes
@@ -436,9 +436,7 @@ def parse_args():
     parser.add_argument("--heading-straight-wz", type=float, default=0.0,
                         help="heading mode: the wz published when no correction is "
                              "needed; must stay below the smallest turn level")
-    for name, default in (('gain', 1.), ('dead-cm', 2.), ('lookahead-cm', 50.),
-                          ('max-deg', 12.), ('recovery-cm', 8.),
-                          ('recovery-full-scale-cm', 12.)):
+    for name, default in (('recovery-cm', 8.), ('recovery-full-scale-cm', 12.)):
         parser.add_argument('--position-'+name, type=float, default=default,
                             help='heading/segments independent near-position '+name)
     parser.add_argument('--position-confirm-frames', type=int, default=2,
@@ -606,13 +604,9 @@ def parse_args():
             args.heading_far_cm = sum(args.heading_regions_cm[1])/2
     except ValueError as exc:
         parser.error(str(exc))
-    position_values = (args.position_gain, args.position_dead_cm, args.position_lookahead_cm,
-                       args.position_max_deg, args.position_recovery_cm,
-                       args.position_recovery_full_scale_cm)
+    position_values = (args.position_recovery_cm, args.position_recovery_full_scale_cm)
     if (not all(math.isfinite(v) for v in position_values)
-            or min(args.position_gain, args.position_dead_cm, args.position_max_deg,
-                   args.position_recovery_cm) < 0
-            or args.position_lookahead_cm <= 0 or args.position_recovery_full_scale_cm <= 0
+            or args.position_recovery_cm < 0 or args.position_recovery_full_scale_cm <= 0
             or args.position_confirm_frames < 1):
         parser.error('invalid near position settings')
     try:
@@ -762,7 +756,7 @@ def parse_args():
         wire_right_cap = min(cap,args.max_wz_right if args.max_wz_right is not None else args.max_wz)
         left_cap,right_cap = (cap,wire_right_cap) if args.yaw_sign > 0 else (wire_right_cap,cap)
         args.steering_angle_wz_table = validate_angle_wz_table(args.steering_angle_wz_table, left_cap,
-            filter_config.hysteresis_deg if args.steering_filter_mode != 'legacy' else 0., right_cap=right_cap)
+            right_cap=right_cap)
         args.segment_regions_cm = validate_segment_regions(args.segment_regions_cm)
         if args.wz_mode == 'segments':
             near = args.heading_near_cm if args.heading_near_cm is not None else 25.07
@@ -884,8 +878,6 @@ def main():
             left_levels=tuple(args.heading_left_wz),
             right_levels=tuple(args.heading_right_wz),
             straight_wz=args.heading_straight_wz,
-            position_gain=args.position_gain, position_dead_cm=args.position_dead_cm,
-            position_lookahead_cm=args.position_lookahead_cm, position_max_deg=args.position_max_deg,
             position_recovery_cm=args.position_recovery_cm,
             position_recovery_full_scale_cm=args.position_recovery_full_scale_cm,
             position_confirm_frames=args.position_confirm_frames), args)
@@ -1090,9 +1082,7 @@ def main():
                   f" tau={args.attitude_tau_s}s; 安装角 {args.camera_pitch_deg:.1f}°"
                   f" 会被机身俯仰实时修正", flush=True)
         if args.wz_mode in ("heading", "segments"):
-            print(f'[steering-position] gain={args.position_gain:g}; dead={args.position_dead_cm:g}cm; '
-                  f'lookahead={args.position_lookahead_cm:g}cm; max={args.position_max_deg:g}deg; '
-                  f'recovery={args.position_recovery_cm:g}cm; '
+            print(f'[steering-position] recovery={args.position_recovery_cm:g}cm; '
                   f'full_scale={args.position_recovery_full_scale_cm:g}cm; '
                   f'confirm={args.position_confirm_frames} fresh frames', flush=True)
             print(f'[steering-filter] mode={args.steering_filter_mode}; '
@@ -1117,8 +1107,9 @@ def main():
             right_text = "、".join(f"-{v:g}" for v in controller.right_levels)
             if args.steering_angle_wz_table is not None:
                 print(f'[steering-angle-table] {json.dumps(args.steering_angle_wz_table)}; '
-                      'input=signed combined filtered demand deg; output=signed rad/s; '
-                      'corridor/position/loss protection retained', flush=True)
+                      'input=steering_demand_deg (raw target bearing); output=signed rad/s; '
+                      'no demand smoothing or additive position correction; '
+                      'stop/loss protection and connector windows retained', flush=True)
             if args.heading_regions_cm is not None:
                 print(f'[heading-regions] {json.dumps(args.heading_regions_cm)} cm; '
                       'eight rows per region; centre settings overridden', flush=True)
@@ -1937,8 +1928,15 @@ def main():
                         if key.startswith(("photometric_", "cue_", "shape_"))})
                 repose_feedback_id = getattr(attitude, 'card_tilt_event_id', None)
                 repose_feedback_done = getattr(attitude, 'card_tilt_done', None)
+                # LOG=vision alone also records fresh adopted policy commands.
+                # Drain feedback after perception; never substitute visual wz.
+                if command_video is None and attitude is not None:
+                    attitude.poll()
+                execution = execution_log_fields(
+                    attitude.executed_command() if attitude is not None else None)
                 line_log.write(
                     telemetry_debug, frame=frames, host_time_ns=command_host_time_ns,
+                    **execution,
                     process_monotonic_s=processed, confidence=confidence,
                     camera_async=args.camera_async, **capture_metadata,
                     loop_period_ms=loop_period_ms, camera_read_ms=camera_read_ms,

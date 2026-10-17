@@ -14,6 +14,38 @@ COUNT_FIELDS = (
 )
 
 
+def execution_log_fields(executed):
+    """Flatten fresh policy feedback; this is adopted yaw, not measured body yaw."""
+    fields = dict(robot_cmd_wz=None, robot_cmd_status='unknown',
+                  robot_cmd_host_unix_s=None, robot_cmd_monotonic_s=None,
+                  robot_cmd_step=None, robot_cmd_policy_mode=None,
+                  robot_cmd_enabled=None)
+    if not isinstance(executed, dict):
+        return fields
+    result = executed.get('send_result')
+    if result not in ('written', 'not_written', 'unknown'):
+        return fields
+    fields.update(robot_cmd_status=result,
+        robot_cmd_host_unix_s=executed.get('host_unix_s'),
+        robot_cmd_monotonic_s=executed.get('monotonic_s'),
+        robot_cmd_step=executed.get('step'),
+        robot_cmd_policy_mode=executed.get('policy_mode'),
+        robot_cmd_enabled=executed.get('enabled'))
+    if result == 'written':
+        if executed.get('enabled') is not True:
+            fields['robot_cmd_status'] = 'motors_off'
+        else:
+            try:
+                wz = float(executed['velocity'][2])
+            except (KeyError, IndexError, TypeError, ValueError, OverflowError):
+                wz = math.nan
+            if math.isfinite(wz):
+                fields['robot_cmd_wz'] = wz
+            else:
+                fields['robot_cmd_status'] = 'unknown'
+    return fields
+
+
 class LineTelemetry:
     def __init__(self, run_directory):
         self.path = Path(run_directory) / 'line_frames.jsonl'
@@ -92,6 +124,8 @@ class LineTelemetry:
             except TypeError:
                 pass  # Debug images and fit arrays belong to loss dumps.
         # Context errors are programming errors, never silently discarded.
+        # LOG=vision includes the exact lookup demand, even without control/video.
+        measurements.setdefault('steering_demand_deg', None)
         row = {key: self.scalar(value) for key, value in context.items()}
         row['schema'] = 'line_frames_v1'
         row['measurement'] = measurements

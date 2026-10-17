@@ -28,12 +28,12 @@ TABLE = [[-90, -30, -.5], [-30, -10, -.3], [-10, 10, 0], [10, 30, .3], [30, 90, 
 class SteeringConfigTests(unittest.TestCase):
     def make(self, **options):
         return HeadingSteeringController(SteeringController(), angle_wz_table=TABLE,
-            position_gain=0, position_recovery_cm=0, corridor_cm=100, **options)
+            position_recovery_cm=0, corridor_cm=100, **options)
 
     def test_table_boundaries_and_wire_sign(self):
         for sign in (-1, 1):
             c = HeadingSteeringController(SteeringController(yaw_sign=sign),
-                angle_wz_table=TABLE, position_gain=0, position_recovery_cm=0,
+                angle_wz_table=TABLE, position_recovery_cm=0,
                 corridor_cm=100)
             for demand, expected in ((0, 0), (9.99, 0), (10, .3), (29.99, .3),
                                      (30, .5), (80, .5), (-10, 0), (-30, -.3), (-31, -.5)):
@@ -41,31 +41,31 @@ class SteeringConfigTests(unittest.TestCase):
                     self.assertAlmostEqual(c.command(detection(demand), 1, .1)[1], expected*sign)
                     c.reset()
 
-    def test_table_uses_combined_filtered_demand(self):
+    def test_table_uses_raw_demand_without_extra_position_correction(self):
         c = HeadingSteeringController(SteeringController(), angle_wz_table=TABLE,
             filter_config=FilterConfig(algorithm='none', hysteresis_deg=0),
             corridor_cm=100, position_recovery_cm=0)
-        # Raw target bearing <10°, position correction puts final decision above 10°.
+        # Position is already included in the target bearing; do not add it twice.
         out = c.command(detection(0, near=-6, z=25), 1, .1)
-        self.assertLess(c.diagnostics['steering_filtered_demand_deg'], 10)
-        self.assertGreater(c.diagnostics['steering_combined_demand_deg'], 10)
-        self.assertEqual(out[1], .3)
+        self.assertLess(c.diagnostics['steering_demand_deg'], 10)
+        self.assertNotIn('steering_position_correction_deg', c.diagnostics)
+        self.assertEqual(c.diagnostics['steering_table_input_deg'],
+                         c.diagnostics['steering_demand_deg'])
+        self.assertEqual(out[1], 0.)
 
-    def test_hysteresis_follows_table_boundary(self):
+    def test_table_boundary_uses_current_raw_demand(self):
         c = self.make(filter_config=FilterConfig(algorithm='none', hysteresis_deg=1))
         c._command = (.2, .3)
-        self.assertEqual(c._filtered_level(30.5), .3)
-        self.assertEqual(c._filtered_level(31.1), .5)
+        self.assertEqual(c.command(detection(30.5), 1., .1)[1], .5)
         c._command = (.2, .5)
-        self.assertEqual(c._filtered_level(29.5), .5)
-        self.assertEqual(c._filtered_level(28.9), .3)
+        self.assertEqual(c.command(detection(29.5), 1., .1)[1], .3)
 
-    def test_protection_can_override_zero_table_entry(self):
+    def test_corridor_does_not_override_raw_table_entry(self):
         c = HeadingSteeringController(SteeringController(), angle_wz_table=TABLE,
-            corridor_cm=5, position_gain=0, position_recovery_cm=0)
+            corridor_cm=5, position_recovery_cm=0)
         candidate, reason = c._decision(7, 0, 7)
-        self.assertEqual(candidate, .3)
-        self.assertEqual(reason, 'right_corridor')
+        self.assertEqual(candidate, 0.)
+        self.assertEqual(reason, 'raw_demand_table')
 
     def test_invalid_table_is_rejected(self):
         for table in ([[0, 10, 0], [12, 90, .3]], [[0, 30, 0], [20, 90, .3]],
@@ -151,7 +151,7 @@ class SteeringConfigTests(unittest.TestCase):
     def test_signed_asymmetric_intervals_and_zero(self):
         table = [[-90,-3,-.2],[-3,0,-.1],[0,10,0],[10,90,.3]]
         c = HeadingSteeringController(SteeringController(), angle_wz_table=table,
-            position_gain=0, position_recovery_cm=0, corridor_cm=100)
+            position_recovery_cm=0, corridor_cm=100)
         for angle, expected in ((-4,-.2),(-3,-.1),(-.5,-.1),(0,0),(.5,0),(10,.3)):
             self.assertAlmostEqual(c.command(detection(angle),1,.1)[1],expected)
             c.reset()
@@ -170,16 +170,16 @@ class SteeringConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 HeadingSteeringController(SteeringController(yaw_sign=sign,max_wz_right=.2),angle_wz_table=bad)
 
-    def test_negative_side_hysteresis_does_not_use_positive_bins(self):
+    def test_negative_table_boundary_has_no_history_retention(self):
         table = [[-90,-20,-.2],[-20,-3,-.1],[-3,10,0],[10,90,.3]]
         c = HeadingSteeringController(SteeringController(),angle_wz_table=table,
             filter_config=FilterConfig(algorithm='none',hysteresis_deg=1))
         c._command=(.2,-.1)
-        self.assertEqual(c._filtered_level(-20.5),-.1)
-        self.assertEqual(c._filtered_level(-21.1),-.2)
+        self.assertEqual(c.command(detection(-20.5), 1., .1)[1],-.2)
+        self.assertEqual(c.command(detection(-21.1), 1., .1)[1],-.2)
         c._command=(.2,-.2)
-        self.assertEqual(c._filtered_level(-19.5),-.2)
-        self.assertEqual(c._filtered_level(-18.9),-.1)
+        self.assertEqual(c.command(detection(-19.5), 1., .1)[1],-.1)
+        self.assertEqual(c.command(detection(-18.9), 1., .1)[1],-.1)
         self.assertEqual(c._map_angle(20),.3)
 
     def test_invalid_signed_table_coverage_and_caps_are_rejected(self):
@@ -196,7 +196,7 @@ class SteeringConfigTests(unittest.TestCase):
             table=[[-90,-10,-.2],[-10,10,zero_rate],[10,90,.3]]
             for sign in (-1,1):
                 c=HeadingSteeringController(SteeringController(yaw_sign=sign),angle_wz_table=table,
-                    position_gain=0,position_recovery_cm=0,corridor_cm=100,
+                    position_recovery_cm=0,corridor_cm=100,
                     filter_config=FilterConfig(algorithm='none',hysteresis_deg=1))
                 self.assertAlmostEqual(c.command(detection(0),1,.1)[1],zero_rate*sign)
                 self.assertEqual(c.command(detection(0),1,0),(0,0))
@@ -205,7 +205,7 @@ class SteeringConfigTests(unittest.TestCase):
         from steering_recovery import RecoveryConfig
         c=HeadingSteeringController(SteeringController(),
             angle_wz_table=[[-90,-10,-.2],[-10,10,.1],[10,90,.3]],
-            position_gain=0,position_recovery_cm=0,corridor_cm=100,recovery_config=RecoveryConfig())
+            position_recovery_cm=0,corridor_cm=100,recovery_config=RecoveryConfig())
         for _ in range(10):
             self.assertEqual(c.command(detection(0),1,.1)[1],.1)
         c.command(detection(measurement_valid=False),0,.1)
