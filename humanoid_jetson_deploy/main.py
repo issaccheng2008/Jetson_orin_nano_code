@@ -61,14 +61,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument(
         "--command-source",
-        choices=("fixed", "vision"),
+        choices=("fixed", "vision", "remote"),
         default="fixed",
-        help="Walking: fixed test command or new_vision/connector UDP commands",
+        help="Walking: fixed test command, vision UDP, or LAN browser remote UDP",
     )
     parser.add_argument("--udp-command-bind", default="127.0.0.1")
-    parser.add_argument("--udp-command-port", type=int, default=5005)
+    parser.add_argument("--udp-command-port", type=int, default=None,
+                        help="UDP command port: remote defaults to 5007, otherwise 5005")
     parser.add_argument("--command-timeout", type=float, default=0.25,
-                        help="Zero velocity after this many seconds without connector data")
+                        help="Zero velocity after this many seconds without UDP command data")
     parser.add_argument("--walk-seconds", type=float, default=5.0,
                         help="Fixed mode only: command zero after this duration; 0 disables timer")
     parser.add_argument(
@@ -106,7 +107,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable only the live window for headless runs; CSV logging remains enabled",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.udp_command_port is None:
+        args.udp_command_port = 5007 if args.command_source == "remote" else 5005
+    return args
 
 
 def monotonic_us() -> int:
@@ -130,6 +134,8 @@ def send_disable(link: SerialLink, q_motor: np.ndarray, estop: bool = False) -> 
 
 def main() -> int:
     args = parse_args()
+    if args.command_source == "remote" and (args.fixed_policy or args.policy != "walking"):
+        raise SystemExit("--command-source remote requires walking --model mode")
     if args.one_foot_model and (args.fixed_policy or args.policy != "walking"
                                 or args.command_source != "vision"):
         raise SystemExit("--one-foot-model requires walking policy with --command-source vision")
@@ -151,7 +157,7 @@ def main() -> int:
     if args.plot_history_seconds <= 0.0:
         raise SystemExit("plot-history-seconds must be positive")
     if not args.fixed_policy and args.policy == "walking":
-        if args.command_source == "vision":
+        if args.command_source in ("vision", "remote"):
             if not 1 <= args.udp_command_port <= 65535:
                 raise SystemExit("udp-command-port must be between 1 and 65535")
             if not np.isfinite(args.command_timeout) or args.command_timeout <= 0:
@@ -198,7 +204,7 @@ def main() -> int:
         )
     else:
         policy = HumanoidPolicy(args.model)
-        if args.command_source == "vision":
+        if args.command_source in ("vision", "remote"):
             if args.one_foot_model:
                 card_policy = OneFootPolicy(args.one_foot_model)
                 shape_controller = ShapeActionController(lift_seconds=args.shape_lift_seconds)
@@ -206,8 +212,9 @@ def main() -> int:
                 args.udp_command_port, timeout_s=args.command_timeout,
                 bind=args.udp_command_bind,
             )
+            source_name = "browser remote" if args.command_source == "remote" else "new_vision/connector"
             command_source_description = (
-                f"new_vision/connector on udp://{args.udp_command_bind}:"
+                f"{source_name} on udp://{args.udp_command_bind}:"
                 f"{args.udp_command_port}; timeout={args.command_timeout:.3f}s; "
                 "live vx/wz, vy=0; fixed-command timer disabled"
             )
@@ -353,7 +360,7 @@ def main() -> int:
                     elif card_policy_active:
                         policy.reset()
                         card_policy_active = False
-                # A fixed-test timer must never override live vision commands.
+                # A fixed-test timer must never override live UDP commands.
                 if (args.command_source == "fixed" and args.walk_seconds > 0
                         and now - start_time >= args.walk_seconds):
                     velocity_command[:] = 0.0  # vx=0, vy=0, wz=0

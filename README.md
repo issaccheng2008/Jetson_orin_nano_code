@@ -1,5 +1,16 @@
 # Jetson Orin Nano humanoid runtime
 
+## Phone / desktop remote control
+
+Run `python3 -m remote_control` from the repository root on the Jetson, then
+open `http://<Jetson-LAN-IP>:8080` from a phone or computer on the same Wi-Fi.
+The browser provides independent forward and yaw joysticks, keyboard controls,
+an explicit stop, and an expiring single-controller lease. Run the walking
+runtime with `--command-source remote` (UDP port 5007). Existing motor enable
+and model requirements still apply. See the [Chinese setup guide](docs/web_remote_zh.md)
+for complete commands and a hardware-free test. The page displays commands,
+not measured robot motion; no Internet connection or frontend packages are needed.
+
 The runtime supports standard forward walking from `Humanoid_Robot_RSL_RL`
 and one-foot standing from `Humanoid_Robot_One_Foot_Standing`. Select the
 interface with `--policy walking` (default) or `--policy one-foot`.
