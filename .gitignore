@@ -8,6 +8,7 @@ records/
 /old_vision/
 /local_joint_angle_readback/
 /config/button_start.env
+/config/remote_start.env
 
 # Generated audit images/videos stay local; keep reports and annotations tracked.
 /docs/audit_*/**/*.jpg

@@ -114,6 +114,41 @@ test("starts disabled; authenticated connect never arms; arm sends immediate zer
   assert.deepEqual(h.last("/api/command").parsed, { session: "lease-one", seq: 1, vx: 0, wz: 0 });
 });
 
+test("managed startup sends only zero until ready and requires fresh input", async () => {
+  const h = harness();
+  let ready = false;
+  h.routes.set("/api/status", () => Promise.resolve(response(snapshot(false, { policy_managed: true, policy_ready: false, policy_state: "stopped" }))));
+  h.routes.set("/api/arm", () => Promise.resolve(response({ session: "managed", ...snapshot(true, { policy_managed: true, policy_ready: false, policy_state: "starting" }) })));
+  h.routes.set("/api/command", () => Promise.resolve(response(snapshot(true, { policy_managed: true, policy_ready: ready, policy_state: ready ? "ready" : "starting" }))));
+  await h.connect(); await h.arm();
+  assert.equal(h.get("control-state").textContent, "上位机启动中");
+  h.key("keydown", "KeyW");
+  h.get("forward-pad").dispatch("pointerdown", { pointerId: 1, pointerType: "touch", clientX: 100, clientY: 40 });
+  await h.tick(50);
+  assert.equal(h.last("/api/command").parsed.vx, 0);
+  ready = true;
+  await h.tick(50);
+  assert.equal(h.get("control-state").textContent, "控制中");
+  assert.match(h.get("notice-text").textContent, /已就绪/);
+  await h.tick(50);
+  assert.equal(h.last("/api/command").parsed.vx, 0);
+  h.key("keyup", "KeyW");
+  h.key("keydown", "KeyW");
+  await h.tick(50);
+  assert.equal(h.last("/api/command").parsed.vx, .4);
+});
+
+test("stop while managed runtime is starting revokes the lease", async () => {
+  const h = harness();
+  h.routes.set("/api/arm", () => Promise.resolve(response({ session: "managed", ...snapshot(true, { policy_managed: true, policy_ready: false, policy_state: "starting" }) })));
+  h.routes.set("/api/command", () => Promise.resolve(response(snapshot(true, { policy_managed: true, policy_ready: false, policy_state: "starting" }))));
+  await h.connect(); await h.arm();
+  h.get("stop-button").dispatch("click");
+  await flush();
+  assert.equal(h.last("/api/stop").parsed.session, "managed");
+  assert.notEqual(h.get("control-state").textContent, "控制中");
+});
+
 test("two pointers operate independently and releasing one preserves the other axis", async () => {
   const h = harness();
   await h.connect(); await h.arm();

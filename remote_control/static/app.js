@@ -25,6 +25,7 @@
     serverActive: false, maxVx: 0.4, maxWz: 0.5, yawSign: 1, timeoutMs: 300,
     publishedVx: 0, publishedWz: 0, publicationKnown: false, rtt: null,
     pointerVx: 0, pointerWz: 0, profile: 1,
+    policyManaged: false, policyReady: true,
   };
   const keys = new Set();
   const pointers = new Map();
@@ -76,7 +77,7 @@
   const fixed = (value) => Math.abs(value) < 0.005 ? "0.00" : value.toFixed(2);
 
   function inputs() {
-    if (!state.session) return { vx: 0, wz: 0 };
+    if (!state.session || !state.policyReady) return { vx: 0, wz: 0 };
     const forward = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
     const left = keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0;
     const right = keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0;
@@ -97,9 +98,10 @@
 
   function render() {
     const active = Boolean(state.session);
+    const waiting = active && !state.policyReady;
     const input = inputs();
     const busy = state.connected && state.serverActive && !active;
-    document.body.dataset.control = active ? "active" : "idle";
+    document.body.dataset.control = active && !waiting ? "active" : "idle";
     ui.link.classList.toggle("connected", state.connected);
     ui.link.classList.toggle("failed", Boolean(state.token) && !state.connected && !state.connecting);
     ui.linkText.textContent = state.connecting ? "连接中" : state.connected ? "服务已连接" : state.token ? "连接中断" : "未连接";
@@ -107,10 +109,10 @@
     const milliseconds = document.createElement("small");
     milliseconds.textContent = "ms";
     ui.rtt.append(milliseconds);
-    ui.controlState.textContent = active ? "控制中" : state.arming ? "启用中" : busy ? "已被占用" : state.connected ? "待启用" : "待连接";
-    ui.description.textContent = active ? "保持页面在前台。松手归零，停止后需重新启用。" : state.arming ? "正在申请控制权，请保持页面在前台。" : busy ? "另一会话正在控制，请等待其释放控制权。" : state.connected ? "确认环境安全后，点击启用控制。" : "输入服务口令连接，再手动启用控制。";
+    ui.controlState.textContent = waiting ? "上位机启动中" : active ? "控制中" : state.arming ? "启用中" : busy ? "已被占用" : state.connected ? "待启用" : "待连接";
+    ui.description.textContent = waiting ? "正在等待上位机和 STM32 就绪。就绪前保持零指令，也可随时停止。" : active ? "保持页面在前台。松手归零，停止后需重新启用。" : state.arming ? "正在申请控制权，请保持页面在前台。" : busy ? "另一会话正在控制，请等待其释放控制权。" : state.connected ? "确认环境安全后，点击启用控制。" : "输入服务口令连接，再手动启用控制。";
     ui.arm.disabled = !state.connected || state.connecting || state.arming || active || busy;
-    ui.armLabel.textContent = active ? "控制已启用" : state.arming ? "正在启用…" : "启用控制";
+    ui.armLabel.textContent = waiting ? "上位机启动中…" : active ? "控制已启用" : state.arming ? "正在启用…" : "启用控制";
     ui.profile.disabled = active || state.arming;
     ui.connect.disabled = state.connecting;
     ui.disconnect.hidden = !state.token;
@@ -124,7 +126,7 @@
     ui.timeout.textContent = String(Math.round(state.timeoutMs));
     ui.reversed.hidden = state.yawSign !== -1;
     for (const pad of [ui.forward, ui.yaw]) {
-      pad.setAttribute("aria-disabled", String(!active));
+      pad.setAttribute("aria-disabled", String(!active || waiting));
       pad.dataset.held = String(hasPointer(pad === ui.forward ? "forward" : "yaw"));
     }
     ui.forward.setAttribute("aria-valuemax", String(state.maxVx * state.profile));
@@ -139,6 +141,14 @@
   }
 
   function applyStatus(data, rtt) {
+    const wasReady = state.policyReady;
+    state.policyManaged = data.policy_managed === true;
+    state.policyReady = !state.policyManaged || data.policy_ready === true;
+    // A held key/thumb during startup must not become motion once hardware is ready.
+    if (!state.policyReady || !wasReady) clearInputs();
+    if (state.policyReady && !wasReady && state.session) {
+      setNotice("上位机已就绪。请重新推动摇杆或重新按方向键开始移动。");
+    }
     state.serverActive = data.active === true;
     if (finite(data.max_vx) && data.max_vx >= 0) state.maxVx = data.max_vx;
     if (finite(data.max_wz) && data.max_wz >= 0) state.maxWz = data.max_wz;
@@ -278,7 +288,7 @@
       state.sequence = 0;
       state.arming = false;
       applyStatus(data, rtt);
-      setNotice("控制已启用。上推前进、左右转向；按空格或停止按钮结束控制。");
+      setNotice(state.policyReady ? "控制已启用。上推前进、左右转向；按空格或停止按钮结束控制。" : "上位机正在启动，就绪前摇杆保持零指令。请保持页面在前台。");
       ui.panel.focus({ preventScroll: true });
       render();
       // The first heartbeat is immediate; waiting for a status poll would let
@@ -378,7 +388,7 @@
 
   function installPointer(pad, axis) {
     pad.addEventListener("pointerdown", (event) => {
-      if (!state.session || (event.pointerType === "mouse" && event.button !== 0) || hasPointer(axis)) return;
+      if (!state.session || !state.policyReady || (event.pointerType === "mouse" && event.button !== 0) || hasPointer(axis)) return;
       event.preventDefault();
       const pointer = { pad, axis };
       pointers.set(event.pointerId, pointer);
@@ -421,6 +431,7 @@
     }
     if (!motionCodes.has(event.code)) return;
     event.preventDefault();
+    if (state.session && !state.policyReady) return;
     // Repeated events cannot revive a key held through stop, blur, or arming.
     if (event.repeat) return;
     keys.add(event.code);

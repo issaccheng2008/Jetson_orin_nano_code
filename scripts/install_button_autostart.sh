@@ -7,6 +7,10 @@ case "$mode" in
     *) printf 'Usage: bash %s [--dry-run|--check]\n' "$0" >&2; exit 2 ;;
 esac
 [[ $# -le 1 ]] || { printf 'Too many arguments.\n' >&2; exit 2; }
+if [[ "$mode" = install ]]; then
+    printf 'Legacy visual/button autostart installation is disabled on this branch. Use bash scripts/install_remote_autostart.sh instead.\n' >&2
+    exit 1
+fi
 target_user="$(id -un)"
 if ! target_group="$(id -gn 2>/dev/null)"; then
     target_group="$(id -g)"

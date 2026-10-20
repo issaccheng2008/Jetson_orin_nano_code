@@ -98,7 +98,7 @@ def parse_args() -> argparse.Namespace:
                         help="Legacy ignored option; STM32 holds the lift pose for 3 seconds")
     parser.add_argument("--port", default="/dev/ttyACM0", help="STM32 serial device")
     parser.add_argument("--startup-ready-file", default=None,
-                        help="Optional one-shot ready marker for the vision start gate")
+                        help="Optional ready marker for the vision gate or managed browser remote")
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument(
         "--command-source",
@@ -357,9 +357,9 @@ def main() -> int:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     if args.startup_ready_file and (args.policy != "walking"
-                                    or args.command_source != "vision"
+                                    or args.command_source not in ("vision", "remote")
                                     or not args.enable_motors):
-        raise SystemExit("--startup-ready-file requires enabled walking vision mode")
+        raise SystemExit("--startup-ready-file requires enabled walking vision or remote mode")
     config.validate_imu_configuration()
     if args.enable_motors and (
         not config.CALIBRATION_CONFIRMED or not config.IMU_CALIBRATION_CONFIRMED

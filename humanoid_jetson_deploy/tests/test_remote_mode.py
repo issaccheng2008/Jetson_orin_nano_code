@@ -1,6 +1,8 @@
 import contextlib
 import io
 import itertools
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -8,7 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import config
 import main
-from protocol import STATE_ENCODERS_VALID, STATE_IMU_VALID
+from protocol import STATE_COMMAND_FRESH, STATE_MOTORS_ENABLED, STATE_ENCODERS_VALID, STATE_IMU_VALID
 
 
 class RemoteModeTests(unittest.TestCase):
@@ -97,6 +99,35 @@ class RemoteModeTests(unittest.TestCase):
             args = main.parse_args()
         with patch.object(main, "parse_args", return_value=args), self.assertRaises(SystemExit):
             main.main()
+
+    def test_managed_remote_ready_marker_waits_for_confirmed_motor_feedback(self):
+        state = SimpleNamespace(
+            status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID | STATE_COMMAND_FRESH | STATE_MOTORS_ENABLED,
+            accel_m_s2=np.array([0, 0, 9.81], dtype=np.float32),
+            gyro_rad_s=np.zeros(3, dtype=np.float32),
+            orientation_wxyz=np.array([1, 0, 0, 0], dtype=np.float32),
+            joint_position=config.Q_DEFAULT.copy(), joint_velocity=np.zeros(12), sequence=1)
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder) / "ready"
+            with (
+                patch.object(main, "parse_args", return_value=self.args("--startup-ready-file", str(marker), "--enable-motors")),
+                patch.object(main.signal, "signal"),
+                patch.object(main, "HumanoidPolicy") as policy_cls,
+                patch.object(main, "SerialLink") as link_cls,
+                patch.object(main, "UdpCommandSource") as source_cls,
+                patch.object(main, "PositionCsvLogger"),
+                patch.object(main, "send_host_ready_if_connected", return_value=True),
+                patch.object(main.time, "monotonic", side_effect=itertools.chain([0.], itertools.repeat(10.))),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                source_cls.return_value.get.return_value = np.zeros(3)
+                policy_cls.return_value.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.)
+                link = link_cls.return_value
+                link.wait_for_state.return_value = state
+                link.get_latest_state.side_effect = [state, state, RuntimeError("end test")]
+                link.send_command.return_value = True
+                self.assertEqual(main.main(), 1)
+                self.assertEqual(marker.read_text().strip(), "ready")
 
 
 if __name__ == "__main__":

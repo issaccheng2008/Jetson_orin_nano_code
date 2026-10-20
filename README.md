@@ -1,6 +1,15 @@
 # Jetson Orin Nano humanoid runtime
 
 ## Phone / desktop remote control
+
+This branch replaces the old vision boot startup with an optional remote-only
+service: boot the webpage, then start the walking runtime when the browser's
+Enable button is pressed. See [remote autostart setup](docs/remote_autostart_zh.md).
+The installer disables and masks the two legacy vision services after validation;
+the legacy installer refuses new installation on this branch.
+
+For the manual two-terminal workflow:
+
 Run `python3 -m remote_control` from the repository root on the Jetson, then
 open `http://<Jetson-LAN-IP>:8080` from a phone or computer on the same Wi-Fi.
 The browser provides independent forward and yaw joysticks, keyboard controls,
