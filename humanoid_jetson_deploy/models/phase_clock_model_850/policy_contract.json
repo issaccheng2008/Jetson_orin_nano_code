@@ -1,0 +1,115 @@
+{
+  "checkpoint": "F:\\RobotProject\\cross_stick_p3\\logs\\rsl_rl\\fixed_stick_stage1_v32\\2026-10-02_17-07-45-315815_finetune\\model_850.pt",
+  "checkpoint_sha256": "bc01b823c6009da3c93e01a5ff8d0306655323c91df345ba4b5929b47a8e594f",
+  "onnx_sha256": "e77211f51956add352438d367c854ea85fceaaeedcd9cfce697d8c789e15ece2",
+  "iteration": 850,
+  "training_stage": "fixed_stick_stage1_v32",
+  "trained_control": {
+    "command_mode": "touchdown"
+  },
+  "deployment_control": {
+    "command_mode": "phase_clock",
+    "phase_clock": {
+      "control_dt": 0.02,
+      "walk_end_s": 0.14,
+      "lead_end_s": 0.44,
+      "sequence_end_s": 0.76,
+      "forward_velocity": 0.2,
+      "walk_step": 0.1,
+      "crossing_step": 0.23
+    }
+  },
+  "input": {
+    "name": "obs",
+    "dtype": "float32",
+    "shape": [
+      "batch",
+      49
+    ]
+  },
+  "output": {
+    "name": "action",
+    "dtype": "float32",
+    "shape": [
+      "batch",
+      12
+    ]
+  },
+  "joint_names": [
+    "r_leg_pitch_joint",
+    "r_leg_roll_joint",
+    "r_leg_yaw_joint",
+    "r_knee_pitch_joint",
+    "r_ankle_pitch_joint",
+    "r_ankle_roll_joint",
+    "l_leg_pitch_joint",
+    "l_leg_roll_joint",
+    "l_leg_yaw_joint",
+    "l_knee_pitch_joint",
+    "l_ankle_pitch_joint",
+    "l_ankle_roll_joint"
+  ],
+  "default_joint_positions_rad": [
+    0.15000000596046448,
+    0.0,
+    0.0,
+    0.30000001192092896,
+    -0.15000000596046448,
+    0.0,
+    -0.15000000596046448,
+    0.0,
+    0.0,
+    -0.30000001192092896,
+    0.15000000596046448,
+    0.0
+  ],
+  "action_scale": 0.25,
+  "action_clipping": null,
+  "obs_normalization": false,
+  "observation_slices_zero_based": {
+    "imu_acc_x0_1": [
+      0,
+      3
+    ],
+    "imu_gyro": [
+      3,
+      6
+    ],
+    "projected_gravity": [
+      6,
+      9
+    ],
+    "commands": [
+      9,
+      13
+    ],
+    "q_minus_default": [
+      13,
+      25
+    ],
+    "joint_velocity": [
+      25,
+      37
+    ],
+    "previous_unscaled_action": [
+      37,
+      49
+    ]
+  },
+  "initial_toe_bar_gap_m": 0.08,
+  "clock_inside_onnx": false,
+  "sequence_finished_means": "command sequence ended; physical success is not measured on hardware",
+  "hardware_validated": false,
+  "validation": {
+    "checker": "passed",
+    "numerical_check": "passed",
+    "test_inputs": 64,
+    "tested_batch_sizes": [
+      1,
+      64
+    ],
+    "max_absolute_error": 2.86102294921875e-06,
+    "validation_backend": "onnx.reference.ReferenceEvaluator",
+    "opset": 14
+  }
+}

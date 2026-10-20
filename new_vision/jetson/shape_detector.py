@@ -11,7 +11,7 @@ v2 找框重构：线宽选择性预处理（blackhat核9 + 各向异性闭 + �
   close5→保留（桥接断口，改用1×5/5×1各向异性）；open5/open3→废弃（磨细线）；
   CC面积/高度过滤→废弃（删细线CC），改笔画宽判据。
 
-接口与 QRDetector 保持一致：update(bgr) → (action_number, dbg) 或 (None, None)。
+接口：update(bgr) → (shape_name, dbg)，仅提供单帧结果，不触发动作。
 动作映射（与2025二维码1-6对应）：
   圆形=1举左手 五角星=2举右手 正方形=3抬左腿 菱形=4抬右腿 十字形=5举双手 三角形=6摇头
 """
@@ -23,6 +23,7 @@ from collections import deque
 import numpy as np
 
 from camera_config import load as _load_camera, to_model_z
+from photometric_thresholds import measure
 
 _CAM = _load_camera()
 
@@ -32,18 +33,88 @@ WORK_W = 960
 WORK_H = 540
 
 
+def _quad_4pt(cnt):
+    """把闭合轮廓收成 4 角；收不出 4 个凸点就返回 None（不猜）。"""
+    peri = cv2.arcLength(cnt, True)
+    for frac in np.arange(0.01, 0.25, 0.01):
+        ap = cv2.approxPolyDP(cnt, float(frac) * peri, True)
+        if len(ap) == 4 and cv2.isContourConvex(ap):
+            return ap.reshape(4, 2).astype(np.float32)
+    return None
+
+
+def _drop_nested(quads):
+    """卡框是最外层那个闭合环 —— 落在别人框里的，不是卡框。
+
+    一张卡上通常有两圈环：外框，和卡片内部的图形（方块卡的内部就是个方框）。
+    两圈都能收成 4 角、都能过 `_square_on_ground`，只是内部图形小一圈。选错就是
+    正1 那样：拿内圈去 warp，warp 出一圈粗断环，`solidity` 0.27 读成十字，和真
+    十字（十2 是 0.25）根本分不开。按面积从大到小留，中心落在已留下的框里的丢掉。
+    """
+    keep = []
+    for q in sorted(quads, key=lambda x: -abs(cv2.contourArea(x))):
+        c = q.mean(axis=0)
+        if any(cv2.pointPolygonTest(k.reshape(-1, 1, 2),
+                                    (float(c[0]), float(c[1])), False) > 0
+               for k in keep):
+            continue
+        keep.append(q)
+    return keep
+
+
+def _card_ink(gray, backend=None):
+    """"白纸 + 黑框"的卡在原始灰度上直接 Otsu 就能切开，不需要压巡线。
+
+    巡线是开放曲线，不闭合，没有孔 —— 所以"有孔"这件事本身就是卡框的选择性来源。
+    """
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    _t, ink = cv2.threshold(blur, 0, 255,
+                            cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    return (backend.morphology(ink, [(cv2.MORPH_CLOSE, kernel)])
+            if backend is not None else cv2.morphologyEx(ink, cv2.MORPH_CLOSE, kernel))
+
+
+def _trigger_y_at(z_cm):
+    """地面距离对应的 cue 中心高度，工作图坐标。
+
+    pinhole 模型：zc = h·sinθ + z·cosθ（相机到卡的斜距），
+    y = cy + fy·(h·cosθ − z·sinθ)/zc。相机装高/俯角/vfov 固定之后，
+    地面某个距离就唯一对应画面某一行 —— 反向读它，就是"停在多远"。
+    """
+    h = _CAM["mount_height_cm"]
+    th = math.radians(_CAM["pitch_deg"])
+    vfov = math.radians(_CAM["vfov_deg"])
+    fy = WORK_H / (2.0 * math.tan(vfov / 2.0))
+    z = max(1.0, to_model_z(z_cm))
+    zc = h * math.sin(th) + z * math.cos(th)
+    y_c = WORK_H / 2.0 + fy * (h * math.cos(th) - z * math.sin(th)) / zc
+    return y_c
+
+
+def trigger_frac_at_dist(z_cm):
+    """地面距离 → 框质心该压到画面的哪个高度（0=顶 1=底）。
+
+    这是"停车距离"的唯一权威换算：调用方给一个厘米数，得到该比的画面比例，
+    而不是各自写一个 magic frac —— 两套常数已经对不上过一次（0.4 实际是 43cm，
+    而按 40cm 算出来的是 0.432）。
+
+    ⚠️ 这个量对**机身俯仰**极敏感：cy 是角度，相机一低头，同一张卡在画面里就
+    滑下去一大截。2026-10-01 实测机身在一趟里从 +16° 倾到 −24°，cy 读数因此
+    差了 15cm 的距离。行走停车采用 cue 高度，因此需要保持相机安装标定。
+    """
+    return _trigger_y_at(z_cm) / WORK_H
+
+
+
 class ShapeDetector:
-    def __init__(
-        self,
-        stable_frames=3,        # 连续确认帧数
-        cooldown_ms=3200,       # 发送冷却
-        roi_ratio=1.0,          # 检测ROI：画面下roi_ratio区域（默认全图）
-        debug=True,
-    ):
-        self.stable_frames = stable_frames
-        self.cooldown_ms = cooldown_ms
+    def __init__(self, roi_ratio=1.0):
         self.roi_ratio = roi_ratio
-        self.debug = debug
+        self.vision_backend = None  # Explicitly assigned by --vision-device.
+        self.preprocess_mode = "selective"
+        self.photometric_mode = "legacy"
+        self._photometry = None
+        self._photometric_debug = {}
 
         # ── 找框参数（集中管理）──
         self.cfg = {
@@ -66,16 +137,27 @@ class ShapeDetector:
             "aspect_min": 1.0,       # 宽高比下限（真实wh最低1.9；1.0兜住正视图/极端姿态，由其他验证把关）
             "aspect_max": 5.0,
             "area_min": 550,         # 面积下限（__init__ 按相机几何覆盖）
-            "area_max": 20000,
+            # 面积只做便宜的预筛，真正判"是不是 10cm 卡"的是 _square_on_ground
+            # （地面反投影 + 边长/边比/对角比/直角），那一套与视角和朝向无关。
+            #
+            # 2026-09-27：这里原本是 55000，注释里那张表（"55000 覆盖到 12cm/偏45°"）
+            # 是用 _card_area_at_dist 推的，而那个函数差约 10 倍。按真实几何重算 ——
+            # hfov=86.6°=1.5115rad、960px 工作图 → 635px/rad，10cm 卡在 d 米处
+            # 外接框边长 = 63.5/d px：
+            #   30cm 212px→44800   27cm 235px→55200   20cm 318px→101000
+            #   14cm 454px→206000  12cm 529px→280000
+            # 也就是旧的 55000 = "卡比 27cm 更近就拒"。实测 6card 里 五3/五4/五6/十1
+            # 四张的 rej 里**只有 area_max** 响过（496~512 个候选全被它杀），
+            # 而它们的卡就在画面里、二值图上完整清晰。实车同签名：停车点 cy 0.83~0.88
+            # 对应 14~24cm，那一档全是 rej={'area_max': 512}。
+            # 260000 ≈ 12.5cm 处的卡，也是卡片快掉出画面下沿的距离。
+            "area_max": 260000,
             # 相机几何（config/cameras.json，用于按距离算图卡像素面积下限）
             "cam_height_cm": _CAM["mount_height_cm"],
             "cam_pitch_deg": _CAM["pitch_deg"],
             "cam_vfov_deg": _CAM["vfov_deg"],
             "max_dist_cm": float(os.environ.get("SHAPE_MAX_DIST_CM", "80.0")),
             # 最远识别距离：面积下限由该距离的图卡投影面积决定（env 可调）
-            # 触发距离：图卡进到这个距离内才允许发动作指令（拦场地误检）
-            "trigger_dist_cm": float(os.environ.get("SHAPE_TRIGGER_DIST_CM",
-                                                    "40.0")),
             "ang_min": 40,           # quad内角范围（度）；远桶GT实测38.6-143.5°
             "ang_max": 150,          # 原135/45误杀远桶透视压扁+旋转卡
             # 地面方形判据：4 角点反投影到地面后，图卡必须是个边长 10cm 的正方形。
@@ -84,6 +166,13 @@ class ShapeDetector:
             # 视角后，真实图卡实测边比 1.20、对角比 1.15、角差 11°；
             # 无卡视频 448 个候选里边比 p10 就有 2.84。
             "square_side_min_cm": 6.0,       # 地面边长范围（图卡黑框外缘约 9.9cm）
+            # ring 通道专用的边长下限。地面坐标整体正比于相机高度 h，而 h 有标定
+            # 误差（同一批卡实测量出 5.2~9.4cm，真值 9.9cm）—— 尺寸是地面四项里
+            # 唯一不可靠的一项。ring 的框就是卡框轮廓本身，尺寸误差只剩 h 这一项；
+            # 别的通道的框是拟合出来的，尺寸偏多少没有上限。实测放宽只给 ring：
+            # 正6（ratio 1.13/对角比 1.11/角差 8.1° 的漂亮方形，边长量到 5.2cm）进得来，
+            # 而五2（根本没有 ring 候选）仍然被拒 —— 全局放宽时它会被放进来答成方块。
+            "square_side_min_ring_cm": 4.5,
             "square_side_max_cm": 14.0,
             "square_side_ratio_max": 1.35,   # 地面最长/最短边比
             "square_diag_ratio_max": 1.22,   # 地面两对角线比
@@ -95,7 +184,22 @@ class ShapeDetector:
             # 放宽到 0.65 后 11 张真卡全检出、188 帧无卡视频仍 0 假阳性。
             "closure_total": 0.75,   # 4边采样命中率均值
             "closure_edge": 0.65,    # 单边最低命中率
-            "sample_band": 1,        # 采样带半宽px（真框边几乎全在线上）
+            # 采样带半宽px：闭合度只在边线 ±这个像素内找墨。
+            # 2026-09-27 从 1 改成 3。原来是 1，理由是"真框边几乎全在线上"，
+            # 但同一段注释又写着"真实图卡实测最差边只有 0.67" —— 那个 0.67 就是
+            # ±1px 量出来的。框来自 CC/Hough 拟合，天生偏几像素，要求像素级对齐
+            # 是错的；当时是去调 closure 阈值迁就它，调错了地方
+            # （closure 阈值在 band=1 和 band=3 下测出来都是平的）。
+            #
+            # 6card 实测（框数/出形状/判对/混淆矩阵里的跨类错）：
+            #   band 1 → 16/14/13   2 → 18/16/14   3 → 23/16/15 (`square→diamond` 1)
+            #   band 5 → 20/18/15 (`square→diamond` 2, 三角 2/4)   8 → 19/17/14
+            # band=5 框更多但判对数同为 15，**跨类错多一例**、三角少对一张 ——
+            # 取 3：同样准确率下更少"抬错腿"。8 回落，不是越松越好。
+            # ⚠️ 放宽会放松对假阳性的拦截；6card 没有空场景数据可验，
+            # 实车靠 presence_top_frac + _square_on_ground 那两道继续把关。
+            "sample_band": 3,
+
             "n_samples": 16,         # 每边采样点数
             "max_gap_frac": 0.35,    # 单边最长连续断口占总采样点比例上限
             "inner_ratio": (0.02, 0.8),  # warp后中心区图形线占比（五角星5边实测0.72）
@@ -117,23 +221,36 @@ class ShapeDetector:
             # 条带，核9 + 笔画宽[1.5,7] 直接把它滤掉——1314 全片 0 命中就是
             # 这个原因。核31 对"比核细的暗结构"一律响应，模糊边框与巡线都在。
             "cue_bh_kernel": 31,       # blackhat 核（RECT，O(1)，约0.6ms）
-            "cue_ink_thresh": 12,      # 暗于局部最大值多少算墨
+            "cue_ink_thresh": 10,      # 稍放宽低对比模糊边框的墨迹提取
             "cue_close": 9,            # 闭运算核：把糊断的边框连成闭合环
             # 结构闸门（连通域 = 卡的外轮廓）
-            "cue_side_min": 30,        # 外接矩形短边下限 px
+            "cue_side_min": 28,        # 外接矩形短边下限 px
             "cue_side_max": 340,       # 长边上限（再大不是 10cm 卡）
             "cue_aspect_max": 2.6,     # 长边/短边上限
             "cue_fill_min": 0.30,      # 连通域面积 / 外接矩形面积
             "cue_edge_margin": 4,      # 上/左/右被画面切掉的不算完整卡
+            # ⚠️ 2026-10-02 试过加严（0.01 / 6.0 / hist_m 4），实车把它退回来了：
+            # 卡在眼前 9 帧都 found=1 shape=triangle，presence 却连着 7 帧 False ——
+            # 而 card_flag 靠 presence 撑着（连续 --card-clear-calls 次没有就掉），
+            # 停车闸第一条就是 card_flag，于是**根本不停**。真卡的 cue 命中本来就是
+            # 断续的，hist_m 多要一帧就够不着了。要防"别处误识别导致减速后右拐"，
+            # 别在这里挡 —— 那是停车的前置信号，换个地方（见 --card-slow-wz）。
             "cue_inner_min": 0.005,    # 环内亮孔占比下限（必须有纸面）
             "cue_ring_max": 20.0,      # 环厚（面积/周长）上限，拒实心粗笔画
             "cue_core_gray_min": 100.0,  # 亮孔灰度下限
-            "cue_contrast_min": 4.0,   # 亮孔 − 环 灰度下限
+            "cue_contrast_min": 3.0,   # 亮孔 − 环 灰度下限
+            # 出口分数闸（2026-10-03 定值）：结构对了还不够，分数得像一张真卡。
+            # 白地板 + 黑线 + 反光同样满足"细环 + 亮孔"：实车一帧 cue=0.077 就把车
+            # 停在一张不存在的卡前面（抠出来的框里只有地板，见 shape_dump）。
+            # 量出来的分界：地板/反光 ≤0.78，真卡（运动模糊、走着看）4.2~8.5。
+            # 实拍地板/反光最高约0.78，模糊真卡约4.2~8.5；放宽到1.5，
+            # 仍保留与已见空场景的分数间隔，不能让低分结构直接累积停车票。
+            "cue_score_min": 1.5,      # 亮孔占比 × (亮孔 − 环) 灰度，下限
             # 时间累积：抖动是步态频率的周期运动，单帧判定必然断续。
             # 近 N 帧里出现 M 次算"卡在前面"；再看最近 R 帧里至少有一次命中，
             # 把尾随段压到 R-1 帧，不然卡走了 presence 还挂着就是假阳性。
             "cue_hist_n": 9,
-            "cue_hist_m": 3,
+            "cue_hist_m": 2,
             "cue_hist_recent": 3,
         }
 
@@ -147,21 +264,9 @@ class ShapeDetector:
             "triangle": 6,   # 摇头
         }
 
-        # 状态
-        self.candidate = None
-        self.candidate_count = 0
-        self.last_send_ms = None
-        self.first_candidate_ms = None
-        self.last_quad = None       # 帧间跟踪锁
-        self.track = []             # 候选框历史 (t_ms, cx, cy, box_w)，形状切换时清空
-        self.lane_offset_cm = None  # 机身相对赛道中心的横向偏差cm，update() 传入
-        # 触发闩锁：发过指令后须先"检测不到图卡"若干帧才重新武装，
-        # 否则动作结束→恢复巡线时同一张卡还在视野内，会被反复触发停车
-        self.armed = True
-        self.miss_count = 0
-        # 已通过连续确认的形状（"可信 flag"）。识别阶段全图累积，与位置无关；
-        # 触发阶段才查位置。图卡离开或触发后清除。
-        self.trusted = None
+        # Frame tracking and presence history, without action/stop state.
+        self.last_quad = None
+        self._geom_rejects = {}
         self._lsd = None            # LSD 检测器（复用，创建有开销）
         # 存在信号时间窗（per-frame 命中 0/1）与最近一次 cue 框
         self._cue_hist = deque(maxlen=self.cfg["cue_hist_n"])
@@ -170,10 +275,6 @@ class ShapeDetector:
         # ── 面积下限：按相机几何算（图卡在 max_dist_cm 处的投影像素面积）──
         self.cfg["area_min"] = int(self._card_area_at_dist(
             self.cfg["max_dist_cm"]))
-
-        # ── 触发门槛：按相机几何算（图卡进到 trigger_dist_cm 时的框宽/中心y）──
-        self.cfg["trigger_box_w"], self.cfg["trigger_y"] = \
-            self._triggers_at_dist(self.cfg["trigger_dist_cm"])
 
         # ── Hu 矩模板（辅助判据，不改判定树；缺失则跳过）──
         self.hu_templates = {}
@@ -186,23 +287,15 @@ class ShapeDetector:
         except Exception:
             self.hu_templates = {}
 
-    def _triggers_at_dist(self, z_cm):
-        """触发距离 → (最小框宽px, 最小框中心y)。
+    def set_camera_pitch_deg(self, pitch_deg):
+        """换掉光轴俯角（安装角 + 机身实时前倾）。
 
-        与 _card_area_at_dist 同一 pinhole 模型：图卡宽 10cm 投影为
-        fx·10/zc，故像素宽可反推距离。距离越小 → 框越大、y 越靠下。
-        返回的门槛即"图卡刚好进到 z_cm 时"的值，可作 >= 判据。
+        `_quad_to_ground` 把地面坐标整个正比于 h、按 θ 旋转，cfg 里那个静态
+        安装角一旦和机身真实姿态不符，反投影出来的"正方形"就是错的 ——
+        2026-10-01 实测一趟里机身俯仰摆 30~40°，比判据的容差大得多。
+        由 attitude_input 低通后喂进来，见那边的说明。
         """
-        h = self.cfg["cam_height_cm"]
-        th = math.radians(self.cfg["cam_pitch_deg"])
-        vfov = math.radians(self.cfg["cam_vfov_deg"])
-        fy = WORK_H / (2.0 * math.tan(vfov / 2.0))
-        hfov = 2.0 * math.atan(math.tan(vfov / 2.0) * WORK_W / WORK_H)
-        fx = WORK_W / (2.0 * math.tan(hfov / 2.0))
-        z = max(1.0, to_model_z(z_cm))
-        zc = h * math.sin(th) + z * math.cos(th)
-        y_c = WORK_H / 2.0 + fy * (h * math.cos(th) - z * math.sin(th)) / zc
-        return fx * 10.0 / zc, y_c
+        self.cfg["cam_pitch_deg"] = float(pitch_deg)
 
     def _card_area_at_dist(self, z_cm):
         """图卡（10cm×10cm 平放地面）在水平距离 z_cm 处的工作图像素面积。
@@ -237,21 +330,44 @@ class ShapeDetector:
     # 主入口
     # ═══════════════════════════════════════════════════════════
 
-    def update(self, bgr_or_gray, lane_offset_cm=None):
-        """返回 (action_number, debug_dict) 或 (None, None)。
+    def update(self, bgr_or_gray, *, classify=True, proposal_mode="all"):
+        """Return ``(shape_name, debug_dict)`` for one frame, without issuing actions.
 
-        输入归一化：任意分辨率 → resize到960×540（参数标定基准，
-        YOLO方案A同款）——参数与分辨率解耦；输出quad坐标映射回原图。
-
-        lane_offset_cm: 机身相对赛道中心的横向偏差（cm，正值=赛道中心在
-        画面右侧）。用于把图卡位置约束在赛道两条边线内；不传则按画面中央算。
+        Presence mode runs only the cue on corrected gray. Full box detection
+        is reserved for classification. The caller owns stopping, voting,
+        action dispatch and cooldown. Inputs are normalized to 960 x 540.
         """
-        self.lane_offset_cm = lane_offset_cm
+        from performance_telemetry import StageTimer
+        performance = StageTimer('shape')
+        self._segment_profile = {}
+        self._binary_profile = {}
+        update_started = time.perf_counter()
+        stage_started = update_started
         if len(bgr_or_gray.shape) == 3:
-            gray = cv2.cvtColor(bgr_or_gray, cv2.COLOR_BGR2GRAY)
+            gray = (self.vision_backend.gray(bgr_or_gray)
+                    if self.vision_backend is not None
+                    else cv2.cvtColor(bgr_or_gray, cv2.COLOR_BGR2GRAY))
         else:
             gray = bgr_or_gray
         h0, w0 = gray.shape[:2]
+        # Measure before ROI cropping/resizing/letterboxing: padding is not floor.
+        self._photometry = measure(gray, self.photometric_mode)
+        # Apply the archived auto-exposure brightness/contrast before the
+        # existing crop, resize, threshold, and card-presence logic.
+        gray = self._photometry.apply(gray)
+        self._photometric_debug = self._photometry.diagnostics()
+        self._photometric_debug["photometric_match_applied"] = self._photometry.match_allowed
+        self._photometric_debug.update(
+            cue_ink_threshold=self._photometry.difference(self.cfg["cue_ink_thresh"]),
+            cue_core_gray_threshold=self._photometry.intensity(self.cfg["cue_core_gray_min"]),
+            cue_contrast_threshold=self._photometry.difference(self.cfg["cue_contrast_min"]),
+            cue_score_threshold_raw=self._photometry.difference(self.cfg["cue_score_min"]),
+            cue_score_threshold_reference=self.cfg["cue_score_min"],
+            shape_adaptive_c=self.cfg["adaptive_c"] * min(1.0, self._photometry.scale),
+            shape_adaptive_c_applied=self.preprocess_mode == "selective",
+            shape_preprocess=self.preprocess_mode, cue_score_raw=0.0,
+            cue_score_reference=0.0, cue_evaluated=False)
+        performance.lap('photometry')
         if self.roi_ratio < 1.0:
             self._roi_y0 = int(h0 * (1.0 - self.roi_ratio))
             roi = gray[self._roi_y0:, :]
@@ -263,7 +379,8 @@ class ShapeDetector:
         s = min(WORK_W / w0, WORK_H / rh)
         nw = max(1, int(round(w0 * s)))
         nh = max(1, int(round(rh * s)))
-        roi_s = cv2.resize(roi, (nw, nh))
+        roi_s = (self.vision_backend.resize(roi, (nw, nh))
+                 if self.vision_backend is not None else cv2.resize(roi, (nw, nh)))
         if (nw, nh) == (WORK_W, WORK_H):
             gray = roi_s
         else:
@@ -273,56 +390,222 @@ class ShapeDetector:
         self._scale_x = w0 / nw
         self._scale_y = rh / nh
 
-        # S1 线宽选择性二值化（线=白255）
-        binary = self._binary_selective(gray)
-        dt = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+        if proposal_mode not in ("all", "staged"):
+            raise ValueError("proposal_mode must be all or staged")
+        performance.lap('resize')
 
-        # S2 候选生成
-        hsegs, lsegs = self._detect_segments(binary)
-        quads = self._hough_quads(binary, hsegs)
-        quads += self._lsd_quads(binary, lsegs)
-        quads += self._corner_quads(binary, hsegs + lsegs)
-        quads += self._cc_quads(binary)
+        if not classify:
+            # Moving presence needs corrected gray only. Never build card-box
+            # binaries, distance maps, proposals or classifications on this path.
+            dbg = dict(card_found=False, gray=gray, shape=None,
+                       presence_box=None, presence_box_work=None,
+                       presence_cue=0., presence_cy_frac=None,
+                       quad_total=0, quad_geom=0, scores=[], geom_rejects={},
+                       shape_proposal_mode='none', shape_proposal_source=None,
+                       shape_proposal_fallback=False, shape_presence_mode='cue_only',
+                       shape_classification_path='deferred_until_stop',
+                       shape_preprocess_ms=(time.perf_counter()-update_started)*1000.,
+                       shape_proposals_ms=0., shape_verification_ms=0.,
+                       shape_classify_ms=0., shape_quad_total=0, shape_quad_geom=0,
+                       shape_camera_pitch_deg=self.cfg['cam_pitch_deg'])
+            dbg.update(self._photometric_debug)
+            dbg['shape_adaptive_c_applied'] = False
+            started = time.perf_counter()
+            self._observe_presence_cue(gray, dbg)
+            dbg['shape_presence_ms'] = (time.perf_counter()-started)*1000.
+            dbg['shape_adaptive_c_applied'] = False
+            self.last_quad = None
+            if self.vision_backend is not None:
+                dbg.update(self.vision_backend.diagnostics())
+            dbg['shape_total_ms'] = (time.perf_counter()-update_started)*1000.
+            dbg.update(performance.finish())
+            return None, dbg
+
+        # S1 线宽选择性二值化（线=白255）
+        if self.preprocess_mode == "canny":
+            from canny_candidates import card_canny
+            binary, canny_debug = card_canny(gray)
+            self._photometric_debug.update({"shape_" + key: value
+                for key, value in canny_debug.items() if np.isscalar(value)})
+        elif self.preprocess_mode == "selective":
+            binary = self._binary_selective(gray)
+        elif self.preprocess_mode == "local_dark":
+            from local_darkness import card_candidates
+            binary, local_debug = card_candidates(gray)
+            self._photometric_debug.update({"shape_" + k: v for k, v in local_debug.items()})
+        else:
+            raise ValueError("shape preprocessing must be selective, canny or local_dark")
+        performance.lap('binary_filter')
+        dt = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+        # 卡框是一条闭合细环，而上面那条链是为压 2cm 巡线调的，卡框在它里面是碎的。
+        # ring 通道用它自己那张原始灰度 Otsu 墨迹图，后续的闭合度/线宽/环内含量
+        # 也在同一张图上量 —— 拿一套阈值去量一张被锯碎的图，是在惩罚正确的框。
+        ink = (binary.copy() if self.preprocess_mode in ("canny", "local_dark")
+               else _card_ink(gray, self.vision_backend))
+        performance.lap('distance_and_ink')
+        preprocess_ms = (time.perf_counter() - stage_started) * 1000.0
+        stage_started = time.perf_counter()
+
+        # S2 候选生成。候选带一个"来自 ring 通道"的标记：那一路的框是原始灰度上
+        # 的环轮廓，本身就是框线外缘，既不该被 _refine_quad 滑到框线上，也不该在
+        # 线宽选择性二值图上受检。在 6card 上把 refine 全局关掉是 21/31（更差），
+        # 只有 ring 这一路该跳过它。
+        staged = proposal_mode == "staged"
+        if staged:
+            # The stopped-card experiment starts with the cheap independent
+            # components and ring channels. The complete line/corner set remains
+            # available when those cannot produce a verified card box.
+            quads = [(q, False, "cc") for q in performance.call('proposal_cc', self._cc_quads, binary)]
+            quads += [(q, True, "ring") for q in performance.call('proposal_ring', self._ring_quads, ink)]
+        else:
+            hsegs, lsegs = performance.call('proposal_segments', self._detect_segments, binary)
+            quads = [(q, False, "hough") for q in performance.call('proposal_hough', self._hough_quads, binary, hsegs)]
+            quads += [(q, False, "lsd") for q in performance.call('proposal_lsd', self._lsd_quads, binary, lsegs)]
+            quads += [(q, False, "corner") for q in performance.call('proposal_corner', self._corner_quads, binary, hsegs + lsegs)]
+            quads += [(q, False, "cc") for q in performance.call('proposal_cc', self._cc_quads, binary)]
+            quads += [(q, True, "ring") for q in performance.call('proposal_ring', self._ring_quads, ink)]
+        proposal_counts = {source: sum(item[2] == source for item in quads)
+                           for source in ("hough", "lsd", "corner", "cc", "ring")}
+        proposals_ms = (time.perf_counter() - stage_started) * 1000.0
+        stage_started = time.perf_counter()
 
         # S3 验证 + 评分
         # 性能：候选可能数百个（视频帧纹理），先轻量几何预筛（纯数值，
         # 不采样不warp），通过的才做完整验证（采样+DT+warp200）——
         # 实测512候选完整验证2.5s → 预筛后剩几十个
+        self._geom_rejects = {}
         best, best_score, scores = None, 0.0, []
-        for q in quads:
-            if not self._geom_ok(q):
-                continue
-            r = self._refine_quad(binary, q)
-            # refine 偶尔会把本来合格的框推坏（远处小卡的角点通道），此时退回原框
-            q = r if self._geom_ok(r) else q
-            v = self._verify_quad(binary, dt, q)
-            if v is not None:
-                score, closure = v
-                scores.append((round(score, 3), closure))
-                # 帧间跟踪：与上一帧候选IoU高的加分
-                if self.last_quad is not None:
-                    iou = self._poly_iou(q, self.last_quad)
-                    if iou > self.cfg["track_iou"]:
-                        score += 0.3
-                if score > best_score:
-                    best, best_score = q, score
-        if best is not None:
-            self.last_quad = best
-        else:
-            self.last_quad = None
+        # Which stage killed the box: no candidate at all means the binarization
+        # gave nothing to work with, candidates that never reach _verify_quad mean
+        # the geometry gate is too tight, and an empty scores list with candidates
+        # means the verification thresholds rejected everything.
+        quad_total, quad_geom = len(quads), 0
+        def select_best(candidates):
+            local_best, local_score, local_scores = None, 0.0, []
+            local_geom = 0
+            local_source = None
+            for q, from_ring, source in candidates:
+                if not self._geom_ok(q, from_ring):
+                    continue
+                local_geom += 1
+                if from_ring:
+                    # Ring proposals already follow an intact ink border.
+                    v = (1.0, 1.0)
+                else:
+                    r = self._refine_quad(binary, q)
+                    q = r if self._geom_ok(r) else q
+                    v = self._verify_quad(binary, dt, q)
+                if v is not None:
+                    score, closure = v
+                    local_scores.append((round(score, 3), closure))
+                    if self.last_quad is not None:
+                        iou = self._poly_iou(q, self.last_quad)
+                        if iou > self.cfg["track_iou"]:
+                            score += 0.3
+                    if score > local_score:
+                        local_best, local_score = q, score
+                        local_source = source
+            return local_best, local_score, local_scores, local_geom, local_source
 
+        best, best_score, scores, quad_geom, best_source = select_best(quads)
+        proposal_fallback = staged and best is None
+        if proposal_fallback:
+            hsegs, lsegs = performance.call('proposal_segments', self._detect_segments, binary)
+            extra = [(q, False, "hough") for q in performance.call('proposal_hough', self._hough_quads, binary, hsegs)]
+            extra += [(q, False, "lsd") for q in performance.call('proposal_lsd', self._lsd_quads, binary, lsegs)]
+            extra += [(q, False, "corner") for q in performance.call('proposal_corner', self._corner_quads, binary, hsegs + lsegs)]
+            for source in ("hough", "lsd", "corner"):
+                proposal_counts[source] = sum(item[2] == source for item in extra)
+            # The cheap candidates have already been checked. If the complete
+            # proposal set still has no verified box, retain the cue fallback.
+            quad_total += len(extra)
+            best, best_score, scores, extra_geom, best_source = select_best(extra)
+            quad_geom += extra_geom
         shape = None
+        verification_ms = (time.perf_counter() - stage_started) * 1000.0
         dbg = {"card_found": best is not None, "roi_y0": self._roi_y0,
                "roi_ratio": self.roi_ratio, "scores": scores[:8],
+               "quad_total": quad_total, "quad_geom": quad_geom,
+               "geom_rejects": self._geom_rejects,
+               "shape_proposal_mode": "staged" if staged else "all",
+               "shape_proposal_fallback": bool(proposal_fallback),
+               "shape_proposal_source": best_source,
+               "shape_proposal_counts": proposal_counts,
                "binary": binary, "gray": gray,
+               # The ring channel's own binary. Worth a window of its own: it is the
+               # one image where the card's frame is intact, and the one the newest
+               # detection path reads instead of the track-line-suppressing _binary.
+               "ink": ink,
                "presence_box": None, "presence_box_work": None,
                "presence_cue": 0.0, "presence_cy_frac": None}
+        dbg.update(self._photometric_debug)
+        dbg.update(shape_preprocess_ms=preprocess_ms, shape_proposals_ms=proposals_ms,
+                   shape_verification_ms=verification_ms, shape_classify_ms=0.0,
+                   shape_presence_ms=0.0, shape_camera_pitch_deg=self.cfg["cam_pitch_deg"])
+        dbg.update({"shape_candidates_" + source: count
+                    for source, count in proposal_counts.items()})
 
         if best is not None:
+            stage_started = time.perf_counter()
+            # 分类的 warp 用 binary|ink 的并集。binary 是为"压掉 2cm 巡线"调的，
+            # 同一套阈值会把卡上 0.5cm 的细笔画锯断 —— 星形轮廓的环断了一处，
+            # findContours 就从断口钻进环内绕一圈，面积塌掉而凸包不变，solidity
+            # 从 0.65 掉到 0.35，正好落进十字那一档（<0.36）。2026-10-02 实车：
+            # 同一张静止的五角星在 0.278~0.685 之间逐帧跳，被投成了十字。
+            # 并上 ink（ring 通道本来就在用的原始灰度 Otsu 墨迹图，上面已经算过）
+            # 把断口补回来，同时不动 binary 已经认对的那部分。
+            # 实测：6card 31 张实拍 27/31 零跨类错，和只用 binary 一模一样
+            # （只用 ink 会掉到 24/31 并多出 3 个跨类错）；出问题那趟的 21 帧
+            # dump 里五角星 15/16 判对（binary 只有 11/16），十字 5/5。
+            def classify_box(quad):
+                warp = self._warp_card(cv2.bitwise_or(binary, ink), quad)
+                dbg["warp"] = warp
+                # Rectify original gray before extracting the inner mark.
+                from card_appearance import card_appearance
+                appearance = card_appearance(gray, quad)
+                dbg.update({"shape_" + key: value
+                            for key, value in appearance.diagnostics().items()})
+                dbg["appearance_gray"] = appearance.gray
+                dbg["appearance_binary"] = appearance.binary
+                local_result = (self._classify_contour(appearance.symbol)
+                                if appearance.symbol is not None else None)
+                # Keep the old binary reader's independent answer for the
+                # stopped vote. Agreement on one verified box across two new
+                # frames can close the vote early; it never replaces the
+                # grayscale-first result on a disagreement.
+                legacy_result = self._classify(warp, dbg)
+                dbg["shape_local_candidate"] = local_result
+                dbg["shape_legacy_candidate"] = legacy_result
+                dbg["shape_classification_path"] = (
+                    "local_gray" if local_result is not None else "legacy")
+                result = local_result if local_result is not None else legacy_result
+                dbg["shape_rules"] = result
+                return result
+
+            shape = classify_box(best)
+            if staged and shape is None and not proposal_fallback:
+                hsegs, lsegs = performance.call('proposal_segments', self._detect_segments, binary)
+                extra = [(q, False, "hough") for q in performance.call('proposal_hough', self._hough_quads, binary, hsegs)]
+                extra += [(q, False, "lsd") for q in performance.call('proposal_lsd', self._lsd_quads, binary, lsegs)]
+                extra += [(q, False, "corner") for q in performance.call('proposal_corner', self._corner_quads, binary, hsegs + lsegs)]
+                for source in ("hough", "lsd", "corner"):
+                    proposal_counts[source] = sum(item[2] == source for item in extra)
+                # Re-score the complete set with the previous frame's track
+                # prior. This is equivalent to the all-channel selection.
+                best, best_score, scores, quad_geom, best_source = select_best(quads + extra)
+                quad_total = len(quads) + len(extra)
+                proposal_fallback = True
+                dbg.update(quad_total=quad_total, quad_geom=quad_geom,
+                           scores=scores[:8],
+                           shape_proposal_fallback=True,
+                           shape_proposal_source=best_source,
+                           shape_proposal_counts=proposal_counts)
+                dbg.update({"shape_candidates_" + source: count
+                            for source, count in proposal_counts.items()})
+                if best is not None:
+                    shape = classify_box(best)
+            dbg["shape_classify_ms"] = (time.perf_counter() - stage_started) * 1000.0
             self._cue_hist.append(1)   # 找框成功 = 强存在证据，时间窗记命中
-            warp = self._warp_card(binary, best)
-            dbg["warp"] = warp
-            shape = self._classify(warp, dbg)
             # quad映射回原图分辨率（找框在960×540上做，含 ROI 偏移）
             q_orig = best.astype(np.float32) * np.array(
                 [self._scale_x, self._scale_y], np.float32)
@@ -334,8 +617,7 @@ class ShapeDetector:
             # 停下来的决定用它；是什么形状等停稳了再分类。
             dbg["box_top_work"] = float(best[:, 1].min())
             dbg["presence"] = bool(
-                self.armed
-                and dbg["box_top_work"] >= WORK_H * self.cfg["presence_top_frac"])
+                dbg["box_top_work"] >= WORK_H * self.cfg["presence_top_frac"])
             # 框质心在画面纵向的位置（0=顶, 1=底）。调用方拿它当"够近了"的闸门：
             # 存在信号只说明前面有卡，质心压到下方才说明真的走到跟前了。
             ys = best[:, 1]
@@ -348,45 +630,88 @@ class ShapeDetector:
             shape = None
             # 找框全线为 0，才退到"细环 + 亮纸面"的存在信号兜底（省几毫秒，
             # 也避免两条通道给出不一致的框）。命中进时间窗，累积够了才认。
-            box, cue_score = self._presence_cue(gray)
-            self._cue_hist.append(1 if box is not None else 0)
-            if box is not None:
-                bx, by, bw, bh_ = box
-                qw = np.array([[bx, by], [bx + bw, by], [bx + bw, by + bh_],
-                               [bx, by + bh_]], np.float32)
-                q_orig = qw * np.array([self._scale_x, self._scale_y],
-                                       np.float32)
-                q_orig[:, 1] += self._roi_y0
-                self._cue_box = (qw.astype(np.int32), q_orig.astype(np.int32),
-                                 cue_score)
-            dbg["presence"] = bool(self.armed and self._cue_confirmed())
-            if dbg["presence"] and self._cue_box is not None:
-                # 用最近一次命中框做可视化：累积确认期间框不闪
-                dbg["presence_box_work"], dbg["presence_box"], \
-                    dbg["presence_cue"] = self._cue_box
-                ys = self._cue_box[0][:, 1]
-                dbg["presence_cy_frac"] = float(ys.min() + ys.max()) * 0.5 / WORK_H
+            stage_started = time.perf_counter()
+            self._observe_presence_cue(gray, dbg)
+            dbg["shape_presence_ms"] = (time.perf_counter() - stage_started) * 1000.0
 
-        if shape is None:
-            # 这一帧没检出图卡（框没进门槛，或抖动导致漏检）。不清零候选计数
-            # —— 中间漏一两帧不该推翻已有的连续证据。连续 4 次都检不出，
-            # 才认为卡已离开：重置计数并重新武装。
-            self.miss_count += 1
-            if self.miss_count >= 4:
-                self.candidate = None
-                self.candidate_count = 0
-                self.armed = True
-                self.trusted = None      # 卡已离开，撤回可信标记
-            dbg["shape"] = None
-            return None, dbg
-        self.miss_count = 0
-
+        self.last_quad = best
+        if self.vision_backend is not None:
+            dbg.update(self.vision_backend.diagnostics())
+        dbg["shape_total_ms"] = (time.perf_counter() - update_started) * 1000.0
+        dbg.update(performance.finish())
+        dbg.update(self._segment_profile)
+        dbg.update(self._binary_profile)
+        dbg.update(shape_quad_total=quad_total, shape_quad_geom=quad_geom)
         dbg["shape"] = shape
-        return self._confirm(shape, dbg)
+        return shape, dbg
 
     # ═══════════════════════════════════════════════════════════
     # 存在信号兜底（不要求闭合四边形）
     # ═══════════════════════════════════════════════════════════
+
+    def _observe_presence_cue(self, gray, dbg):
+        """Add current-frame cue evidence to the shared presence history."""
+        cue_started = time.perf_counter_ns()
+        box, cue_score = self._presence_cue(gray)
+        dbg['cue_closed_ring_ms'] = (time.perf_counter_ns()-cue_started)/1e6
+        dbg['cue_broken_border_ms'] = 0.
+        dbg['cue_broken_invoked'] = False
+        dbg["cue_presence_path"] = "closed_ring"
+        # Preserve successful old cues and their position. Only repair a
+        # missed/low-score border, requiring support from original ink and
+        # a separate interior marking; this path never supplies a class.
+        if box is None or cue_score < self.cfg["cue_score_min"]:
+            from card_presence import find_broken_border_presence
+            repair_started = time.perf_counter_ns()
+            repair_box, repair_score, repair_debug = find_broken_border_presence(
+                gray, self._photometry, self.cfg, backend=self.vision_backend)
+            dbg['cue_broken_border_ms'] = (time.perf_counter_ns()-repair_started)/1e6
+            dbg['cue_broken_invoked'] = True
+            dbg.update(repair_debug)
+            if repair_box is not None:
+                box, cue_score = repair_box, repair_score
+                dbg["cue_presence_path"] = "broken_border"
+                self._photometric_debug["cue_score_raw"] = repair_score * self._photometry.scale
+        self._photometric_debug.update(cue_evaluated=True, cue_score_reference=cue_score)
+        dbg.update(self._photometric_debug)
+        # 结构命中还要过出口分数闸才算"看到卡"。不过闸的也进不了时间窗
+        # （_cue_hist），所以地板那种低分位永远不会攒出 presence。
+        hit = box is not None and cue_score >= self.cfg["cue_score_min"]
+        dbg["cue_hit"] = bool(hit)
+        self._cue_hist.append(1 if hit else 0)
+        if hit:
+            bx, by, bw, bh_ = box
+            qw = np.array([[bx, by], [bx + bw, by], [bx + bw, by + bh_],
+                           [bx, by + bh_]], np.float32)
+            q_orig = qw * np.array([self._scale_x, self._scale_y],
+                                   np.float32)
+            q_orig[:, 1] += self._roi_y0
+            self._cue_box = (qw.astype(np.int32), q_orig.astype(np.int32),
+                             cue_score)
+        # Gate one - the stop decision, while the robot is still walking - is the
+        # cue, not the box: the shake on the move breaks the card's border into
+        # two or three strokes and no quad ever closes, so a box-only gate never
+        # fires. Gate two, after the stop, is the quad and the classifier.
+        dbg["presence"] = bool(self._cue_confirmed())
+        # hit, not just presence: presence is a window over the last calls, and
+        # _cue_box is whatever the last hit left there. Reading the box out of a
+        # miss frame reported a position up to three calls old - which is how a
+        # stationary robot's cy walked 0.51 -> 0.78. The caller gates on cy, so
+        # only a hit may supply one. presence itself stays windowed, or a single
+        # missed call would drop the card while walking.
+        if box is not None:
+            # 分数任何一次结构命中都写（含没过分数闸的）。它只是诊断，但出口
+            # 门槛就是从这一列拟合的：只在过关时写会把「没命中」和「命中但
+            # 分低」混成同一个 0 —— 拿 `[shape]` 行的 cue= 列拟合会漏掉一半
+            # 样本，拟合出来的数偏小。
+            dbg["presence_cue"] = cue_score
+        if hit and dbg["presence"] and self._cue_box is not None:
+            # 框和 cy 仍然只在确认命中时给：调用方拿 cy 当停车闸，
+            # 累积确认期间框不闪也是这个道理。
+            dbg["presence_box_work"], dbg["presence_box"] = self._cue_box[:2]
+            ys = self._cue_box[0][:, 1]
+            dbg["presence_cy_frac"] = float(ys.min() + ys.max()) * 0.5 / WORK_H
+            dbg["cue_cy_frac"] = dbg["presence_cy_frac"]
 
     def _presence_cue(self, gray):
         """模糊图卡的"存在"兜底信号：一圈细暗边框围出的亮纸面。
@@ -401,13 +726,16 @@ class ShapeDetector:
         返回 ((x, y, w, h), score) 或 (None, 0.0)。判据全部来自 cfg["cue_*"]。
         """
         c = self.cfg
-        bh = cv2.morphologyEx(
-            gray, cv2.MORPH_BLACKHAT,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_bh_kernel"],) * 2))
-        ink = (bh > c["cue_ink_thresh"]).astype(np.uint8) * 255
-        m = cv2.morphologyEx(
-            ink, cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_close"],) * 2))
+        photo = self._photometry or measure(gray, self.photometric_mode)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_bh_kernel"],) * 2)
+        bh = (self.vision_backend.morphology(gray, [(cv2.MORPH_BLACKHAT, kernel)])
+              if self.vision_backend is not None
+              else cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel))
+        ink = (bh > photo.difference(c["cue_ink_thresh"])).astype(np.uint8) * 255
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (c["cue_close"],) * 2)
+        m = (self.vision_backend.morphology(ink, [(cv2.MORPH_CLOSE, kernel)])
+             if self.vision_backend is not None
+             else cv2.morphologyEx(ink, cv2.MORPH_CLOSE, kernel))
         y_lo = WORK_H * c["presence_top_frac"]
         em = c["cue_edge_margin"]
         cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL,
@@ -443,11 +771,15 @@ class ShapeDetector:
             gs = gray[y:y + h, x:x + w]
             cg = float(gs[inner].mean())
             sg = float(gs[(mo > 0) & (~inner)].mean())
-            if cg < c["cue_core_gray_min"] or cg - sg < c["cue_contrast_min"]:
+            if (cg < photo.intensity(c["cue_core_gray_min"])
+                    or cg - sg < photo.difference(c["cue_contrast_min"])):
                 continue
-            score = inner_frac * (cg - sg)
+            # Keep the exported cue in reference contrast units. The equivalent
+            # raw score gate is cfg[cue_score_min] * photo.scale (logged above).
+            score = inner_frac * (cg - sg) / photo.scale
             if score > best_score:
                 best_score, best = score, (int(x), int(y), int(w), int(h))
+        self._photometric_debug["cue_score_raw"] = best_score * photo.scale
         return best, best_score
 
     def _cue_confirmed(self):
@@ -475,27 +807,45 @@ class ShapeDetector:
         不反转（YOLO要白底黑线，找框要黑底白线=线白）。
         找框保留：各向异性闭（桥接竖边断点）、笔画宽过滤（核31会
         增强2cm巡线，必须按线宽拒掉）、细长度过滤（拒圆斑污渍）。"""
+        from performance_telemetry import StageTimer
+        performance = StageTimer('shape_binary')
         kbh = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                         (self.cfg["bh_kernel"],
                                          self.cfg["bh_kernel"]))
-        gd = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kbh)
+        gd = (self.vision_backend.morphology(gray, [(cv2.MORPH_BLACKHAT, kbh)])
+              if self.vision_backend is not None
+              else cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kbh))
 
+        performance.lap('blackhat')
+        photo = self._photometry or measure(gray, self.photometric_mode)
+        # Compensate reduced contrast, but do not increase the old rejection
+        # threshold on close-up cards. Their black ink raises the scene std;
+        # full rescaling fragmented correct shapes in the 31-photo regression.
+        adaptive_c = self.cfg["adaptive_c"] * min(1.0, photo.scale)
         binary = cv2.adaptiveThreshold(
             gd, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
-            self.cfg["adaptive_block"], self.cfg["adaptive_c"])
+            self.cfg["adaptive_block"], adaptive_c)
+        performance.lap('adaptive_threshold')
 
         # close(3×3)（YOLO方案形态学）
         k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, k3)
-
-        # 各向异性闭：1×5竖桥接远距竖边断点，5×1横补角
+        # Keep the three closes resident on CUDA between one upload/download.
         kv = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 5))
         kh = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1))
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kv)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kh)
+        operations = [(cv2.MORPH_CLOSE, k3), (cv2.MORPH_CLOSE, kv), (cv2.MORPH_CLOSE, kh)]
+        if self.vision_backend is not None:
+            binary = self.vision_backend.morphology(binary, operations)
+        else:
+            for operation, kernel in operations:
+                binary = cv2.morphologyEx(binary, operation, kernel)
 
+        performance.lap('cleanup_morphology')
         binary = self._stroke_width_filter(binary)
-        return self._elongation_filter(binary)
+        performance.lap('stroke_width_filter')
+        binary = self._elongation_filter(binary)
+        performance.lap('elongation_filter')
+        self._binary_profile = performance.finish()
+        return binary
 
     def _elongation_filter(self, binary, area_max=60.0):
         """小CC细长度过滤：面积<area_max且长宽比<2的CC删除（圆斑污渍）。
@@ -557,6 +907,8 @@ class ShapeDetector:
     def _detect_segments(self, binary):
         """HoughLinesP + LSD 线段一次检出，供各候选通道共用。"""
         c = self.cfg
+        segment_profile = getattr(self, '_segment_profile', {})
+        started = time.perf_counter_ns()
         hough_segs = []
         lines = cv2.HoughLinesP(binary, 1, np.pi / 180,
                                 c["hough_thresh"],
@@ -564,12 +916,16 @@ class ShapeDetector:
                                 maxLineGap=c["max_gap"])
         if lines is not None:
             hough_segs = [tuple(int(v) for v in ln) for ln in lines[:, 0]]
+        segment_profile['shape_segments_hough_ms'] = segment_profile.get('shape_segments_hough_ms', 0.) + (time.perf_counter_ns()-started)/1e6
+        started = time.perf_counter_ns()
         lsd_segs = []
         if self._lsd is None:
             self._lsd = cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD)
         det = self._lsd.detect(binary)[0]
         if det is not None:
             lsd_segs = [tuple(int(v) for v in s[0]) for s in det]
+        segment_profile['shape_segments_lsd_ms'] = segment_profile.get('shape_segments_lsd_ms', 0.) + (time.perf_counter_ns()-started)/1e6
+        self._segment_profile = segment_profile
         return hough_segs, lsd_segs
 
     def _hough_quads(self, binary, segs=None):
@@ -805,13 +1161,14 @@ class ShapeDetector:
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL,
                                        cv2.CHAIN_APPROX_SIMPLE)
         quads = []
+        # 顶点数闸（原 3<=len(approxPolyDP)<=6）已移除：这条通道用 minAreaRect
+        # 造框，顶点数对它毫无意义，而它是"这轮廓像不像卡框"的粗代理。
+        # 真正判"是不是 10cm 卡"的是 _geom_ok 里的 _square_on_ground，模块注释
+        # 自己就是这么写的。保留它的代价是实测致命：五角星外轮廓 10 个角、
+        # 十字 12 个，全被挡在门外 —— 五4 的 cc 通道出 0 个框，而卡在二值图上
+        # 完整清晰。尺寸闸（min_w/min_h、area_min..area_max）留下，它们既够用
+        # 又能把细线条碎片挡掉（长线的 contourArea 很小）。
         for cnt in contours:
-            peri = cv2.arcLength(cnt, True)
-            if peri <= 0:
-                continue
-            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
-            if not (3 <= len(approx) <= 6):
-                continue
             rect = cv2.minAreaRect(cnt)
             w, h = rect[1]
             if w < c["min_w"] or h < c["min_h"]:
@@ -822,6 +1179,37 @@ class ShapeDetector:
             box = cv2.boxPoints(rect)
             quads.append(box)
         return quads
+
+    def _ring_quads(self, ink):
+        """卡框是个闭合细环 —— 在原始灰度上直接分割，取带孔的轮廓拟合 4 角。
+
+        `_binary_selective` 那条链是为压 2cm 巡线调的（blackhat 核9 + 笔画宽
+        [1.5,7] + 细长度过滤），代价是把 0.5cm 的卡框锯出锯齿：实测 6card 31 张
+        里，只有 10 张的卡框轮廓在 eps=0.02 下能降成 4 个顶点，而那 10 张恰好
+        就是整条管线能过的全部。这条通道绕开它，改用 `_card_ink`。
+
+        "有孔"是这条通道的全部选择性来源：巡线/道线是开放曲线，轮廓是细长条没有
+        孔；卡内的图形（星/圆/方）是实心块也没有孔；只有卡框是闭合环。
+        实测 6card：ground 闸通过 26/31（现有四通道合起来是 16/31）。
+        """
+        c = self.cfg
+        cnts, hier = cv2.findContours(ink, cv2.RETR_CCOMP,
+                                      cv2.CHAIN_APPROX_SIMPLE)
+        if hier is None:
+            return []
+        quads = []
+        for i, cnt in enumerate(cnts):
+            if hier[0][i][3] != -1:      # 只要最外层
+                continue
+            if hier[0][i][2] == -1:      # 没有孔 → 不是环
+                continue
+            area = cv2.contourArea(cnt)
+            if not (c["area_min"] <= area <= c["area_max"]):
+                continue
+            q = _quad_4pt(cnt)
+            if q is not None:
+                quads.append(q)
+        return _drop_nested(quads)
 
     # ═══════════════════════════════════════════════════════════
     # S3 量化验证
@@ -927,7 +1315,7 @@ class ShapeDetector:
     def _quad_to_ground(self, quad):
         """四边形 4 角点反投影到地面平面，返回 [(X_cm, Z_cm), ...]。
 
-        针孔模型的反解（与 _triggers_at_dist 同一套）：
+        针孔模型的反解（与 _triggers_at 同一套）：
             a = (v - cy)/fy
             Z = h(cosθ - a·sinθ) / (a·cosθ + sinθ)
             X = ((u - cx)/fx) · (h·sinθ + Z·cosθ)
@@ -953,10 +1341,12 @@ class ShapeDetector:
                         * (h * math.sin(th) + z * math.cos(th)), z))
         return pts
 
-    def _square_on_ground(self, quad):
+    def _square_on_ground(self, quad, from_ring=False):
         """图卡在地面平面上必须是个正方形 —— 视角无关的判据。
 
         透视空间里量"四边等长"是在拿常数硬凑视角，见 cfg 里 square_* 的说明。
+
+        from_ring 时边长下限放宽（见 cfg 里 square_side_min_ring_cm）。
         """
         c = self.cfg
         g = self._quad_to_ground(quad)
@@ -965,14 +1355,15 @@ class ShapeDetector:
         sides = [math.dist(g[i], g[(i + 1) % 4]) for i in range(4)]
         if min(sides) < 1e-6:
             return False
-        if min(sides) < c["square_side_min_cm"] or max(sides) > c["square_side_max_cm"]:
-            return False
-        if max(sides) / min(sides) > c["square_side_ratio_max"]:
+        side_ratio = max(sides) / min(sides)
+        if side_ratio > c["square_side_ratio_max"]:
             return False
         d1 = math.dist(g[0], g[2])
         d2 = math.dist(g[1], g[3])
-        if max(d1, d2) / max(min(d1, d2), 1e-6) > c["square_diag_ratio_max"]:
+        diag_ratio = max(d1, d2) / max(min(d1, d2), 1e-6)
+        if diag_ratio > c["square_diag_ratio_max"]:
             return False
+        worst_ang = 0.0
         for i in range(4):
             p0, p1, p2 = g[(i - 1) % 4], g[i], g[(i + 1) % 4]
             v1 = (p0[0] - p1[0], p0[1] - p1[1])
@@ -981,12 +1372,28 @@ class ShapeDetector:
             n2 = math.hypot(v2[0], v2[1])
             cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2 + 1e-9)
             ang = math.degrees(math.acos(max(-1.0, min(1.0, cos))))
-            if abs(ang - 90.0) > c["square_angle_tol_deg"]:
+            worst_ang = max(worst_ang, abs(ang - 90.0))
+            if worst_ang > c["square_angle_tol_deg"]:
                 return False
-        return True
+        # 边长是这四项里唯一不可靠的：地面坐标整体正比于相机高度 h，而 h 有标定
+        # 误差（实测同一批卡量出 5.2~9.4cm，真值 9.9cm）。边比/对角比/内角都是
+        # 尺度无关量，不受它影响。所以方形测得越准，尺寸允许越小 —— 正6 的环是
+        # ratio 1.13 / 对角比 1.11 / 角差 8.1° 的漂亮方形，只因边长量到 5.2cm
+        # 卡在 6.0 外白丢；而一张量得又小又歪的框，还是该拒。
+        side_min = (c["square_side_min_ring_cm"] if from_ring
+                    else c["square_side_min_cm"])
+        return side_min <= min(sides) and max(sides) <= c["square_side_max_cm"]
 
-    def _geom_ok(self, quad):
-        """轻量几何预筛（纯数值，不采样）：面积/宽高/宽高比/内角/地面方形。"""
+    def _reject(self, reason):
+        """Tally why _geom_ok turned a candidate down; dbg carries the totals."""
+        self._geom_rejects[reason] = self._geom_rejects.get(reason, 0) + 1
+        return False
+
+    def _geom_ok(self, quad, from_ring=False):
+        """轻量几何预筛（纯数值，不采样）：面积/宽高/宽高比/内角/地面方形。
+
+        from_ring 放宽地面边长下限，见 _square_on_ground。
+        """
         c = self.cfg
         q = quad.astype(np.float32)
         x, y, w, h = cv2.boundingRect(q.astype(np.int32))
@@ -994,12 +1401,12 @@ class ShapeDetector:
         # "图卡在画面上占的外接矩形"。换成 contourArea 会小 ~20%（斜置四边形），
         # 结果把最远那批卡（面积正好卡在门槛上）全判掉。
         if not (c["area_min"] <= w * h <= c["area_max"]):
-            return False
+            return self._reject("area_min" if w * h < c["area_min"] else "area_max")
         if w < c["min_w"] or h < c["min_h"]:
-            return False
+            return self._reject("min_wh")
         aspect = max(w, h) / max(min(w, h), 1.0)
         if not (c["aspect_min"] <= aspect <= c["aspect_max"]):
-            return False
+            return self._reject("aspect")
         for i in range(4):
             p1 = q[(i - 1) % 4]
             p2 = q[i]
@@ -1009,8 +1416,9 @@ class ShapeDetector:
             cos = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-9)
             ang = np.degrees(np.arccos(np.clip(cos, -1, 1)))
             if not (c["ang_min"] <= ang <= c["ang_max"]):
-                return False
-        return self._square_on_ground(q)
+                return self._reject("angle")
+        return (True if self._square_on_ground(q, from_ring)
+                else self._reject("ground"))
 
     def _verify_quad(self, binary, dt, quad):
         """返回 (score, closure) 或 None。闭合度/线宽/环内含量（几何闸门在_geom_ok）。"""
@@ -1179,8 +1587,14 @@ class ShapeDetector:
         warp = cv2.morphologyEx(warp, cv2.MORPH_CLOSE, kernel)
         k3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         warp = cv2.dilate(warp, k3, iterations=1)
-        contours, _ = cv2.findContours(warp, cv2.RETR_LIST,
-                                       cv2.CHAIN_APPROX_SIMPLE)
+        # RETR_CCOMP + 只取没有父轮廓的那些 = 只认"墨的外边界"，洞（背景）不参与。
+        # RETR_LIST 会把洞也吐出来，而洞是可以比图形本身还大的：外框环 + 十字的臂
+        # 会围出一整块背景象限，面积 8218 对十字的 4594 —— 它当上主体、被画成实心，
+        # fill 0.93 又正好走"实心块豁免贴边检查"那条路，于是判成正方形。
+        # 2026-10-02 实车：同一张静止的十字卡在 square/cross 之间逐帧跳，
+        # 差别只在 close+dilate 之后那圈外框闭没闭合。
+        contours, hierarchy = cv2.findContours(warp, cv2.RETR_CCOMP,
+                                               cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return None
         # 参考=卡大小（warp边长）：inset-warp后外框环不进warp，最大
@@ -1191,21 +1605,39 @@ class ShapeDetector:
         area_ref = float(size_ref * size_ref)
         cw, ch = warp.shape[1], warp.shape[0]
         cands = []
-        for c in contours:
+        for index, c in enumerate(contours):
+            # 洞（父轮廓存在）也是候选 —— 细笔画图形被锯断时，环的"内边界"反而
+            # 是完整的那条。但它**不享受下面"实心块豁免"**：豁免是给"图形几乎
+            # 填满 warp"的实心卡用的，而洞是背景，一块背景象限不该被当成图形。
+            is_hole = hierarchy[0][index][3] != -1
             a = cv2.contourArea(c)
-            if a >= area_ref * 0.92:
-                continue
-            M = cv2.moments(c)
-            if M["m00"] <= 0:
-                continue
-            cx = M["m10"] / M["m00"]
-            cy = M["m01"] / M["m00"]
-            if (abs(cx - cw / 2) > cw * 0.15
-                    or abs(cy - ch / 2) > ch * 0.15):
+            if a >= area_ref * 0.99:
                 continue
             ix, iy, iw, ih = cv2.boundingRect(c)
-            if max(iw, ih) > size_ref * 0.95:
-                continue
+            # 居中闸和外接框闸是挡"quad 偏了残留的外框环"的 —— 环是细的，
+            # 面积/最小外接矩形很低。方格卡的图形几乎填满 warp（6card 实测
+            # fill 0.98、bbox 贴边、质心也在正中偏外），与环残留同签名，
+            # 原来会被一起误杀：正3 那张的 warp 特征是完全正确的方形
+            # （fill 0.98 / solidity 0.98 / 顶点 4），却连 _classify_contour
+            # 都没走到。所以实心块（≥0.85）放行这两道，细环照旧受管。
+            (rw, rh) = cv2.minAreaRect(c)[1]
+            thin = a < 0.85 * max(rw * rh, 1e-6)
+            if thin or is_hole:
+                # 居中闸对洞也生效：洞是背景区域，只有**居中**的才可能是图形
+                # （环的内边界就居中；十字把画面切出来的那块背景象限偏心 50px，
+                # 2026-10-02 实车就是它当上主体，判成正方形）。
+                M = cv2.moments(c)
+                if M["m00"] <= 0:
+                    continue
+                cx = M["m10"] / M["m00"]
+                cy = M["m01"] / M["m00"]
+                if (abs(cx - cw / 2) > cw * 0.15
+                        or abs(cy - ch / 2) > ch * 0.15):
+                    continue
+                # 贴边闸只管"细的"：它挡的是 quad 偏了留下的细环残片。居中、
+                # 又不细的洞（整张卡的内边界）不是残片，别误杀。
+                if thin and max(iw, ih) > size_ref * 0.95:
+                    continue
             cands.append((a, c, (ix, iy, iw, ih)))
         if not cands:
             return None
@@ -1229,25 +1661,6 @@ class ShapeDetector:
             return None
         return self._classify_contour(blob)
 
-    def _classify_shape_full(self, binary, dbg=None):
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL,
-                                       cv2.CHAIN_APPROX_SIMPLE)
-        best = None
-        best_area = 0
-        for c in contours:
-            a = cv2.contourArea(c)
-            if a > best_area:
-                best_area = a
-                best = c
-        if best is None or best_area < 30 * 30:
-            return None
-        if dbg is not None:
-            # 兜底路径也要交框指标，否则触发门槛无从判断
-            x, y, w, h = cv2.boundingRect(best)
-            dbg["quad_work"] = np.array(
-                [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], np.float32)
-        return self._classify_contour(best)
-
     def _hu_match(self, contour):
         """Hu 矩模板匹配（辅助信息）：返回 (最接近类名, 距离) 或 None。
 
@@ -1270,163 +1683,40 @@ class ShapeDetector:
         area = cv2.contourArea(contour)
         if area < 30 * 30:
             return None
-        # 顶点数用粗epsilon（0.035），凹口数用细epsilon（0.02）——
-        # 粗epsilon会把五角星的凹口合并掉（0.035×长周长≈17px）
+        # 顶点数用粗epsilon（0.035）。凹形不再数凹口，改用 solidity。
         approx = cv2.approxPolyDP(contour, 0.035 * peri, True)
         n_vertices = len(approx)
-        # 凹顶点数：顶点转向与多边形环绕方向相反即凹。
-        # 五角星5个凹口，十字4个，圆形/方形/菱形/三角形0个。
-        n_conc = 0
-        if n_vertices >= 4:
-            fine = cv2.approxPolyDP(contour, 0.02 * peri, True)
-            pts = fine[:, 0].astype(np.float32)
-            nf = len(pts)
-            sarea = 0.0
-            for i in range(nf):
-                p, q = pts[i], pts[(i + 1) % nf]
-                sarea += p[0] * q[1] - q[0] * p[1]
-            # 转向=入边(b-a)到出边(c-b)的叉积；凹顶点转向与环绕方向相反
-            for i in range(nf):
-                a = pts[(i - 1) % nf]
-                b = pts[i]
-                c = pts[(i + 1) % nf]
-                cross = ((b[0] - a[0]) * (c[1] - b[1])
-                         - (b[1] - a[1]) * (c[0] - b[0]))
-                if cross * sarea < 0:
-                    n_conc += 1
-        # 圆度 4πA/P²（不依赖轮廓点密度——CHAIN_APPROX_SIMPLE 会把直线
-        # 轮廓压成拐点，使"半径变异系数"对多边形失真）：
-        # 圆=1.00、正方形/菱形=0.785、等边三角=0.605、五角星≈0.5、十字更小
-        circularity = 4.0 * math.pi * area / max(peri * peri, 1e-6)
         rect = cv2.minAreaRect(contour)
         rw, rh = rect[1]
         fill_rect = area / max(rw * rh, 1e-6)
-        ang = abs(rect[2]) % 90.0
-        ang = min(ang, 90.0 - ang)
-        # 凹形：十字 vs 五角星。十字臂细（fillR<0.42）；五角星凹口
-        # 深且占满外接矩形（fillR 0.42-0.52）。凹口3个+fillR<0.60
-        # 兜住厚臂/非对称十字（自测卡十字fillR≈0.56）
-        if n_conc >= 3:
-            if fill_rect < 0.42:
-                return "cross"
-            if n_conc >= 5:
-                return "pentagon"
-            if fill_rect < 0.60:
-                return "cross"
-            return "pentagon"
+        # 凹凸只用一个量：面积/凸包面积。2026-09-27 在 6card 的 14 张真实 warp 上实测
+        #   十字 0.22/0.22/0.30   五角星 0.53   圆 0.82~0.96   三角 0.90/0.95
+        #   菱 0.93/0.95         方 0.98/0.98
+        # 干净的四档分离。旧的 n_conc 计数 + fill_rect 双重嵌套在同一批数据上把
+        # 圆形（实为凸形）判成了凹形，这是实车"圆卡逐帧在 triangle/diamond 之间跳"的根。
+        solidity = area / max(cv2.contourArea(cv2.convexHull(contour)), 1e-6)
+        if solidity < 0.75:
+            return "cross" if solidity < 0.36 else "pentagon"
         # 凸形
         if n_vertices == 3:
             return "triangle"
-        # 圆形：fill≈π/4=0.785（方形/菱形≈1.0、三角≈0.55）+ 圆度>0.8
-        # 圆度用 4πA/P²（不受轮廓点密度影响）；minAreaRect 对圆的角度
-        # 不确定，必须先于"菱形(ang≥25)"判定
-        if 0.72 <= fill_rect <= 0.87 and circularity >= 0.80:
-            return "circle"
-        # 菱形 = 旋转45°的方形（minAreaRect 角度≈45°）
-        if ang >= 25.0:
-            return "diamond"
-        if fill_rect >= 0.84:
+        # 方格的下界 0.85，不是 0.90：6card 实测方格 fills 0.89~0.98，
+        # 圆/菱那一簇 0.73~0.81 —— 中间 0.81~0.89 是空的，界线放中间。
+        # 0.90 时正7（0.89）只差 0.01 就掉进菱那一档，判成 diamond = 抬错腿。
+        if fill_rect >= 0.85:
             return "square"
-        return "triangle"
-
-    # ═══════════════════════════════════════════════════════════
-    # 确认 + 冷却（与QRDetector一致）
-    # ═══════════════════════════════════════════════════════════
-
-    def _approach_score(self):
-        """框中心y的下移趋势（0~1）：机器人前进时图卡从画面上方往下走。
-
-        只作软加分记录，不参与拦截——图卡一进画面就很近时无历史，不因此扣分。
-        """
-        if len(self.track) < 3:
-            return 0.0
-        seg = self.track[-8:]
-        span = seg[-1][0] - seg[0][0]
-        if span <= 0:
-            return 0.0
-        px_per_s = (seg[-1][2] - seg[0][2]) * 1000.0 / span
-        return max(0.0, min(1.0, px_per_s / 20.0))
-
-    def _confirm(self, shape, dbg):
-        now = int(time.time() * 1000)
-        if dbg.get("fallback"):
-            # 兜底路径的"框"是最大连通域的外接矩形，不是图卡外框，
-            # 拿它算距离/位置没有意义（空场地上的大色块也能凑出大 bbox）。
-            # 只在图像里显示，不给触发权。
-            return None, dbg
-        # ── 阶段① 识别累积：全图范围，只看形状，不看位置 ──
-        if shape == self.candidate:
-            self.candidate_count += 1
-        else:
-            self.candidate = shape
-            self.candidate_count = 1
-            self.first_candidate_ms = now
-            self.track = []
-            if self.debug:
-                print(f"  [shape] NEW {shape}")
-        if self.candidate_count >= self.stable_frames:
-            self.trusted = shape        # 连续确认通过 → 打上可信 flag
-
-        # 候选框指标（工作图坐标）
-        qw = dbg.get("quad_work")
-        cx = box_w = box_top = None
-        if qw is not None:
-            qw = np.asarray(qw, np.float32)
-            x0, x1 = float(qw[:, 0].min()), float(qw[:, 0].max())
-            y0, y1 = float(qw[:, 1].min()), float(qw[:, 1].max())
-            cx, box_w, box_top = (x0 + x1) * 0.5, x1 - x0, y0
-            cy = (y0 + y1) * 0.5
-            self.track.append((now, cx, cy, box_w))
-            if len(self.track) > 32:
-                self.track = self.track[-32:]
-
-        # ── 阶段② 触发判定：只看位置，形状由 flag 保证 ──
-        if self.trusted is None or self.trusted != shape:
-            return None, dbg
-        if cx is None or not self.armed:
-            return None, dbg
-
-        # 位置闸门只剩一条：框顶边落到画面下 2/3（= 顶边过了上 1/3 线）。
-        y_mid = WORK_H * self.cfg["presence_top_frac"]
-        dbg["box_top"] = box_top
-        dbg["y_mid"] = y_mid
-        if box_top < y_mid:
-            return None, dbg
-
-        # 车道偏移照算，只记录不拦截。找框本身已经把"10cm 地面方形 + max_dist_cm"
-        # 卡住了；机器人停稳后卡就在正前方，再拿 lane_offset_cm 去拦只会漏检。
-        # px_per_cm 由框宽反推（图卡物理宽 10cm），无需外部传像素尺度。
-        px_per_cm = box_w / 10.0
-        lane_cx = WORK_W / 2.0 + (self.lane_offset_cm or 0.0) * px_per_cm
-        half = 17.5 * px_per_cm         # 赛道半宽 17.5cm
-        off = abs(cx - lane_cx)
-        dbg["lane_offset_px"] = off
-        dbg["lane_half_px"] = half
-
-        # 软加分（仅记录，不拦截）
-        dbg["bonus_center"] = 1.0 - off / max(half, 1e-6)
-        dbg["bonus_approach"] = self._approach_score()
-
-        ready = (self.last_send_ms is None
-                 or (now - self.last_send_ms) >= self.cooldown_ms)
-        if ready:
-            action = self.action_map[shape]
-            self.last_send_ms = now
-            self.candidate_count = 0
-            self.armed = False
-            self.miss_count = 0
-            self.trusted = None
-            latency = now - (self.first_candidate_ms or now)
-            dbg["action"] = action
-            dbg["latency_ms"] = latency
-            if self.debug:
-                print(f"  [shape] >>> SEND action={action} ({shape}) "
-                      f"latency={latency}ms  w={box_w:.0f} "
-                      f"top={box_top:.0f}/{y_mid:.0f} "
-                      f"off={off:.0f}/{half:.0f}")
-            return action, dbg
-        return None, dbg
-
+        # 圆 vs 菱形：两者的 fill 都 ≈0.78（实测圆 0.73~0.81、菱 0.76~0.78），
+        # 只能靠顶点数分（圆 5~8、菱 4）。
+        # ⚠️ 圆度 4πA/P² 已从判定中移除：它在真实 warp 上读 0.23~0.63，
+        # 旧代码要求 ≥0.80 —— 圆永远过不去，于是掉到 ang(minAreaRect 对圆无意义)
+        # 和最后那行 return "triangle" 兜底。它就是圆卡判错的直接原因。
+        # 落在带外的返回 None：站着不动比举错腿安全。
+        if 0.62 <= fill_rect <= 0.84:
+            if n_vertices >= 5:
+                return "circle"
+            if n_vertices == 4:
+                return "diamond"
+        return None
 
 # ═══════════════════════════════════════════════════════════
 # 自测：合成图卡验证分类
@@ -1476,7 +1766,7 @@ def _make_card(shape_name, size=200):
 
 if __name__ == "__main__":
     names = ["circle", "pentagon", "square", "diamond", "cross", "triangle"]
-    sd = ShapeDetector(stable_frames=1, cooldown_ms=0, debug=False)
+    sd = ShapeDetector()
     ok = 0
     for name in names:
         card = _make_card(name)
@@ -1484,11 +1774,10 @@ if __name__ == "__main__":
         card = cv2.resize(card, (200, int(200 * 0.55)))
         canvas = np.ones((540, 960, 3), dtype=np.uint8) * 240
         canvas[200:200 + card.shape[0], 380:380 + card.shape[1]] = card
-        action, dbg = sd.update(canvas)
-        expect = sd.action_map[name]
+        label, dbg = sd.update(canvas)
         got = dbg.get("shape")
         status = "OK" if got == name else f"FAIL(got {got})"
         if got == name:
             ok += 1
-        print(f"  {name:>10} -> {str(got):>10}  action={action}  [{status}]")
+        print(f"  {name:>10} -> {str(got):>10}  [{status}]")
     print(f"Result: {ok}/6")

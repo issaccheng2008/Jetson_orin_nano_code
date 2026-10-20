@@ -1,0 +1,48 @@
+{
+  "video": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi",
+  "video_sha256": "d41e8d4d6ce0d36b7d2d844c25a9b2e47b8e41a21c268f8b18feba43beb78446",
+  "frames": 1342,
+  "source_size": [
+    960,
+    540
+  ],
+  "fps": 10.0,
+  "calibration": {
+    "height_cm": 32.5,
+    "pitch_deg": 45,
+    "vfov_deg": 55.876,
+    "z_calib": [
+      1.13233,
+      -2.4862
+    ],
+    "lane_width_cm": 35
+  },
+  "comparison_size": [
+    1600,
+    600
+  ],
+  "binary_size": [
+    320,
+    400
+  ],
+  "highlights_intervals_s": [
+    [
+      10,
+      18
+    ],
+    [
+      38,
+      46
+    ],
+    [
+      77,
+      85
+    ]
+  ],
+  "highlight_frames": 240,
+  "source_sha256": {
+    "line_preprocess.py": "c9dbe28849ed85e2e30760bbf2e0f56a007fce13b962300db66370428900d4b2",
+    "line_detector_v1_warp.py": "e690ba4810f4a9716be55efcb031f65dc3f40939e1f9f55a2adf90a065bb76be"
+  },
+  "note": "Final masks directly from production extraction; MP4/GIF are display formats, PNGs preserve exact binary pixels. No IMU pose reconstruction."
+}

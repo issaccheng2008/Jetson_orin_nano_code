@@ -1,0 +1,134 @@
+{
+  "WIN_20260919_18_10_34_Pro_flip.mp4": {
+    "frames": 134,
+    "measurement_valid": 131,
+    "ground_heading_valid": 124,
+    "jointly_valid_headings": 124,
+    "ground_vs_pixel_abs_diff_deg": {
+      "n": 124,
+      "median": 1.937276264388263,
+      "p95": 8.693601404206897,
+      "min": 0.29220454685988617,
+      "max": 9.677946618561792
+    },
+    "opposite_heading_sign": 26,
+    "old_turning_frames": 0,
+    "new_turning_frames": 0,
+    "new_geometry_stop_frames": 0,
+    "new_braked_frames": 0,
+    "normal_completed_segments": 0,
+    "normal_short_change_count": 0,
+    "new_normal_duration_s": {
+      "n": 0
+    },
+    "detector_ms": {
+      "n": 134,
+      "median": 56.018799979938194,
+      "p95": 72.0166049854015,
+      "min": 28.403499978594482,
+      "max": 76.63189998129383
+    }
+  },
+  "WIN_20260919_18_11_50_Pro_flip.mp4": {
+    "frames": 139,
+    "measurement_valid": 121,
+    "ground_heading_valid": 106,
+    "jointly_valid_headings": 106,
+    "ground_vs_pixel_abs_diff_deg": {
+      "n": 106,
+      "median": 2.2639161637914853,
+      "p95": 6.692001387275369,
+      "min": 0.0743814523730073,
+      "max": 11.461972989399396
+    },
+    "opposite_heading_sign": 3,
+    "old_turning_frames": 21,
+    "new_turning_frames": 31,
+    "new_geometry_stop_frames": 5,
+    "new_braked_frames": 0,
+    "normal_completed_segments": 3,
+    "normal_short_change_count": 0,
+    "new_normal_duration_s": {
+      "n": 3,
+      "median": 0.6495453182772062,
+      "p95": 1.054262016588388,
+      "min": 0.549615269311482,
+      "max": 1.099230538622964
+    },
+    "detector_ms": {
+      "n": 139,
+      "median": 59.968800022033975,
+      "p95": 68.23110000987072,
+      "min": 42.44630000903271,
+      "max": 74.71649997751229
+    }
+  },
+  "WIN_20260919_18_13_14_Pro_flip.mp4": {
+    "frames": 173,
+    "measurement_valid": 153,
+    "ground_heading_valid": 115,
+    "jointly_valid_headings": 115,
+    "ground_vs_pixel_abs_diff_deg": {
+      "n": 115,
+      "median": 2.740942103838705,
+      "p95": 8.733561678986531,
+      "min": 1.6076351725654732,
+      "max": 10.81739130889392
+    },
+    "opposite_heading_sign": 1,
+    "old_turning_frames": 41,
+    "new_turning_frames": 85,
+    "new_geometry_stop_frames": 34,
+    "new_braked_frames": 10,
+    "normal_completed_segments": 6,
+    "normal_short_change_count": 0,
+    "new_normal_duration_s": {
+      "n": 6,
+      "median": 0.5494505494505495,
+      "p95": 1.6733266733266738,
+      "min": 0.5494505494505493,
+      "max": 1.8981018981018987
+    },
+    "detector_ms": {
+      "n": 173,
+      "median": 56.95440000272356,
+      "p95": 65.18213999806903,
+      "min": 42.525700002443045,
+      "max": 70.30490000033751
+    }
+  },
+  "WIN_20260919_18_13_53_Pro_flip.mp4": {
+    "frames": 125,
+    "measurement_valid": 113,
+    "ground_heading_valid": 90,
+    "jointly_valid_headings": 90,
+    "ground_vs_pixel_abs_diff_deg": {
+      "n": 90,
+      "median": 4.663779513336648,
+      "p95": 8.66888698384061,
+      "min": 0.8753846545965445,
+      "max": 9.902674446875938
+    },
+    "opposite_heading_sign": 0,
+    "old_turning_frames": 32,
+    "new_turning_frames": 50,
+    "new_geometry_stop_frames": 9,
+    "new_braked_frames": 1,
+    "normal_completed_segments": 5,
+    "normal_short_change_count": 0,
+    "new_normal_duration_s": {
+      "n": 5,
+      "median": 0.54923107649291,
+      "p95": 0.7090073896544837,
+      "min": 0.5492310764929099,
+      "max": 0.7489514679448772
+    },
+    "detector_ms": {
+      "n": 125,
+      "median": 50.172099989140406,
+      "p95": 64.09994000568986,
+      "min": 37.817200005520135,
+      "max": 72.0564000075683
+    }
+  }
+}

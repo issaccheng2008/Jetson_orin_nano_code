@@ -6,6 +6,51 @@ import numpy as np
 
 
 NUM_JOINTS = 12
+# 电机 PD 基准，直接下发 STM32；不再在下位机乘 1.5/2.0。
+# 顺序与 joint_target 的线序一致：左腿六项，再右腿六项；每腿依次为
+# 髋 pitch、髋 roll、髋 yaw、膝 pitch、踝 pitch、踝 roll。
+JOINT_KP = np.array([
+    35.0, 30.0, 20.0, 35.0, 30.0, 12.0,  # 左腿
+    35.0, 30.0, 20.0, 35.0, 30.0, 12.0,  # 右腿
+], dtype=np.float32)
+JOINT_KD = np.array([
+    1.5, 1.2, 1.0, 1.5, 1.6, 0.7,  # 左腿
+    1.5, 1.2, 1.0, 1.5, 1.6, 0.7,  # 右腿
+], dtype=np.float32)
+# 三档各自的 (KP倍率, KD倍率)，可独立调节；例如 (1.5, 2.0)。
+MOTION_GAIN_SCALES = {
+    "standing": (1.0, 1.0),  # 线速度、角速度均为零；站姿/单脚动作/固定关节帧
+    "straight": (1.5, 2.0),  # 线速度非零，角速度为零
+    "turning": (1.5, 2.0),   # 角速度非零（包括原地转向）
+}
+
+
+def motion_gain_scales(velocity_command=None) -> tuple[float, float]:
+    """Select P/D multipliers using the velocity actually sent to the policy."""
+    mode = "standing"
+    if velocity_command is not None:
+        velocity = np.asarray(velocity_command, dtype=np.float64)
+        if velocity.shape != (3,) or not np.isfinite(velocity).all():
+            raise ValueError("gain selection requires a finite [vx, vy, wz] command")
+        if abs(velocity[2]) > 1.0e-6:
+            mode = "turning"
+        elif np.any(np.abs(velocity[:2]) > 1.0e-6):
+            mode = "straight"
+    scales = np.asarray(MOTION_GAIN_SCALES[mode], dtype=np.float64)
+    if scales.shape != (2,) or not np.isfinite(scales).all() or np.any(scales < 0):
+        raise ValueError(f"{mode} KP/KD scales must be finite and non-negative")
+    return float(scales[0]), float(scales[1])
+
+
+def command_gains(kp_scale: float, kd_scale: float) -> tuple[np.ndarray, np.ndarray]:
+    """Apply independent P/D scales once to the original per-joint baseline."""
+    scales = np.asarray([kp_scale, kd_scale], dtype=np.float64)
+    if not np.isfinite(scales).all() or np.any(scales < 0):
+        raise ValueError("gain scales must be finite and non-negative")
+    return (np.asarray(JOINT_KP, dtype=np.float64) * kp_scale,
+            np.asarray(JOINT_KD, dtype=np.float64) * kd_scale)
+
+
 OBS_DIM = 49
 ACTION_DIM = 12
 POLICY_HZ = 50.0
@@ -14,8 +59,13 @@ ACTION_SCALE = 0.25
 ACCEL_OBS_SCALE = 0.1
 
 # Humanoid_Robot_RSL_RL main at 4eb3d5b4d72a792c610ad46f0a8c65b931ed3b22.
-DEFAULT_STEP_DISTANCE = 0.08  # metres, signed longitudinal touchdown target
-DEFAULT_FORWARD_VELOCITY = 0.4  # m/s, standard walking command
+#
+# 速度和步长各是一个数，就这两个。以前它们是"一对比例"（--max-vx / --max-step-cm
+# 定出"每 m/s 给多大步距"，实际步距 = vx × 那个比例），结果是改速度就顺手改了
+# 步长 —— 2026-10-03 把速度 0.3 改成 0.2 时，所有不显式写那两个参数的跑法步幅
+# 都短了 25%，而且没人看得出来。现在步长直接给，不随 vx 变。
+MAX_COMMAND_VX = 0.2    # m/s, the speed the vision commands with a valid detection
+STEP_LENGTH_CM = 5.0    # cm, the step the policy is asked for, whatever vx is
 CROSSING_COMMAND = 0.0  # normal walking only
 
 JOINT_NAMES = (
@@ -53,7 +103,11 @@ Q_DEFAULT = np.array(
 )
 
 # Limits from v2.4.1.urdf, in policy joint coordinates and radians.
-Q_LOWER = np.array(
+# 2026-10-04：整体放宽 25%。实车转弯时 l_ankle_roll 实测被地面带到 −0.60 rad，
+# 越过 ±0.5 限位 + margin 0.05 + 10° 反馈窗 → target safety 以
+# "no safe target window" 退出（阈值原本 −0.6245 rad）；放宽后阈值到 −0.75 rad。
+Q_LIMIT_SCALE = np.float32(1.25)
+Q_LOWER = Q_LIMIT_SCALE * np.array(
     [
         -1.57,
         -1.57,
@@ -70,7 +124,7 @@ Q_LOWER = np.array(
     ],
     dtype=np.float32,
 )
-Q_UPPER = np.array(
+Q_UPPER = Q_LIMIT_SCALE * np.array(
     [
         1.57,
         0.50,

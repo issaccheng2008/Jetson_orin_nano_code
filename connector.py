@@ -11,11 +11,15 @@ policy loop.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import socket
 import time
+from pathlib import Path
 from typing import Any
+
+# STRAIGHT_WZ = 0.1  # Fixed straight-walking compensation disabled, rad/s.
 
 
 def clamp(value: float, lower: float, upper: float) -> float:
@@ -30,7 +34,17 @@ def slew_toward(current: float, target: float, max_step: float) -> float:
     return current + math.copysign(max_step, delta)
 
 
-def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
+def _command_mode(message: dict[str, Any]) -> str | None:
+    """Validate the optional transmission mode; explicit null is invalid."""
+    if "command_mode" not in message:
+        return None
+    mode = message["command_mode"]
+    if not isinstance(mode, str) or mode not in ("held", "continuous"):
+        raise ValueError("command_mode must be 'held' or 'continuous'")
+    return mode
+
+
+def process_vision_output(message: dict[str, Any], wz_bias: float = 0.0) -> dict[str, Any]:
     """Example hook for converting vision output into a policy command.
 
     Replace or extend this function later for QR-specific behavior, obstacle
@@ -38,16 +52,21 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
     by ``CommandSmoother``).  For now it:
 
     * validates finite numeric inputs;
+    * offsets moving yaw commands before clamping (stops/posture are exempt);
     * clamps commands to the ranges used during policy training;
     * always forces target lateral velocity ``vy`` to zero; and
-    * forwards the currently visible QR value (or ``-1``).
+    * forwards the currently visible QR value (or ``-1``); and
+    * validates and forwards optional ``command_mode`` held/continuous tags.
     """
 
+    mode = _command_mode(message)
     vx = float(message["vx"])
     wz = float(message["wz"])
     qr = int(message.get("qr", -1))
     if not math.isfinite(vx) or not math.isfinite(wz):
         raise ValueError("vx and wz must be finite")
+    if not math.isfinite(wz_bias):
+        raise ValueError("wz bias must be finite")
     if qr not in (-1, 1, 2, 3, 4, 5, 6):
         qr = -1
 
@@ -56,7 +75,46 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
         "vy": 0.0,
         "wz": clamp(wz, -0.5, 0.5),
         "qr": qr,
+        # Vision is standing the robot still for a card and wants the body held
+        # upright while it reads it. Absent means no, so an older vision is unchanged.
+        "hold_upright": bool(message.get("hold_upright", False)),
+        # Same window, different mechanism: the STM32 re-poses the body and reports a
+        # frozen attitude instead of the Nano holding a pose. The two drive the same
+        # joints, so a rig uses one or the other, never both.
+        "card_tilt": bool(message.get("card_tilt", False)),
     }
+    # Apply once per received packet, not on each 50 Hz publication. Walking
+    # straight yaw stays zero when wz_bias=0; a full stop stays zero with any bias.
+    # Posture requests are stopped downstream by CommandSmoother.
+    if (not result["hold_upright"] and not result["card_tilt"]
+            and (result["vx"] != 0.0 or wz != 0.0)):
+        # if result["vx"] > 0.0 and wz == 0.0:
+        #     wz = STRAIGHT_WZ
+        result["wz"] = clamp(wz + wz_bias, -0.5, 0.5)
+    if mode is not None:
+        result["command_mode"] = mode
+    if "startup_sequence_active" in message:
+        if not isinstance(message["startup_sequence_active"], bool):
+            raise ValueError("startup_sequence_active must be a boolean")
+        result["startup_sequence_active"] = message["startup_sequence_active"]
+    if "steering_window" in message:
+        window = message["steering_window"]
+        if not isinstance(window, dict):
+            raise ValueError("steering_window must be an object")
+        seconds = window.get("seconds")
+        if (isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+                or not math.isfinite(seconds) or seconds <= 0
+                or window.get("median") not in ("lower", "upper")
+                or not isinstance(window.get("valid"), bool)):
+            raise ValueError("invalid steering window seconds/median/valid")
+        result["steering_window"] = dict(seconds=float(seconds),
+            median=window["median"], valid=window["valid"])
+        if 'origin_s' in window:
+            origin = window['origin_s']
+            if (isinstance(origin, bool) or not isinstance(origin, (int, float))
+                    or not math.isfinite(origin) or origin < 0):
+                raise ValueError('invalid steering window origin')
+            result['steering_window']['origin_s'] = float(origin)
     if "event_id" in message or "event_action" in message:
         event_id = int(message["event_id"])
         event_action = int(message["event_action"])
@@ -68,11 +126,12 @@ def process_vision_output(message: dict[str, Any]) -> dict[str, float | int]:
 
 
 def select_output(
-    latest: dict[str, float | int],
+    latest: dict[str, Any],
     last_vision_update: float,
     now: float,
     timeout_s: float,
-) -> tuple[dict[str, float | int], bool, float]:
+    card_tilt_grace_s: float = 1.5,
+) -> tuple[dict[str, Any], bool, float]:
     """Hold the latest vision command until it becomes stale.
 
     Vision may run near 10 Hz while this connector publishes at 50 Hz.  This
@@ -84,33 +143,169 @@ def select_output(
     fresh = age_s <= timeout_s
     if fresh:
         return latest, True, age_s
-    return {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}, False, age_s
+    stopped = {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}
+    # A slow classification frame must not turn one physical card into repeated
+    # tilt/restore edges. Keep only the posture request briefly; movement and
+    # shape events still expire at the ordinary vision watchdog deadline.
+    if latest.get("card_tilt") and age_s <= timeout_s + card_tilt_grace_s:
+        stopped["card_tilt"] = True
+    return stopped, False, age_s
+
+
+class CommandWindowScheduler:
+    """Collect once per received vision frame; apply on the connector clock.
+
+    Collection windows are [start, end). Output blocks start at actual publication
+    ticks and last at least one window, even when a tick is late. No catch-up burst
+    is sent. Stops/posture/actions clear collection and bypass it immediately.
+    """
+
+    def __init__(self, vision_timeout_s=.25, window_vision_timeout_s=1.,
+                 card_tilt_grace_s=1.5):
+        self.vision_timeout_s = vision_timeout_s
+        self.window_vision_timeout_s = window_vision_timeout_s
+        self.card_tilt_grace_s = card_tilt_grace_s
+        self.latest = dict(vx=0., vy=0., wz=0., qr=-1)
+        self.last_update = None
+        self._reset_window()
+
+    def _reset_window(self):
+        self.settings = None
+        self.origin = None
+        self.deadline = None
+        self.samples = []
+        self.loss = None
+        self.pending = None
+        self.applied = (0., 0.)
+        self.applied_at = None
+        self.sample_vx = 0.
+
+    def _timeout(self):
+        # Startup bypasses median collection, but uses the same bounded camera
+        # watchdog as windowed steering. A normal >250ms frame must not insert
+        # a stop between explicit sequence steps.
+        if self.settings or self.latest.get('startup_sequence_active'):
+            return max(self.vision_timeout_s, self.window_vision_timeout_s,
+                       self.settings[0] if self.settings else 0.)
+        return self.vision_timeout_s
+
+    def _close_windows(self, now):
+        if self.deadline is None or now < self.deadline:
+            return
+        if self.samples:
+            ordered = sorted(self.samples)
+            index = ((len(ordered)-1)//2 if self.settings[1] == 'lower'
+                     else len(ordered)//2)
+            self.pending = (self.sample_vx, ordered[index])
+        elif self.loss is not None:
+            self.pending = (self.sample_vx, self.loss)
+        # Empty intervals extend the last result, without an artificial zero.
+        self.samples = []
+        self.loss = None
+        seconds = self.settings[0]
+        missed = math.floor((now-self.deadline)/seconds)+1
+        self.deadline += missed*seconds
+
+    def receive(self, target, now):
+        restart = self.last_update is not None and (now < self.last_update
+                   or now-self.last_update > self._timeout())
+        if restart:
+            self._reset_window()
+        self.latest = dict(target)
+        self.last_update = now
+        window = target.get('steering_window')
+        bypass = (window is None or target['vx'] == 0.
+                  or target.get('hold_upright') or target.get('card_tilt')
+                  or target.get('event_id'))
+        if bypass:
+            self._reset_window()
+            return
+        settings = (window['seconds'], window['median'])
+        if (self.settings != settings or ('origin_s' in window
+                and window['origin_s'] != self.origin)):
+            self._reset_window()
+            self.settings = settings
+            self.origin = window.get('origin_s', now)
+            self.deadline = (now if restart else min(now, self.origin))+settings[0]
+        # Close the preceding interval BEFORE admitting a boundary/late frame.
+        self._close_windows(now)
+        self.sample_vx = target['vx']
+        if window['valid']:
+            self.samples.append(target['wz'])
+        else:
+            self.loss = target['wz']
+
+    def output(self, now):
+        if self.last_update is None:
+            return dict(vx=0., vy=0., wz=0., qr=-1), False, math.inf
+        target, fresh, age = select_output(self.latest, self.last_update, now,
+                                          self._timeout(), self.card_tilt_grace_s)
+        if not fresh:
+            self._reset_window()
+            return target, fresh, age
+        target = dict(target)
+        target.pop('steering_window', None)
+        target.pop('startup_sequence_active', None)
+        if self.settings:
+            self._close_windows(now)
+            seconds = self.settings[0]
+            if self.pending is not None and (self.applied_at is None
+                    or now-self.applied_at >= seconds):
+                self.applied = self.pending
+                self.applied_at = now
+                self.pending = None
+            target.update(vx=self.applied[0], wz=self.applied[1],
+                          command_mode='held', command_min_hold_s=seconds)
+        return target, fresh, age
 
 
 class CommandSmoother:
-    """Slew-rate limit the policy command so it never steps.
+    """Slew-limit legacy/continuous commands; transmit held commands unchanged.
 
-    The target jumps whenever vision is lost or reacquired, the watchdog
-    expires, or the first packet arrives.  Moving toward it by at most
-    ``accel * dt`` per tick keeps a bipedal gait from being handed a velocity
-    step it cannot absorb.  ``qr`` is discrete and passes through untouched.
+    Stops, stale-vision zeroes and card posture requests stop immediately and
+    reset the smoother. Held commands synchronize its state, so changing mode
+    cannot resume an older ramp. The connector still republishes at 50 Hz;
+    held describes command semantics, not a slower heartbeat.
     """
 
     def __init__(self, max_vx_accel: float, max_wz_accel: float) -> None:
-        for value in (max_vx_accel, max_wz_accel):
-            if not math.isfinite(value) or value <= 0.0:
-                raise ValueError("acceleration limits must be finite and positive")
+        if not math.isfinite(max_vx_accel) or max_vx_accel <= 0.0:
+            raise ValueError("vx acceleration limit must be finite and positive")
+        # 0 is not a limit of zero, it is no limit at all: --wz-mode discrete 要的就是
+        # 方波传递。这个斜率是为连续指令准备的（0.5 rad/s 要爬 0.25 s），短脉冲
+        # 经它一削就只剩个三角形，峰值也到不了。
+        if not math.isfinite(max_wz_accel) or max_wz_accel < 0.0:
+            raise ValueError("wz acceleration limit must be finite and nonnegative")
         self.max_vx_accel = max_vx_accel
         self.max_wz_accel = max_wz_accel
         self.vx = 0.0
         self.wz = 0.0
 
     def update(
-        self, target: dict[str, float | int], dt: float
-    ) -> dict[str, float | int]:
-        self.vx = slew_toward(self.vx, float(target["vx"]), self.max_vx_accel * dt)
-        self.wz = slew_toward(self.wz, float(target["wz"]), self.max_wz_accel * dt)
-        output = {"vx": self.vx, "vy": 0.0, "wz": self.wz, "qr": int(target["qr"])}
+        self, target: dict[str, Any], dt: float
+    ) -> dict[str, Any]:
+        mode = _command_mode(target)
+        vx, wz = float(target["vx"]), float(target["wz"])
+        stop = (bool(target.get("hold_upright", False))
+                or bool(target.get("card_tilt", False))
+                or (vx == 0.0 and wz == 0.0))
+        if stop:
+            self.vx = self.wz = 0.0
+        elif mode == "held":
+            self.vx, self.wz = vx, wz
+        else:
+            self.vx = slew_toward(self.vx, vx, self.max_vx_accel * dt)
+            if self.max_wz_accel > 0.0:
+                self.wz = slew_toward(self.wz, wz, self.max_wz_accel * dt)
+            else:
+                self.wz = wz
+        output = {"vx": self.vx, "vy": 0.0, "wz": self.wz, "qr": int(target["qr"]),
+                  "hold_upright": bool(target.get("hold_upright", False)),
+                  "card_tilt": bool(target.get("card_tilt", False))}
+        if mode is not None:
+            output["command_mode"] = mode
+        if "command_min_hold_s" in target:
+            output["command_min_hold_s"] = target["command_min_hold_s"]
         if "event_id" in target:
             output["event_id"] = int(target["event_id"])
             output["event_action"] = int(target["event_action"])
@@ -131,6 +326,19 @@ def parse_args() -> argparse.Namespace:
         help="Publish a zero command when vision is stale for this many seconds",
     )
     parser.add_argument(
+        "--window-vision-timeout", type=float, default=1.0,
+        help="Windowed steering and explicit startup steps tolerate slow frames; "
+             "stop after this many seconds without a frame (default 1). "
+             "The effective timeout is at least one window.",
+    )
+    parser.add_argument(
+        "--card-tilt-stale-grace",
+        type=float,
+        default=1.5,
+        help="Keep an already active card tilt for this long after the motion "
+             "watchdog expires; motion and shape events still go to zero",
+    )
+    parser.add_argument(
         "--max-vx-accel",
         type=float,
         default=1.0,
@@ -140,13 +348,32 @@ def parse_args() -> argparse.Namespace:
         "--max-wz-accel",
         type=float,
         default=2.0,
-        help="Slew limit on the forwarded yaw rate, rad/s^2 (0.5 rad/s in 0.25 s)",
+        help="Slew limit on the forwarded yaw rate, rad/s^2 (0.5 rad/s in 0.25 s). "
+             "0 = no limit at all, passed through on the same tick - that is what "
+             "--wz-mode discrete needs, because a short square pulse comes out of "
+             "this limiter as a triangle that never reaches its target",
+    )
+    parser.add_argument(
+        "--wz-bias",
+        type=float,
+        default=0.0,
+        help="Signed yaw-rate offset in rad/s, applied before +/-0.5 clamping. "
+             "Full stops, posture requests and stale-vision zeroes stay stopped.",
     )
     parser.add_argument(
         "--log-every",
         type=int,
         default=25,
         help="Print the current connector-to-policy target every N 50 Hz publications",
+    )
+    parser.add_argument(
+        "--tap-port",
+        type=int,
+        default=0,
+        help="Mirror every published packet verbatim to this port on the same host "
+             "(0 = off). A listener there sees the true 50 Hz command ramp, which "
+             "the vision log's 2 Hz sampling hides; being on the same clock as the "
+             "policy's observation dump is the point.",
     )
     return parser.parse_args()
 
@@ -155,16 +382,22 @@ def main() -> int:
     args = parse_args()
     if args.publish_hz <= 0.0 or args.vision_timeout <= 0.0:
         raise SystemExit("publish-hz and vision-timeout must be positive")
-    if not all(
-        math.isfinite(value) and value > 0.0
-        for value in (args.max_vx_accel, args.max_wz_accel)
-    ):
-        raise SystemExit("max-vx-accel and max-wz-accel must be finite and positive")
+    if not math.isfinite(args.window_vision_timeout) or args.window_vision_timeout <= 0:
+        raise SystemExit("window-vision-timeout must be finite and positive")
+    if not math.isfinite(args.card_tilt_stale_grace) or args.card_tilt_stale_grace < 0.0:
+        raise SystemExit("card-tilt-stale-grace must be finite and nonnegative")
+    if not math.isfinite(args.max_vx_accel) or args.max_vx_accel <= 0.0:
+        raise SystemExit("max-vx-accel must be finite and positive")
+    if not math.isfinite(args.max_wz_accel) or args.max_wz_accel < 0.0:
+        raise SystemExit("max-wz-accel must be finite and nonnegative (0 = no limit)")
+    if not math.isfinite(args.wz_bias):
+        raise SystemExit("wz-bias must be finite")
 
     receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     receiver.setblocking(False)
     receiver.bind((args.vision_bind, args.vision_port))
     publisher = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    tap = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) if args.tap_port else None
 
     latest = {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}
     last_vision_update = 0.0
@@ -172,12 +405,23 @@ def main() -> int:
     next_tick = time.monotonic()
     last_tick = next_tick
     smoother = CommandSmoother(args.max_vx_accel, args.max_wz_accel)
+    scheduler = CommandWindowScheduler(args.vision_timeout, args.window_vision_timeout,
+                                       args.card_tilt_stale_grace)
     step = 0
     vision_update = 0
+    # Rate counters for the log line, reset on every print so the numbers say
+    # what is happening now instead of growing forever.
+    log_step = log_vision = 0
+    log_time = time.monotonic()
 
     print(
         f"Connector: vision udp://{args.vision_bind}:{args.vision_port} -> "
-        f"policy udp://{args.policy_host}:{args.policy_port} at {args.publish_hz:.1f} Hz"
+        f"policy udp://{args.policy_host}:{args.policy_port} at {args.publish_hz:.1f} Hz; "
+        f"wz_bias={args.wz_bias:+g} rad/s; "
+        f"vision_timeout={args.vision_timeout:g}s; "
+        f"window_vision_timeout={args.window_vision_timeout:g}s; "
+        f"card_tilt_stale_grace={args.card_tilt_stale_grace:g}s; "
+        f"source_sha256={hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]}"
     )
 
     try:
@@ -192,41 +436,55 @@ def main() -> int:
                     decoded = json.loads(payload.decode("utf-8"))
                     if not isinstance(decoded, dict):
                         raise ValueError("message must be a JSON object")
-                    latest = process_vision_output(decoded)
+                    if decoded == {"startup_probe": True}:
+                        # Startup acknowledgement only: never refresh a motion command.
+                        receiver.sendto(b'{"connector_ready":true}', _address)
+                        continue
+                    latest = process_vision_output(decoded, wz_bias=args.wz_bias)
                     last_vision_update = time.monotonic()
+                    scheduler.receive(latest, last_vision_update)
                     vision_update += 1
                 except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError) as exc:
                     print(f"[connector] ignored invalid vision message: {exc}")
 
             now = time.monotonic()
-            target, vision_fresh, vision_age_s = select_output(
-                latest,
-                last_vision_update,
-                now,
-                args.vision_timeout,
-            )
+            target, vision_fresh, vision_age_s = scheduler.output(now)
             # Measured dt, not the nominal period, so a stalled loop still ramps
             # in wall-clock time; capped at two ticks so one long stall cannot
             # buy a bigger jump than the configured rate allows.
             dt = min(max(now - last_tick, 0.0), 2.0 * period)
             last_tick = now
             output = smoother.update(target, dt)
-            publisher.sendto(
-                json.dumps(output, separators=(",", ":")).encode("utf-8"),
-                (args.policy_host, args.policy_port),
-            )
+            wire = json.dumps(output, separators=(",", ":")).encode("utf-8")
+            publisher.sendto(wire, (args.policy_host, args.policy_port))
+            if tap is not None:
+                # Same bytes, same tick: the tap has to be the wire, not a re-encode.
+                # The default 50 Hz stream carries no host time, so a listener that
+                # needs to align it with policy_runner's POLICY_OBS_CSV should stamp
+                # arrival time itself - both live on this machine's clock.
+                tap.sendto(wire, (args.policy_host, args.tap_port))
 
             if step % max(1, args.log_every) == 0:
-                age_text = f"{vision_age_s * 1000.0:6.1f}ms" if math.isfinite(vision_age_s) else " never"
-                print(
-                    f"[connector -> policy] publish={step:7d} "
-                    f"vision_update={vision_update:7d} fresh={vision_fresh} "
-                    f"age={age_text} qr={output['qr']} "
-                    f"cmd_velocity=[vx={output['vx']:+.3f} m/s, "
-                    f"vy={output['vy']:+.3f} m/s, wz={output['wz']:+.3f} rad/s] "
-                    f"target_velocity=[vx={target['vx']:+.3f} m/s, "
-                    f"wz={target['wz']:+.3f} rad/s]"
-                )
+                now = time.monotonic()
+                span = max(now - log_time, 1e-6)
+                publish_hz = (step - log_step) / span
+                vision_hz = (vision_update - log_vision) / span
+                log_time, log_step, log_vision = now, step, vision_update
+                # out = what the policy is actually given, in = how fast vision
+                # feeds it. The target only matters while it differs, i.e. during
+                # a slew or after vision went stale, so it is shown only then.
+                age_text = (f"{vision_age_s * 1000.0:5.1f}ms" if math.isfinite(vision_age_s)
+                            else "  never")
+                line = (f"[connector] {publish_hz:4.0f}Hz out  {vision_hz:4.0f}Hz in  "
+                        f"age={age_text}  vx={output['vx']:+.3f} wz={output['wz']:+.3f}")
+                if (abs(output["vx"] - target["vx"]) > 1e-3
+                        or abs(output["wz"] - target["wz"]) > 1e-3):
+                    line += f" -> {target['vx']:+.3f} {target['wz']:+.3f}"
+                if output["qr"] != -1 or "event_id" in output:
+                    line += f"  qr={output['qr']} event={output.get('event_id', 0)}"
+                if not vision_fresh:
+                    line += "  STALE"
+                print(line)
 
             step += 1
             next_tick += period
@@ -238,21 +496,16 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        # Ctrl+C here is the documented first step of the stop sequence, so the
-        # last packet the policy sees should ramp down rather than step.
+        # Clear held/ramped state and send an immediate stop on shutdown too.
         zero = {"vx": 0.0, "vy": 0.0, "wz": 0.0, "qr": -1}
-        deadline = time.monotonic() + 2.0
-        while (smoother.vx != 0.0 or smoother.wz != 0.0) and time.monotonic() < deadline:
-            publisher.sendto(
-                json.dumps(smoother.update(zero, period), separators=(",", ":")).encode("utf-8"),
-                (args.policy_host, args.policy_port),
-            )
-            time.sleep(period)
+        smoother.update(zero, 0.0)
         stop = b'{"vx":0.0,"vy":0.0,"wz":0.0,"qr":-1}'
         for _ in range(3):
             publisher.sendto(stop, (args.policy_host, args.policy_port))
         receiver.close()
         publisher.close()
+        if tap is not None:
+            tap.close()
 
     print("Connector stopped; zero command sent")
     return 0

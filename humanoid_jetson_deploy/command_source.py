@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 import socket
 import threading
 import time
@@ -17,6 +18,17 @@ class CommandSnapshot:
     qr: int = -1
     event_id: int = 0
     event_action: int = -1
+    hold_upright: bool = False
+    card_tilt: bool = False
+    command_min_hold_s: float = 0.0
+
+
+# 偏航指令的硬上限。原来写死 0.5：视觉那条路自己会夹（--max-wz 默认 0.5），
+# 但固定指令模式（--command-source fixed --wz X）也走这个函数，想试更大的
+# 偏航就被这里挡掉了。放宽到 1.0 —— 视觉那条路的行为完全不变（它自己先夹）。
+# ⚠️ 策略的训练指令范围是未知的，超出它可能做不出对应动作甚至不稳，
+# 往大调的时候一次加一点。
+MAX_WZ = 1.0
 
 
 def clamp_command(command) -> np.ndarray:
@@ -27,7 +39,7 @@ def clamp_command(command) -> np.ndarray:
         [
             np.clip(command[0], 0.0, 1.0),
             0.0,
-            np.clip(command[2], -0.5, 0.5),
+            np.clip(command[2], -MAX_WZ, MAX_WZ),
         ],
         dtype=np.float32,
     )
@@ -44,6 +56,96 @@ class FixedCommandSource:
         pass
 
 
+class ScriptedCommandSource:
+    """A fixed open-loop timeline: (duration_s, vx, wz) legs, zero after the last.
+
+    FixedCommandSource holds one command forever; this one is for "straight, then
+    turn a whole curve, then straight again". The clock starts on the **first
+    get()** rather than on construction or process start, because main.py builds
+    the source and then has to open the serial link and wait for state packets --
+    counting from construction would eat the first leg while the robot is still
+    standing. main.py ticks get() at 50 Hz from the moment it is ready to walk,
+    so the first call is the first walking tick.
+    """
+
+    def __init__(self, legs, loop: bool = False) -> None:
+        if not legs:
+            raise ValueError("a scripted timeline needs at least one leg")
+        self._legs = []
+        edge = 0.0
+        for duration_s, vx, wz in legs:
+            if not math.isfinite(duration_s) or duration_s <= 0.0:
+                raise ValueError("leg durations must be finite and positive")
+            self._legs.append((edge, edge + duration_s, clamp_command([vx, 0.0, wz])))
+            edge += duration_s
+        self.total_s = edge
+        # loop=True never falls through to zero: the pattern repeats until the
+        # process stops (`--max-seconds`). The caller owns the stop condition --
+        # without one the robot keeps walking.
+        self.loop = bool(loop)
+        self._t0 = None
+
+    def get(self) -> np.ndarray:
+        now = time.monotonic()
+        if self._t0 is None:
+            self._t0 = now
+        elapsed = now - self._t0
+        if self.loop:
+            elapsed %= self.total_s
+        for start, end, command in self._legs:
+            if elapsed < end:
+                return command.copy()
+        return clamp_command([0.0, 0.0, 0.0])
+
+    def close(self) -> None:
+        pass
+
+
+def curve_legs(straight_s: float, turn_s: float, vx: float, turn_wz: float,
+               turn_vx: float | None = None, loop: bool = False):
+    """The stadium's straight/curve alternation as an open-loop timeline.
+
+    Defaults come straight off the track: centreline R = 0.776 m, so a semicircle
+    is pi*R = 2.438 m and a straight is (6.140 - 2*2.438)/2 = 0.632 m. At
+    vx = 0.2 that is 3.16 s of straight, and holding the arc needs
+    omega = v/R = 0.258 rad/s for pi/0.258 = 12.19 s of turn.
+
+    One bulge is `straight, turn, straight`; the lap is that pattern's straights
+    shared, i.e. `straight, turn` repeated. Looping the three-leg form instead
+    would put two straights back to back, so loop=True returns the two-leg unit.
+
+    turn_vx is the forward speed held through the turn; unset (None) keeps vx on
+    every leg, i.e. the whole bulge at one speed.
+    """
+    if turn_vx is None:
+        turn_vx = vx
+    if loop:
+        return [(straight_s, vx, 0.0), (turn_s, turn_vx, turn_wz)]
+    return [(straight_s, vx, 0.0),
+            (turn_s, turn_vx, turn_wz),
+            (straight_s, vx, 0.0)]
+
+
+def parse_legs(spec: str):
+    """`3.2:0.2:0; 12.2:0.2:0.258; 3.2:0.2:0` -> [(3.2, 0.2, 0.0), ...].
+
+    Seconds, m/s, rad/s. Semicolons or commas between legs so both a shell-quoted
+    string and a bare one work.
+    """
+    legs = []
+    for chunk in spec.replace(",", ";").split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        parts = chunk.split(":")
+        if len(parts) != 3:
+            raise ValueError(f"leg {chunk!r} is not seconds:vx:wz")
+        legs.append(tuple(float(p) for p in parts))
+    if not legs:
+        raise ValueError("no legs in the timeline")
+    return legs
+
+
 class UdpCommandSource:
     """Receive connector JSON and expose velocity plus shape metadata."""
 
@@ -53,6 +155,9 @@ class UdpCommandSource:
         self.qr = -1
         self.event_id = 0
         self.event_action = -1
+        self.hold_upright = False
+        self.card_tilt = False
+        self.command_min_hold_s = 0.0
         self.last_update = 0.0
         self.lock = threading.Lock()
         self.stop = threading.Event()
@@ -80,6 +185,11 @@ class UdpCommandSource:
                 event_action = int(message.get("event_action", -1))
                 if event_id < 0 or event_id > 0xFFFFFFFF or (event_id > 0 and event_action not in (1, 2, 3, 4, 5, 6)):
                     raise ValueError("invalid shape event")
+                hold_upright = bool(message.get("hold_upright", False))
+                card_tilt = bool(message.get("card_tilt", False))
+                command_min_hold_s = float(message.get('command_min_hold_s', 0.))
+                if not math.isfinite(command_min_hold_s) or command_min_hold_s < 0:
+                    raise ValueError('invalid minimum command hold')
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError):
                 continue
             with self.lock:
@@ -87,6 +197,9 @@ class UdpCommandSource:
                 self.qr = qr
                 self.event_id = event_id
                 self.event_action = event_action if event_id else -1
+                self.hold_upright = hold_upright
+                self.card_tilt = card_tilt
+                self.command_min_hold_s = command_min_hold_s
                 self.last_update = time.monotonic()
 
     def get(self) -> np.ndarray:
@@ -96,10 +209,14 @@ class UdpCommandSource:
         with self.lock:
             command = self.command.copy()
             qr, event_id, event_action = self.qr, self.event_id, self.event_action
+            hold_upright = self.hold_upright
+            card_tilt = self.card_tilt
+            command_min_hold_s = getattr(self, 'command_min_hold_s', 0.)
             age = time.monotonic() - self.last_update
         if age > self.timeout_s:
             return CommandSnapshot(np.zeros(3, dtype=np.float32))
-        return CommandSnapshot(command, qr, event_id, event_action)
+        return CommandSnapshot(command, qr, event_id, event_action, hold_upright,
+                               card_tilt, command_min_hold_s)
 
     def close(self) -> None:
         self.stop.set()

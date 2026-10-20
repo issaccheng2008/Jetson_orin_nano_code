@@ -1,0 +1,130 @@
+{
+  "WIN_20260919_18_10_34_Pro_flip.mp4": {
+    "frames": 134,
+    "command_level_frames": {
+      "0.0": 26,
+      "-0.4": 44,
+      "-0.1": 22,
+      "-0.5": 42
+    },
+    "reason_counts": {
+      "new_block": 10,
+      "minimum_hold": 93,
+      "brief_loss_hold": 10,
+      "continue_block": 21
+    },
+    "decision_counts": {
+      "target_bearing": 19,
+      "no_new_decision": 103,
+      "left_corridor": 12
+    },
+    "bad_command_levels": [],
+    "brake_amplitude_increases": [],
+    "weak_corridor_decision_frames": [],
+    "normal_completed_segments": 9,
+    "normal_short_change_count": 0,
+    "normal_min_duration_s": 0.5491214057507985,
+    "geometry_stop_frames": 0,
+    "safety_interruptions": 0,
+    "prior_full_stop_frames": 0,
+    "levels_full_stop_frames": 0,
+    "command_pair_different_frames": 108
+  },
+  "WIN_20260919_18_11_50_Pro_flip.mp4": {
+    "frames": 139,
+    "command_level_frames": {
+      "0.4": 31,
+      "0.5": 22,
+      "0.0": 18,
+      "-0.5": 46,
+      "-0.4": 22
+    },
+    "reason_counts": {
+      "new_block": 9,
+      "minimum_hold": 65,
+      "continue_block": 32,
+      "brief_loss_hold": 28,
+      "geometry_lost": 5
+    },
+    "decision_counts": {
+      "target_bearing": 14,
+      "no_new_decision": 98,
+      "right_corridor": 8,
+      "left_corridor": 19
+    },
+    "bad_command_levels": [],
+    "brake_amplitude_increases": [],
+    "weak_corridor_decision_frames": [],
+    "normal_completed_segments": 6,
+    "normal_short_change_count": 0,
+    "normal_min_duration_s": 0.5496152693114817,
+    "geometry_stop_frames": 5,
+    "safety_interruptions": 2,
+    "prior_full_stop_frames": 5,
+    "levels_full_stop_frames": 5,
+    "command_pair_different_frames": 113
+  },
+  "WIN_20260919_18_13_14_Pro_flip.mp4": {
+    "frames": 173,
+    "command_level_frames": {
+      "0.4": 82,
+      "0.0": 80,
+      "0.5": 11
+    },
+    "reason_counts": {
+      "new_block": 9,
+      "minimum_hold": 56,
+      "continue_block": 50,
+      "brief_loss_hold": 24,
+      "geometry_lost": 34
+    },
+    "decision_counts": {
+      "target_bearing": 50,
+      "no_new_decision": 114,
+      "returning_from_left": 9
+    },
+    "bad_command_levels": [],
+    "brake_amplitude_increases": [],
+    "weak_corridor_decision_frames": [],
+    "normal_completed_segments": 5,
+    "normal_short_change_count": 0,
+    "normal_min_duration_s": 0.5494505494505493,
+    "geometry_stop_frames": 34,
+    "safety_interruptions": 4,
+    "prior_full_stop_frames": 34,
+    "levels_full_stop_frames": 34,
+    "command_pair_different_frames": 97
+  },
+  "WIN_20260919_18_13_53_Pro_flip.mp4": {
+    "frames": 125,
+    "command_level_frames": {
+      "0.4": 33,
+      "0.0": 75,
+      "0.5": 17
+    },
+    "reason_counts": {
+      "new_block": 8,
+      "minimum_hold": 52,
+      "brief_loss_hold": 26,
+      "geometry_lost": 9,
+      "continue_block": 30
+    },
+    "decision_counts": {
+      "target_bearing": 28,
+      "no_new_decision": 87,
+      "returning_from_left": 8,
+      "right_corridor": 2
+    },
+    "bad_command_levels": [],
+    "brake_amplitude_increases": [],
+    "weak_corridor_decision_frames": [],
+    "normal_completed_segments": 4,
+    "normal_short_change_count": 0,
+    "normal_min_duration_s": 0.5492310764929099,
+    "geometry_stop_frames": 9,
+    "safety_interruptions": 3,
+    "prior_full_stop_frames": 9,
+    "levels_full_stop_frames": 9,
+    "command_pair_different_frames": 33
+  }
+}

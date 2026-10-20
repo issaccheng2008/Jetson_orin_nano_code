@@ -1,7 +1,6 @@
 # Jetson Orin Nano humanoid runtime
 
 ## Phone / desktop remote control
-
 Run `python3 -m remote_control` from the repository root on the Jetson, then
 open `http://<Jetson-LAN-IP>:8080` from a phone or computer on the same Wi-Fi.
 The browser provides independent forward and yaw joysticks, keyboard controls,
@@ -10,6 +9,14 @@ runtime with `--command-source remote` (UDP port 5007). Existing motor enable
 and model requirements still apply. See the [Chinese setup guide](docs/web_remote_zh.md)
 for complete commands and a hardware-free test. The page displays commands,
 not measured robot motion; no Internet connection or frontend packages are needed.
+
+Moving card presence now uses only the corrected-gray cue detector. It skips
+card-box binarization, line/corner proposals and box verification. Walking stops
+only when current cue geometry passes the configured height/distance gate and
+the existing presence-history and cooldown gates. Startup and stopped shape
+classification retain full card-box detection. Legacy box-stop log counters
+remain zero for log-reader compatibility; `card_presence_mode` is `cue_only`.
+Numbered recording sessions and detailed performance timing remain enabled.
 
 The runtime supports standard forward walking from `Humanoid_Robot_RSL_RL`
 and one-foot standing from `Humanoid_Robot_One_Foot_Standing`. Select the
@@ -26,7 +33,7 @@ Walking defaults:
 - 49 observations, including step distance and crossing command.
 - Fixed mode: **0.4 m/s** forward by default; lateral velocity and yaw rate: **0**.
 - Vision mode: live forward/yaw commands over the original UDP JSON protocol.
-- Step distance: **0.08 m** while moving, **0** for an all-zero velocity command; crossing: **0**.
+- Step distance: **scales with the commanded speed** — 0.08 m at the default 0.3 m/s, 0 at a standstill. The calibration pair is `--max-vx` / `--max-step-cm`; crossing: **0**.
 - 50 Hz inference, 12 joint-position actions, action scale 0.25.
 - Fixed mode commands zero after 5 seconds (`--walk-seconds 0` makes it continuous).
 - Vision mode runs continuously with upstream-command watchdogs; no bar-crossing commands.
@@ -112,6 +119,11 @@ the walking vision command to enable shape actions. Bar crossing remains outside
 this integration.
 
 ## Tests
+
+Offline vision logs can be opened with `python new_vision/scripts/view_vision_log.py`
+or `new_vision/scripts/view_vision_log.bat` on Windows. `LOG="vision"` records
+the exact Close+Fit `rowhdg` value and validity, plus fresh policy-adopted yaw
+feedback. See [the viewer guide](docs/vision_log_viewer_zh.md).
 
 ```bash
 python -m unittest discover -s tests -v

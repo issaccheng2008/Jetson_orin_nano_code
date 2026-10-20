@@ -18,11 +18,20 @@ MSG_STATE = 1
 MSG_COMMAND = 2
 MSG_ACTION_REQUEST = 3
 MSG_ACTION_STATUS = 4
+MSG_STARTUP_CONTROL = 5
 ACTION_ACCEPTED = 1
 ACTION_DONE = 2
 ACTION_BUSY = 3
 ACTION_INVALID = 4
 ACTION_FAILED = 5
+
+# Card-stop body re-pose. 1-6 are the six printed shapes; these two are not shapes and
+# never carry a card event. On START the STM32 re-poses the body and, for the rest of
+# the stop, reports the attitude it held before that; on RESTORE it puts both back.
+# The vision asks by publishing card_tilt, and main.py turns the two edges of that
+# flag into these two requests.
+ACTION_CARD_TILT = 7
+ACTION_CARD_RESTORE = 8
 MAX_PAYLOAD = 512
 
 COMMAND_ENABLE = 1 << 0
@@ -34,13 +43,24 @@ STATE_FAULT = 1 << 1
 STATE_IMU_VALID = 1 << 2
 STATE_ENCODERS_VALID = 1 << 3
 STATE_COMMAND_FRESH = 1 << 4
+STATE_START_BUTTON = 1 << 5
+STATE_STARTUP_ACTIVE = 1 << 6
+
+STARTUP_ARM = 1 << 0
+STARTUP_CARD_READY = 1 << 1
+STARTUP_HOST_READY = 1 << 2  # vision + connector startup succeeded; PA1 latch
 
 HEADER = struct.Struct("<HBBHH")
 CRC = struct.Struct("<H")
 STATE_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "f" * NUM_JOINTS + "3f3f4fI")
-COMMAND_PAYLOAD = struct.Struct("<I" + "f" * NUM_JOINTS + "ffI")
+# The STM32 diagnostic branch appends two counters to the version-2 state
+# payload. Accept both lengths so Nano can be deployed before STM32 is flashed.
+STATE_PAYLOAD_WITH_COUNTERS = struct.Struct(STATE_PAYLOAD.format + "II")
+# Absolute PD values in joint_target wire order. Old 64-byte commands are rejected.
+COMMAND_PAYLOAD = struct.Struct("<I" + "f" * (3 * NUM_JOINTS) + "I")
 ACTION_REQUEST_PAYLOAD = struct.Struct("<IB")
 ACTION_STATUS_PAYLOAD = struct.Struct("<IBB")
+STARTUP_CONTROL_PAYLOAD = struct.Struct("<B")
 
 
 @dataclass(frozen=True)
@@ -53,6 +73,8 @@ class StatePacket:
     gyro_rad_s: np.ndarray
     orientation_wxyz: np.ndarray
     status_flags: int
+    command_rx_count: int | None = None
+    system_control_cycle: int | None = None
 
 
 @dataclass(frozen=True)
@@ -60,8 +82,8 @@ class CommandPacket:
     sequence: int
     timestamp_us: int
     joint_target: np.ndarray
-    kp_scale: float
-    kd_scale: float
+    kp: np.ndarray
+    kd: np.ndarray
     command_flags: int
 
 
@@ -78,6 +100,12 @@ class ActionStatusPacket:
     event_id: int
     action_id: int
     status: int
+
+
+@dataclass(frozen=True)
+class StartupControlPacket:
+    sequence: int
+    flags: int
 
 
 def crc16_ccitt(data: bytes, initial: int = 0xFFFF) -> int:
@@ -104,7 +132,10 @@ def pack_state(packet: StatePacket) -> bytes:
     accel = np.asarray(packet.accel_m_s2, dtype=np.float32).reshape(3)
     gyro = np.asarray(packet.gyro_rad_s, dtype=np.float32).reshape(3)
     orientation = np.asarray(packet.orientation_wxyz, dtype=np.float32).reshape(4)
-    payload = STATE_PAYLOAD.pack(
+    has_counters = packet.command_rx_count is not None or packet.system_control_cycle is not None
+    if has_counters and (packet.command_rx_count is None or packet.system_control_cycle is None):
+        raise ValueError("Both STM32 counters must be present in an extended state")
+    values = (
         packet.timestamp_us & 0xFFFFFFFF,
         *q,
         *qd,
@@ -113,24 +144,49 @@ def pack_state(packet: StatePacket) -> bytes:
         *orientation,
         packet.status_flags & 0xFFFFFFFF,
     )
+    if has_counters:
+        payload = STATE_PAYLOAD_WITH_COUNTERS.pack(
+            *values, packet.command_rx_count & 0xFFFFFFFF,
+            packet.system_control_cycle & 0xFFFFFFFF)
+    else:
+        payload = STATE_PAYLOAD.pack(*values)
     return _pack_frame(MSG_STATE, packet.sequence, payload)
 
 
 def pack_command(packet: CommandPacket) -> bytes:
     q = np.asarray(packet.joint_target, dtype=np.float32).reshape(NUM_JOINTS)
+    kp = np.asarray(packet.kp, dtype=np.float64).reshape(NUM_JOINTS)
+    kd = np.asarray(packet.kd, dtype=np.float64).reshape(NUM_JOINTS)
+    if (not np.isfinite(kp).all() or not np.isfinite(kd).all()
+            or np.any(kp < 0) or np.any(kp > 500)
+            or np.any(kd < 0) or np.any(kd > 5)):
+        raise ValueError("absolute gains must be finite with KP in [0, 500] and KD in [0, 5]")
     payload = COMMAND_PAYLOAD.pack(
         packet.timestamp_us & 0xFFFFFFFF,
         *q,
-        float(packet.kp_scale),
-        float(packet.kd_scale),
+        *kp,
+        *kd,
         packet.command_flags & 0xFFFFFFFF,
     )
     return _pack_frame(MSG_COMMAND, packet.sequence, payload)
 
 
+def pack_startup_control(packet: StartupControlPacket) -> bytes:
+    if packet.flags < 0 or packet.flags & ~(STARTUP_ARM | STARTUP_CARD_READY | STARTUP_HOST_READY):
+        raise ValueError("Unknown startup control flags")
+    return _pack_frame(MSG_STARTUP_CONTROL, packet.sequence,
+                       STARTUP_CONTROL_PAYLOAD.pack(packet.flags))
+
+
+# All six cards and the card-posture events use the same request/status protocol.
+SENDABLE_ACTION_IDS = (1, 2, 3, 4, 5, 6, ACTION_CARD_TILT, ACTION_CARD_RESTORE)
+
+
 def pack_action_request(packet: ActionRequestPacket) -> bytes:
-    if not 0 < packet.event_id <= 0xFFFFFFFF or packet.action_id not in (1, 2, 5, 6):
-        raise ValueError("invalid upper-body action request")
+    if (not 0 < packet.event_id <= 0xFFFFFFFF
+            or packet.action_id not in SENDABLE_ACTION_IDS):
+        raise ValueError(f"invalid action request: event_id={packet.event_id} "
+                         f"action_id={packet.action_id}")
     return _pack_frame(MSG_ACTION_REQUEST, packet.sequence,
                        ACTION_REQUEST_PAYLOAD.pack(packet.event_id, packet.action_id))
 
@@ -141,7 +197,14 @@ def pack_action_status(packet: ActionStatusPacket) -> bytes:
 
 
 def decode_state(sequence: int, payload: bytes) -> StatePacket:
-    values = STATE_PAYLOAD.unpack(payload)
+    if len(payload) == STATE_PAYLOAD.size:
+        values = STATE_PAYLOAD.unpack(payload)
+        has_counters = False
+    elif len(payload) == STATE_PAYLOAD_WITH_COUNTERS.size:
+        values = STATE_PAYLOAD_WITH_COUNTERS.unpack(payload)
+        has_counters = True
+    else:
+        raise ValueError("Unknown state payload size")
     i = 1
     q = np.array(values[i : i + NUM_JOINTS], dtype=np.float32)
     i += NUM_JOINTS
@@ -152,13 +215,18 @@ def decode_state(sequence: int, payload: bytes) -> StatePacket:
     gyro = np.array(values[i : i + 3], dtype=np.float32)
     i += 3
     orientation = np.array(values[i : i + 4], dtype=np.float32)
-    return StatePacket(sequence, values[0], q, qd, accel, gyro, orientation, values[-1])
+    i += 4
+    return StatePacket(sequence, values[0], q, qd, accel, gyro, orientation, values[i],
+                       values[i + 1] if has_counters else None,
+                       values[i + 2] if has_counters else None)
 
 
 def decode_command(sequence: int, payload: bytes) -> CommandPacket:
     values = COMMAND_PAYLOAD.unpack(payload)
     q = np.array(values[1 : 1 + NUM_JOINTS], dtype=np.float32)
-    return CommandPacket(sequence, values[0], q, values[-3], values[-2], values[-1])
+    kp = np.array(values[1 + NUM_JOINTS : 1 + 2 * NUM_JOINTS], dtype=np.float32)
+    kd = np.array(values[1 + 2 * NUM_JOINTS : 1 + 3 * NUM_JOINTS], dtype=np.float32)
+    return CommandPacket(sequence, values[0], q, kp, kd, values[-1])
 
 
 class FrameDecoder:
@@ -171,11 +239,11 @@ class FrameDecoder:
         self.format_errors = 0
 
     def feed(self, data: bytes) -> Iterable[
-        StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket
+        StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket | StartupControlPacket
     ]:
         self.buffer.extend(data)
         decoded: list[
-            StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket
+            StatePacket | CommandPacket | ActionRequestPacket | ActionStatusPacket | StartupControlPacket
         ] = []
 
         while True:
@@ -211,7 +279,8 @@ class FrameDecoder:
 
             payload = frame[HEADER.size : HEADER.size + payload_len]
             try:
-                if message_type == MSG_STATE and payload_len == STATE_PAYLOAD.size:
+                if message_type == MSG_STATE and payload_len in (
+                        STATE_PAYLOAD.size, STATE_PAYLOAD_WITH_COUNTERS.size):
                     decoded.append(decode_state(sequence, payload))
                 elif message_type == MSG_COMMAND and payload_len == COMMAND_PAYLOAD.size:
                     decoded.append(decode_command(sequence, payload))
@@ -219,6 +288,11 @@ class FrameDecoder:
                     decoded.append(ActionRequestPacket(sequence, *ACTION_REQUEST_PAYLOAD.unpack(payload)))
                 elif message_type == MSG_ACTION_STATUS and payload_len == ACTION_STATUS_PAYLOAD.size:
                     decoded.append(ActionStatusPacket(sequence, *ACTION_STATUS_PAYLOAD.unpack(payload)))
+                elif message_type == MSG_STARTUP_CONTROL and payload_len == STARTUP_CONTROL_PAYLOAD.size:
+                    flags = STARTUP_CONTROL_PAYLOAD.unpack(payload)[0]
+                    if flags & ~(STARTUP_ARM | STARTUP_CARD_READY | STARTUP_HOST_READY):
+                        raise ValueError("Unknown startup control flags")
+                    decoded.append(StartupControlPacket(sequence, flags))
                 else:
                     raise ValueError("Unknown message type or payload size")
             except (ValueError, struct.error):

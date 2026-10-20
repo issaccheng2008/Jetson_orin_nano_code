@@ -39,6 +39,56 @@ Bar crossing is not signalled. The original CPU/GPU `run_robot.py`
 entry points still produce V2 serial messages and are not the policy bridge.
 Only the policy process should open the STM32 serial device.
 
+## Timed yaw windows (heading and segments)
+
+Active heading steering with an angle table first blends the filtered target
+bearing F and the position-corrected bearing C=F+P. Set
+`STEERING_POSITION_BLEND_WEIGHT=0.3` for `0.7*F+0.3*C`; this is independent of
+the downstream time window. See [F/C configuration](steering_fc_angle_blend_zh.md)
+for modes, endpoints, and diagnostic fields. Filtered lane heading is a separate
+measurement and is not F.
+
+With `STEERING_COMMAND_WINDOW_S=0.5`, each completed visual frame sends a
+candidate `wz` mapped from the filtered steering demand, including geometric
+protection and the straight-road restriction. The packet includes
+`steering_window: {seconds: 0.5, median: "lower", valid: true, origin_s: ...}`.
+`origin_s` is the start of normal walking collection on the host monotonic
+clock; samples are assigned by their receipt time after visual processing,
+not by a frame's earlier capture/processing timestamp.
+
+The connector closes half-open bins `[t0,t0+0.5)`, `[t0+0.5,t0+1.0)`, etc.
+on its existing 50 Hz clock, even if vision is busy processing the next image.
+The first bin continues publishing zero while collecting. A candidate at
+0.12 s, 0.30 s and 0.40 s with rates 0.12, 0.30 and 0.30 produces 0.30 at
+the first boundary; a candidate finishing at 0.52 s belongs to the next bin.
+`STEERING_COMMAND_MEDIAN=lower|upper` chooses the actual lower/upper middle
+sample for even counts, including signed rates; it never averages two gears.
+Invalid/lost observations do not enter the median. A bin with only loss
+compensation uses its latest fallback, while an entirely empty bin extends
+the preceding command.
+
+Every connector tick publishes a command. Each applied result lasts at least
+one window; late ticks can extend a block but cannot shorten it or send a
+burst of old results. The window duration also travels to the policy as
+`command_min_hold_s`, enforcing the minimum at actual model input even for a
+separately started policy with CLI hold set to zero. The automatically launched
+policy uses at least the window duration as its CLI minimum too. These are
+minimum durations on a general-purpose OS: scheduling and the 20 ms control
+cycle may delay a change beyond exactly 0.500 s.
+
+Card stops (`vx=0`), posture/action requests, capture failures and shutdown
+bypass collection immediately and clear pending motion. Resuming starts a
+fresh collection session. `WINDOW_VISION_TIMEOUT_S=1` configures the connector's
+`--window-vision-timeout`; no candidate for that duration stops the robot and
+clears the window. The effective timeout is at least one window. Legacy and
+continuous packets retain the separate `--vision-timeout=0.25` behavior.
+Set `STEERING_COMMAND_WINDOW_S=0` to disable aggregation.
+
+In new recordings, **VISION** shows the per-frame candidate, while **ROBOT CMD**
+shows the actual model command after median scheduling, holding and takeovers.
+Only the latter represents the applied yaw block; neither is measured body
+velocity. Update/restart vision, connector and policy together for this protocol.
+
 ## How a card is handled, and in what order
 
 Detection is split in two because the two halves have very different difficulty.
@@ -54,8 +104,10 @@ because the shake is periodic.
 
 Seeing a card does **not** stop the robot. It keeps a per-card flag, drops the
 speed to `--card-slow-vx`, and rolls on until the box centroid reaches
-`--card-trigger-frac` - 0.75, the lower quarter of the frame - which is when the
-card is actually close. Only then does it stop, and detection then runs **every
+`--card-trigger-frac` - 0.5, the middle of the frame. Triggering later than that
+lands the stop with the card already about 10 cm away, because the robot keeps
+closing while the stop takes effect; 0.75 was the first setting and was too late.
+Only then does it stop, and detection then runs **every
 frame** instead of every `--shape-every`. Standing still the camera is steady,
 the quad path works, and the shape comes out of the tuned classifier - the one
 that is not to be touched. When the shape is known, a numbered event is
@@ -129,9 +181,10 @@ models and the 46-input one-foot model are incompatible with this interface.
 No bundled ONNX model has been replaced or certified by this change.
 
 Check your existing motor/IMU calibration in `humanoid_jetson_deploy/config.py`.
-The normal walking step distance remains `DEFAULT_STEP_DISTANCE` (currently
-0.08 m). The existing observation builder uses step distance 0 when all velocity
-commands are zero. Crossing command remains 0.
+The step distance scales with the commanded forward speed, reaching
+`MAX_STEP_DISTANCE` (0.08 m) at `MAX_COMMAND_VX` (0.3 m/s) and zero at a
+standstill; `main.py --max-vx / --max-step-cm` move that calibration pair.
+Crossing command remains 0.
 
 ## 2. Verify the camera and steering without enabling motors
 
@@ -285,9 +338,12 @@ velocity. With the defaults, 10 cm of final PID steering gives -0.1 rad/s.
   0 by curve_px 0.
 - `--no-shape-detect`: card detection is on by default; this turns it off and
   leaves `qr` at -1.
-- `--shape-every`: default 6. How many frames apart to run `ShapeDetector`. It is
+- `--shape-every`: default 2. How many frames apart to run `ShapeDetector`. It is
   an order of magnitude more expensive than the line detector (see above), so
-  this is the main knob for protecting the vision loop rate.
+  this is the main knob for protecting the vision loop rate. At the old default
+  of 6 the loop sampled at ~3 Hz, and since the stop trigger is a line on `cy`,
+  that is ~10 cm of travel per sample: the robot stopped 17.5 cm from the card
+  when it was set for 30 cm.
 - `--card-hold-ms`: default 3000. How long `qr` keeps reporting a detected card.
   3000 matches the rules' action window and stays under `ShapeDetector`'s
   `cooldown_ms` of 3200, so one card cannot re-fire. The value is held across a

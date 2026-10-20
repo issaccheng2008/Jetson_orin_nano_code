@@ -43,14 +43,11 @@ def show_debug_windows(dbg, vis_bird):
     if dbg.get("bird") is not None:
         bird_bgr = cv2.cvtColor(dbg["bird"], cv2.COLOR_GRAY2BGR)
         cv2.imshow("2.Warp (birdseye)",
-                   cv2.resize(bird_bgr, (320, 400),
-                              interpolation=cv2.INTER_NEAREST))
+                   bird_bgr)
     if dbg.get("binary_raw") is not None:
         b_raw = cv2.cvtColor(dbg["binary_raw"], cv2.COLOR_GRAY2BGR)
         cv2.imshow("3.Adaptive (binary)",
-                   cv2.resize(b_raw, (320, 400),
-                              interpolation=cv2.INTER_NEAREST))
+                   b_raw)
     if vis_bird is not None:
         cv2.imshow("4.Close+Fit",
-                   cv2.resize(vis_bird, (320, 400),
-                              interpolation=cv2.INTER_NEAREST))
+                   vis_bird)

@@ -79,8 +79,8 @@ def put_text(img, text, org, color_bgr=(0, 0, 255), size=26):
 
 def run_cv(img, detector):
     """找框+分类（纯 CV 规则法）。返回 (shape, action, conf, quad, dbg)。"""
-    action, dbg = detector.update(img)
-    shape = dbg.get("shape")
+    shape, dbg = detector.update(img)
+    action = detector.action_map.get(shape)
     conf = 1.0 if shape is not None else 0.0
     return shape, action, conf, dbg.get("quad"), dbg
 
@@ -121,8 +121,7 @@ def main():
                         help="保存预处理中间图到指定路径（调试用）")
     args = parser.parse_args()
 
-    detector = ShapeDetector(stable_frames=1, cooldown_ms=0, debug=False,
-                             roi_ratio=1.0)
+    detector = ShapeDetector(roi_ratio=1.0)
 
     # YOLO模型（可选）
     model = None
@@ -185,14 +184,31 @@ def main():
         else:
             final = None
 
-        # 可视化底图：找框输入图（二值化 960×540，线=白）
+        # 可视化底图：两张二值图并排，框画在两张上。
+        # 左边 _binary_selective（压巡线那条，Hough/LSD/corner/CC 用），
+        # 右边 _card_ink（原始灰度 Otsu，ring 通道用）。卡框在右边那张是完整的，
+        # 在左边那张是碎的 —— 并排看才明白为什么要有第二条。
         b = cv_dbg.get("binary")
-        if b is not None:
-            disp = cv2.cvtColor(b, cv2.COLOR_GRAY2BGR)
-            qw = cv_dbg.get("quad_work")
+        ink = cv_dbg.get("ink")
+        qw = cv_dbg.get("quad_work")
+
+        def panel(img, title):
+            v = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             if qw is not None:
-                cv2.polylines(disp, [qw.astype(np.int32).reshape(-1, 1, 2)],
+                cv2.polylines(v, [qw.astype(np.int32).reshape(-1, 1, 2)],
                               True, (0, 255, 0), 2)
+            cv2.putText(v, title, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 0, 0), 4)
+            cv2.putText(v, title, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 255, 255), 2)
+            return v
+
+        if b is not None or ink is not None:
+            left = panel(b, "_binary_selective (只喂 Hough/LSD/corner/CC)")
+            if ink is None:
+                disp = left
+            else:
+                disp = np.hstack([left, panel(ink, "_card_ink (只喂 ring)")])
         else:
             disp = frame.copy()
         if yo_box is not None:
@@ -209,11 +225,18 @@ def main():
             label = (f"{SHAPE_NAMES.get(shape, shape)} 动作{action} "
                      f"{ACTION_NAMES[action]} | {conf_s}")
         else:
-            # 找到框但未识别 → 显示原因
             if cv_dbg.get("card_found"):
-                label = "找到框但未识别（规则法判不出）"
+                label = "找到框但分类不出"
             else:
                 label = "未找到框"
+        # 一行流水：候选 -> 过几何闸 -> 进打分表，加上前两位拒绝理由。
+        # g0 就是"一个候选都没过" —— 实车 2026-09-30 每帧都是这个。
+        rej = sorted((cv_dbg.get("geom_rejects") or {}).items(),
+                     key=lambda kv: -kv[1])[:2]
+        label += (f"   [{cv_dbg.get('quad_total', '?')}"
+                  f"g{cv_dbg.get('quad_geom', '?')}"
+                  f"v{len(cv_dbg.get('scores') or [])}"
+                  f" {' '.join(f'{k}:{n}' for k, n in rej)}]")
         put_text(disp, label, (10, 8), (0, 0, 255), 26)
 
         def _n(s):

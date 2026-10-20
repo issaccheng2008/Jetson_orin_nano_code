@@ -1,5 +1,40 @@
 # Humanoid Robot: Jetson Orin Nano ONNX Deployment
 
+## p3 相位时钟跨棍原型（独立入口）
+
+`models/phase_clock_model_850/` 是交接 zip 的完整副本，运行前校验每个文件的
+SHA-256、ONNX 合同、49/12 接口、关节顺序、默认角度和 20 ms 控制周期。
+该权重来自触地调度训练，只有候选时钟的单次仿真回放；它尚未经过充分的时钟微调或真机验证。
+跨棍入口与巡线、图卡入口分开，不能同时占用 STM32 串口。
+
+在本目录运行：
+
+```bash
+python3 phase_clock_main.py --port /dev/ttyACM0
+# 确认机器人已恢复微屈膝初始姿态，最前脚尖距木棍近边净距 8 cm 后，在另一终端发一次：
+python3 tools/send_phase_start.py
+```
+
+第一条命令默认不使能电机，用于检查通信、姿态门槛和时钟日志。真机执行时显式加
+`--enable-motors`。启动信号是本机 `127.0.0.1:5008` 上的 JSON UDP
+`{"start": true}`；重复信号不会重置正在运行的时钟。也可用
+`--start-bind` 和 `--start-port` 改成本机其他 IPv4 回环地址、端口。
+外部 8 cm 定位由操作方完成，程序只检查编码器接近微屈膝姿态且关节速度够低，
+不能从 IMU/编码器判断脚尖与木棍间隙。
+若信号到达时姿态或关节速度未过门槛，该信号会被忽略；调整好姿态后重新发送一次。
+
+WALK、LEAD、FOLLOW 在时钟第 0～6、7～21、22～37 tick 生效；第 38 tick
+`sequence_finished` 后立即发送失能命令并退出。这是当前指定的结束接管方式，
+**失能会撤去电机支撑**，因此真机试验须已有外部支撑。结束信号不代表已跨过木棍或站稳。
+不会自动再次启动；下一次需要重新定位并重启进程。
+
+`--log logs/phase_clock_run.csv` 记录 STM32 采样时间戳、状态序号、主机读取/推理/发送时刻、
+相位、完整关节和 IMU 数据及 actor 原始动作。actor 产生的目标仍经过现有的关节限位、
+速度限制和相对编码器偏差限制；日志中的 `action_*` 保持未经这些限制的原始值。
+跨棍推理只依赖 `numpy` 和 `onnxruntime`，不导入训练框架。
+验证记录：在本机临时安装 ONNX Runtime 1.30.0 后，模型成功加载并完成 `[1,49] → [1,12]`
+推理，输出全为有限值；五项相位时钟、启动和模拟串口测试通过。该检查没有使能电机，也不替代 Jetson 上的运行时延迟和真机步态验证。
+
 ## Fixed joint-angle frames (without ONNX)
 
 Use `examples/fixed_joint_frames.json` as a template. `format` must be
@@ -46,9 +81,52 @@ All multi-byte values are little-endian. Floating-point fields are IEEE-754 `flo
 | Payload | variable | Packed state or command structure |
 | CRC | 2 | CRC-16/CCITT-FALSE over version through the end of payload |
 
-The state payload is 144 bytes and its complete frame is 154 bytes. The command payload is 64 bytes and its complete frame is 74 bytes. The Python and STM32 implementations use the same packed layouts and CRC algorithm.
+The state payload is 144 bytes (154-byte frame), or 152 bytes (162-byte frame) with the two STM32 diagnostic counters. The command payload is now 152 bytes (162-byte frame): `timestamp_us` (`uint32`), `joint_target[12]`, `kp[12]`, `kd[12]` (`float32`), and `command_flags` (`uint32`). Gains are absolute values in the same wire order as the targets. Update both Jetson and STM32 together: old 64-byte commands are rejected. Feedback and action frames are unchanged; `stm32_demo/` is an older reference, not the matching firmware.
 
-At 200 state frames/s and 50 command frames/s, the total framed traffic is approximately 34.5 kB/s, comfortably within USB full-speed CDC capacity.
+At 200 extended state frames/s and 50 command frames/s, total framed traffic is approximately 40.5 kB/s, within USB full-speed CDC capacity.
+
+## KPKD 调参（上位机统一配置）
+
+修改本目录 `config.py` 的 `JOINT_KP`、`JOINT_KD`，然后重启上位机进程，无需重新编译下位机。两组数组各有 12 项，按 STM32 线序排列：左腿六关节、右腿六关节，每腿依次为髋 pitch、髋 roll、髋 yaw、膝 pitch、踝 pitch、踝 roll。索引与 `joint_target` 一致；增益无需取反。
+
+默认直接使用下位机 `上位机改kpkd` 分支的原始基准，不保留原桥接层的 KP×1.5、KD×2.0：
+
+| 每腿关节 | KP | KD |
+|---|---:|---:|
+| 髋 pitch | 35 | 1.5 |
+| 髋 roll | 30 | 1.2 |
+| 髋 yaw | 20 | 1.0 |
+| 膝 pitch | 35 | 1.5 |
+| 踝 pitch | 30 | 1.6 |
+| 踝 roll | 12 | 0.7 |
+
+可以单独修改数组某一项，例如 `JOINT_KP[7]` 对应右髋 roll。原来的统一 `GAIN_SCALE` 已移除，使用下面三档各自的 KP/KD 倍率调节。
+
+`main.py` 根据最终送入行走策略的速度指令，自动选择 `config.py` 中 `MOTION_GAIN_SCALES` 的一组 `(KP倍率, KD倍率)`。站立默认 `(1.0, 1.0)`，直走和转向默认均为 `(1.5, 2.0)`，可以分别修改六个数：
+
+| 配置项 | 选择条件 |
+|---|---|
+| `standing` | 线速度和角速度均为零；站姿保持、单脚动作、固定关节帧也使用这一档 |
+| `straight` | 线速度非零、角速度为零 |
+| `turning` | 角速度非零，包括原地转向 |
+
+这里的线速度包含 vx/vy，角速度为 wz，绝对值不超过 `1e-6` 视为零。选择依据是速度保持/停车逻辑处理后的指令，使用 0.5 秒保持中的转向指令时，增益也继续使用转向档；停车指令生效即切站立档。依据不是 IMU 或编码器测得的实际速度。
+
+当前默认配置：站立维持基准，直走和转向均为 KP×1.5、KD×2.0：
+
+```python
+MOTION_GAIN_SCALES = {
+    "standing": (1.0, 1.0),
+    "straight": (1.5, 2.0),
+    "turning": (1.5, 2.0),
+}
+```
+
+既有调用参数 `--kp-scale` 和 `--kd-scale` 继续作为全局独立倍率，默认均为 1；`main.py` 现在允许大于 1，所以 `--kp-scale 1.5 --kd-scale 2` 会作用于三档。最终 KP = `JOINT_KP × 当前档KP倍率 × --kp-scale`，最终 KD = `JOINT_KD × 当前档KD倍率 × --kd-scale`。建议调三档时保持命令行这两个参数为默认 1：当前档设 `(1.5, 2.0)` 就直接得到基准 KP×1.5、KD×2.0，不再额外乘统一系数。若同时显式传了命令行倍率，它仍会与档位倍率相乘。终端每次打印控制状态时显示最终相对于基准的 KP/KD 倍率。
+
+其他独立调试/跨棍入口继续使用原来的全局倍率，不按这三档自动切换。旧启动命令如果显式传了较小倍率，现在会实际降低电机增益。最终值必须在电机范围内：KP 为 0～500，KD 为 0～5；负值、NaN、Inf 和越界值会被拒绝，不会静默截断。
+
+每帧都携带最终 KP/KD，下位机校验后直接传给电机，不再乘固定倍率。下位机在尚未收到上位机控制包时的上电归位 `Action_Goto` 保留原行为，其本地参数不受这个配置影响。
 
 ## Walking model compatibility
 
@@ -70,7 +148,7 @@ The policy period is `0.005 s * decimation 4 = 0.020 s`, or 50 Hz.
 | 3:6 | 3 | IMU angular velocity in policy frame, rad/s |
 | 6:9 | 3 | Projected gravity: world-down unit vector in body/IMU frame |
 | 9:11 | 2 | Command `[vx, wz]` |
-| 11:12 | 1 | Default step distance: 0.08 m; 0 for all-zero velocity |
+| 11:12 | 1 | Step distance: `vx` × `--max-step-cm` / `--max-vx` (0.08 m at the default 0.3 m/s, 0 at rest) |
 | 12:13 | 1 | Crossing command: 0 (normal walking) |
 | 13:25 | 12 | Joint position minus Isaac default position, radians |
 | 25:37 | 12 | Joint velocity, rad/s |
@@ -455,18 +533,24 @@ python main.py --model models/current_walking.onnx --port /dev/ttyACM0 \
 It receives live forward/yaw commands from `connector.py` on UDP port 5005.
 Missing connector data for 0.25 seconds commands zero velocity. The connector
 also has a 0.25-second vision watchdog. There is no timed walking cutoff in vision
-mode. Step distance is the configured default while moving and zero for an
-all-zero velocity command; crossing remains zero.
+mode. Step distance scales with the commanded forward speed, so a slow command
+gets a short step; crossing remains zero.
 
 Standalone fixed tests remain available:
 
 ```bash
 python main.py --model models/current_walking.onnx --port /dev/ttyACM0 \
   --command-source fixed --vx 0.4 --wz 0 --walk-seconds 5
+# walk/pause duty cycle: 1 s at (vx, wz), 1 s at zero, repeating
+python main.py --model models/current_walking.onnx --port /dev/ttyACM0 \
+  --command-source fixed --vx 0.2 --wz 0 --walk-seconds 1 --pause-seconds 1 \
+  --max-seconds 20
 ```
 
 Fixed mode commands zero after five seconds by default; `--walk-seconds 0`
-keeps it continuous. `--wz` accepts values within ±0.5 rad/s. Motor enable remains
+keeps it continuous, and `--pause-seconds > 0` turns the walk leg into an
+alternating walk/pause loop (needs `walk-seconds > 0`; give `--max-seconds` or
+stop with Ctrl+C). `--wz` accepts values within ±0.5 rad/s. Motor enable remains
 opt-in. Ctrl+C, `--max-seconds` completion, invalid/stale STM32 state and faults
 still disable motors. A zero velocity command itself does not disable motors.
 

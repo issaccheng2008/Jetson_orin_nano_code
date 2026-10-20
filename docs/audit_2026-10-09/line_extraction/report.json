@@ -1,0 +1,355 @@
+{
+  "input_videos": [
+  {
+    "video": "camera_commands3.avi",
+    "bytes": 23454764,
+    "sha256": "d41e8d4d6ce0d36b7d2d844c25a9b2e47b8e41a21c268f8b18feba43beb78446"
+  },
+  {
+    "video": "WIN_20260919_18_10_34_Pro_flip.mp4",
+    "bytes": 6500859,
+    "sha256": "e782cf9eb7d2440fb37a783a9ccb7553d13d782bf5ffee8ff97141272097b1f2"
+  },
+  {
+    "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+    "bytes": 6319051,
+    "sha256": "76a5032d7f58a98cbaaa0e4dfea6c10245d9e9b92c4296acb0d69745a9946837"
+  },
+  {
+    "video": "WIN_20260919_18_13_14_Pro_flip.mp4",
+    "bytes": 7941063,
+    "sha256": "fb52326639df8c75c5817b7fd2fc999f2c2226f83c7d3ca9f39e8b73848857a7"
+  },
+  {
+    "video": "WIN_20260919_18_13_53_Pro_flip.mp4",
+    "bytes": 6145666,
+    "sha256": "7f0e2fe4230c38db3c4f77dcfda208ff0c375ae6eb42a06b5ecef34e5d1cdab1"
+  }
+],
+  "annotation_sha256": "2612419f858905edfd8867eff02b5f9e0a0e3c14b3097173025c5114a902d773",
+  "source_sha256": {
+    "line_preprocess.py": "c9dbe28849ed85e2e30760bbf2e0f56a007fce13b962300db66370428900d4b2",
+    "line_detector_v1_warp.py": "e690ba4810f4a9716be55efcb031f65dc3f40939e1f9f55a2adf90a065bb76be"
+  },
+  "opencv": "4.14.0",
+  "numpy": "2.5.3",
+  "calibration": {
+    "height_cm": 32.5,
+    "pitch_deg": 45,
+    "vfov_deg": 55.876,
+    "z_calib": [
+      1.13233,
+      -2.4862
+    ],
+    "lane_width_cm": 35
+  },
+  "metrics": {
+    "center_recall_tolerance_px": 4,
+    "candidate_precision_tolerance_px": 10,
+    "aggregation": "pixel-weighted; ignore regions excluded",
+    "caveat": "centerline tolerance metrics, not pixel-accurate masks or independent trials"
+  },
+  "annotated_summary": [
+    {
+      "subset": "all",
+      "method": "legacy",
+      "frames": 14,
+      "center_hits": 4551,
+      "center_pixels": 7449,
+      "near_lane_pixels": 36664,
+      "candidate_pixels": 36942,
+      "center_recall": 0.6109544905356423,
+      "tolerance_precision": 0.9924746900546804
+    },
+    {
+      "subset": "all",
+      "method": "contrast",
+      "frames": 14,
+      "center_hits": 7090,
+      "center_pixels": 7449,
+      "near_lane_pixels": 52898,
+      "candidate_pixels": 57902,
+      "center_recall": 0.9518056114914754,
+      "tolerance_precision": 0.9135781147456047
+    },
+    {
+      "subset": "all",
+      "method": "gain_2.4",
+      "frames": 14,
+      "center_hits": 3373,
+      "center_pixels": 7449,
+      "near_lane_pixels": 30773,
+      "candidate_pixels": 31051,
+      "center_recall": 0.45281245804806014,
+      "tolerance_precision": 0.9910469872145825
+    },
+    {
+      "subset": "early",
+      "method": "legacy",
+      "frames": 7,
+      "center_hits": 2989,
+      "center_pixels": 4554,
+      "near_lane_pixels": 25719,
+      "candidate_pixels": 25997,
+      "center_recall": 0.6563460693895476,
+      "tolerance_precision": 0.989306458437512
+    },
+    {
+      "subset": "early",
+      "method": "contrast",
+      "frames": 7,
+      "center_hits": 4249,
+      "center_pixels": 4554,
+      "near_lane_pixels": 33264,
+      "candidate_pixels": 36597,
+      "center_recall": 0.9330259112867808,
+      "tolerance_precision": 0.90892696122633
+    },
+    {
+      "subset": "early",
+      "method": "gain_2.4",
+      "frames": 7,
+      "center_hits": 2498,
+      "center_pixels": 4554,
+      "near_lane_pixels": 23702,
+      "candidate_pixels": 23980,
+      "center_recall": 0.5485287659200703,
+      "tolerance_precision": 0.9884070058381985
+    },
+    {
+      "subset": "later",
+      "method": "legacy",
+      "frames": 7,
+      "center_hits": 1562,
+      "center_pixels": 2895,
+      "near_lane_pixels": 10945,
+      "candidate_pixels": 10945,
+      "center_recall": 0.5395509499136442,
+      "tolerance_precision": 1.0
+    },
+    {
+      "subset": "later",
+      "method": "contrast",
+      "frames": 7,
+      "center_hits": 2841,
+      "center_pixels": 2895,
+      "near_lane_pixels": 19634,
+      "candidate_pixels": 21305,
+      "center_recall": 0.9813471502590674,
+      "tolerance_precision": 0.9215677071110068
+    },
+    {
+      "subset": "later",
+      "method": "gain_2.4",
+      "frames": 7,
+      "center_hits": 875,
+      "center_pixels": 2895,
+      "near_lane_pixels": 7071,
+      "candidate_pixels": 7071,
+      "center_recall": 0.3022452504317789,
+      "tolerance_precision": 1.0
+    },
+    {
+      "subset": "latest",
+      "method": "legacy",
+      "frames": 7,
+      "center_hits": 3173,
+      "center_pixels": 3700,
+      "near_lane_pixels": 27725,
+      "candidate_pixels": 28003,
+      "center_recall": 0.8575675675675676,
+      "tolerance_precision": 0.990072492232975
+    },
+    {
+      "subset": "latest",
+      "method": "contrast",
+      "frames": 7,
+      "center_hits": 3532,
+      "center_pixels": 3700,
+      "near_lane_pixels": 28661,
+      "candidate_pixels": 32320,
+      "center_recall": 0.9545945945945946,
+      "tolerance_precision": 0.8867883663366337
+    },
+    {
+      "subset": "latest",
+      "method": "gain_2.4",
+      "frames": 7,
+      "center_hits": 3182,
+      "center_pixels": 3700,
+      "near_lane_pixels": 29688,
+      "candidate_pixels": 29966,
+      "center_recall": 0.86,
+      "tolerance_precision": 0.9907228191950878
+    },
+    {
+      "subset": "older",
+      "method": "legacy",
+      "frames": 7,
+      "center_hits": 1378,
+      "center_pixels": 3749,
+      "near_lane_pixels": 8939,
+      "candidate_pixels": 8939,
+      "center_recall": 0.36756468391571084,
+      "tolerance_precision": 1.0
+    },
+    {
+      "subset": "older",
+      "method": "contrast",
+      "frames": 7,
+      "center_hits": 3558,
+      "center_pixels": 3749,
+      "near_lane_pixels": 24237,
+      "candidate_pixels": 25582,
+      "center_recall": 0.9490530808215524,
+      "tolerance_precision": 0.9474239699788914
+    },
+    {
+      "subset": "older",
+      "method": "gain_2.4",
+      "frames": 7,
+      "center_hits": 191,
+      "center_pixels": 3749,
+      "near_lane_pixels": 1085,
+      "candidate_pixels": 1085,
+      "center_recall": 0.05094691917844758,
+      "tolerance_precision": 1.0
+    }
+  ],
+  "stress_frames": [
+    {
+      "key": "camera_commands3_402",
+      "note": "Severe motion blur, shoe/non-ground area, and only a partial blurred curve. Excluded rather than guessing the center to 4 px."
+    },
+    {
+      "key": "camera_commands3_1207",
+      "note": "Large walking legs obscure both boundaries; residual fragments do not support a complete reliable precision region. Excluded."
+    },
+    {
+      "key": "WIN_20260919_18_11_50_Pro_flip_41",
+      "note": "Motion smear creates broad/double contours and makes upper lane identity and center location uncertain. Excluded to avoid imposing guessed centers."
+    }
+  ],
+  "replay_summary": [
+    {
+      "video": "camera_commands3.avi",
+      "mode": "legacy",
+      "decoded_frames": 1342,
+      "unique_decoded_frames": 843,
+      "fps": 10.0,
+      "empty_mask_frames": 122,
+      "measurement_valid_frames": 926,
+      "heading_valid_frames": 780,
+      "process_ms_median": 42.96995099957712,
+      "process_ms_p95": 53.42609300000732
+    },
+    {
+      "video": "camera_commands3.avi",
+      "mode": "contrast",
+      "decoded_frames": 1342,
+      "unique_decoded_frames": 843,
+      "fps": 10.0,
+      "empty_mask_frames": 30,
+      "measurement_valid_frames": 950,
+      "heading_valid_frames": 860,
+      "process_ms_median": 42.11297900019417,
+      "process_ms_p95": 53.42199200053984
+    },
+    {
+      "video": "WIN_20260919_18_10_34_Pro_flip.mp4",
+      "mode": "legacy",
+      "decoded_frames": 134,
+      "unique_decoded_frames": 134,
+      "fps": 20.032,
+      "empty_mask_frames": 3,
+      "measurement_valid_frames": 131,
+      "heading_valid_frames": 130,
+      "process_ms_median": 63.19711700007247,
+      "process_ms_p95": 76.6229251499226
+    },
+    {
+      "video": "WIN_20260919_18_10_34_Pro_flip.mp4",
+      "mode": "contrast",
+      "decoded_frames": 134,
+      "unique_decoded_frames": 134,
+      "fps": 20.032,
+      "empty_mask_frames": 0,
+      "measurement_valid_frames": 132,
+      "heading_valid_frames": 131,
+      "process_ms_median": 59.863985999982106,
+      "process_ms_p95": 77.6472791998458
+    },
+    {
+      "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+      "mode": "legacy",
+      "decoded_frames": 139,
+      "unique_decoded_frames": 139,
+      "fps": 20.014,
+      "empty_mask_frames": 5,
+      "measurement_valid_frames": 122,
+      "heading_valid_frames": 107,
+      "process_ms_median": 61.19492200014065,
+      "process_ms_p95": 77.44585759937763
+    },
+    {
+      "video": "WIN_20260919_18_11_50_Pro_flip.mp4",
+      "mode": "contrast",
+      "decoded_frames": 139,
+      "unique_decoded_frames": 139,
+      "fps": 20.014,
+      "empty_mask_frames": 0,
+      "measurement_valid_frames": 121,
+      "heading_valid_frames": 109,
+      "process_ms_median": 58.98772399996233,
+      "process_ms_p95": 75.75420210023367
+    },
+    {
+      "video": "WIN_20260919_18_13_14_Pro_flip.mp4",
+      "mode": "legacy",
+      "decoded_frames": 173,
+      "unique_decoded_frames": 173,
+      "fps": 20.02,
+      "empty_mask_frames": 20,
+      "measurement_valid_frames": 153,
+      "heading_valid_frames": 115,
+      "process_ms_median": 57.39240200000495,
+      "process_ms_p95": 67.59211379994667
+    },
+    {
+      "video": "WIN_20260919_18_13_14_Pro_flip.mp4",
+      "mode": "contrast",
+      "decoded_frames": 173,
+      "unique_decoded_frames": 173,
+      "fps": 20.02,
+      "empty_mask_frames": 0,
+      "measurement_valid_frames": 162,
+      "heading_valid_frames": 125,
+      "process_ms_median": 53.69001700000808,
+      "process_ms_p95": 67.04215279987693
+    },
+    {
+      "video": "WIN_20260919_18_13_53_Pro_flip.mp4",
+      "mode": "legacy",
+      "decoded_frames": 125,
+      "unique_decoded_frames": 125,
+      "fps": 20.028,
+      "empty_mask_frames": 6,
+      "measurement_valid_frames": 114,
+      "heading_valid_frames": 100,
+      "process_ms_median": 52.9983970000103,
+      "process_ms_p95": 67.63156680008251
+    },
+    {
+      "video": "WIN_20260919_18_13_53_Pro_flip.mp4",
+      "mode": "contrast",
+      "decoded_frames": 125,
+      "unique_decoded_frames": 125,
+      "fps": 20.028,
+      "empty_mask_frames": 0,
+      "measurement_valid_frames": 121,
+      "heading_valid_frames": 113,
+      "process_ms_median": 49.71167300027446,
+      "process_ms_p95": 62.12990100011666
+    }
+  ]
+}

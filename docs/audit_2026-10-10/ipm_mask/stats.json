@@ -1,0 +1,14 @@
+{
+  "preprocess_gray_mean": 147.55954560349537,
+  "preprocess_gray_std": 22.511416484210468,
+  "preprocess_valid_pixels": 228875,
+  "preprocess_ignored_pixels": 20325,
+  "ipm_metric_cm_per_px": 0.17027518796992483,
+  "ipm_valid_fraction": 0.9184390048154093,
+  "preprocess_foreground_pixels": 7483,
+  "bird_width": 623,
+  "bird_height": 400,
+  "pixels": 249200,
+  "old_pixels": 128000,
+  "ratio": 1.946875
+}

@@ -1,0 +1,97 @@
+{
+  "schema": 1,
+  "model_sha256": "4fd6f48eabd06057397bdcd59486c34a3dd96cacd87da540ef77df6e14d96682",
+  "engine": {
+    "schema": 1,
+    "model_sha256": "4fd6f48eabd06057397bdcd59486c34a3dd96cacd87da540ef77df6e14d96682",
+    "engine_sha256": "d0a0b17ad501c52192c4ff8666f07286fe95607609b4ad06ef2e32f7856a8b23",
+    "tensorrt": "10.16.2.10",
+    "device": {
+      "uuid": "97b5640e761657ff884dcbfb547b0616",
+      "compute_capability": [
+        8,
+        7
+      ],
+      "cuda_runtime": 13020
+    },
+    "obs_dim": 49,
+    "precision": "float32_no_tf32",
+    "build_seconds": 5.800599789999978
+  },
+  "obs_dim": 49,
+  "observation_rows": 256,
+  "warmup": 100,
+  "repeats": 3,
+  "samples": 768,
+  "atol": 1e-05,
+  "rtol": 1e-05,
+  "mismatch_samples": 0,
+  "max_action_abs_error": 1.430511474609375e-06,
+  "max_target_abs_error_rad": 3.5762786865234375e-07,
+  "support_foot": "right",
+  "timing_ms": {
+    "cpu_ms": {
+      "p50": 0.1059585,
+      "p95": 0.1166128,
+      "max": 0.153578
+    },
+    "gpu_ms": {
+      "p50": 0.247583,
+      "p95": 1.1433206,
+      "max": 1.23134
+    },
+    "total_ms": {
+      "p50": 0.210045,
+      "p95": 1.1043576,
+      "max": 1.198027
+    },
+    "host_sync_ms": {
+      "p50": 0.0244975,
+      "p95": 0.9039503999999999,
+      "max": 1.008095
+    },
+    "h2d_ms": {
+      "p50": 0.027648000046610832,
+      "p95": 0.030729599948972463,
+      "max": 0.06764800101518631
+    },
+    "compute_ms": {
+      "p50": 0.10792000219225883,
+      "p95": 0.11299200356006622,
+      "max": 0.17686399817466736
+    },
+    "d2h_ms": {
+      "p50": 0.011807999573647976,
+      "p95": 0.03016320057213306,
+      "max": 0.06070400029420853
+    },
+    "profiled_total_ms": {
+      "p50": 0.22652650000000002,
+      "p95": 0.26077505,
+      "max": 0.290898
+    }
+  },
+  "environment": {
+    "python": "3.12.3",
+    "numpy": "1.26.4",
+    "onnxruntime": "1.27.0",
+    "platform": "Linux-6.8.12-1021-tegra-aarch64-with-glibc2.39"
+  },
+  "timing_notes": "cpu_ms/gpu_ms/total_ms/host_sync_ms are unprofiled warm host timings. H2D/compute/D2H CUDA events come from a separate replay of the same observation (profiled_total_ms); host_sync overlaps GPU work and must not be added to stage intervals. gpu_ms includes validation and returning a synchronized host copy. Recorded observations replay independently; no closed-loop or motor validation.",
+  "observation_source": {
+    "kind": "synthetic_smoke",
+    "seed": 20261010,
+    "rows": 256,
+    "limits": "Numerical execution/performance smoke only; does not establish real-robot error, closed-loop behavior, training equivalence or coverage of the training distribution.",
+    "generator": "synthetic_smoke_observations_v1",
+    "ranges": "scaled accel~[-.3,.3], z=-.981+noise; gyro[-.5,.5]; unit gravity tilted<=.3; vx 0/.1/.2,wz0/+/-.25,step0/.02/.05/.12,crossing0 OR lift0/1; qrel[-.25,.25],qd[-2,2],last_action[-1,1]; first two rows zero/standing probes"
+  },
+  "observation_float32_sha256": "5a8f6a8ead2f809ac81eb970115fc52fe097aec212d1f499a493677464ad924a",
+  "source_sha256": {
+    "benchmark_policy_backends.py": "fbee83a3590b3e23d6903ff8798299b70fdec44671a9ae4134bf5efb004748ee",
+    "tensorrt_backend.py": "92f70e9288f780106612f63b9cd4f20258018d8e3cf65cfa48bd881c4aa4436f",
+    "policy_runner.py": "ef532ea83a6f38395be00dc9b009b27093caee8654f5e18a4b3d7d9b2d028e3e",
+    "one_foot_policy.py": "bd61918ad4420b0198be4ac6c3e61a163c1dc19db29da44e427c084bb73a8ea5",
+    "config.py": "305598d365e089609f5a88a4eccf09c471351f2c610b49816c93c3bde83f32de"
+  }
+}

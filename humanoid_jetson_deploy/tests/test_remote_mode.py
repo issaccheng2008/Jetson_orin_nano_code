@@ -1,5 +1,6 @@
 import contextlib
 import io
+import itertools
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -46,6 +47,8 @@ class RemoteModeTests(unittest.TestCase):
             patch.object(main, "HumanoidPolicy") as policy_cls,
             patch.object(main, "SerialLink") as link_cls,
             patch.object(main, "UdpCommandSource") as source_cls,
+            patch.object(main, "ShapeActionController", side_effect=AssertionError("remote must not run card actions")),
+            patch.object(main, "AttitudeBroadcaster", side_effect=AssertionError("remote must not broadcast on its command port")),
             patch.object(main, "PositionCsvLogger"),
             patch.object(main.time, "monotonic", side_effect=[0, 10, 10, 10, 11]),
             contextlib.redirect_stdout(io.StringIO()),
@@ -60,6 +63,40 @@ class RemoteModeTests(unittest.TestCase):
             source_cls.assert_called_once_with(5007, timeout_s=.25, bind="127.0.0.1")
             np.testing.assert_allclose(policy.step.call_args.kwargs["velocity_command"], [.2, 0, -.3])
             source_cls.return_value.close.assert_called_once()
+
+    def test_stop_preempts_minimum_walking_hold(self):
+        state = SimpleNamespace(
+            status_flags=STATE_ENCODERS_VALID | STATE_IMU_VALID,
+            accel_m_s2=np.array([0, 0, 9.81], dtype=np.float32),
+            gyro_rad_s=np.zeros(3, dtype=np.float32),
+            orientation_wxyz=np.array([1, 0, 0, 0], dtype=np.float32),
+            joint_position=config.Q_DEFAULT.copy(), joint_velocity=np.zeros(12), sequence=1)
+        with (
+            patch.object(main, "parse_args", return_value=self.args("--command-min-hold-s", "0.5")),
+            patch.object(main.signal, "signal"),
+            patch.object(main, "HumanoidPolicy") as policy_cls,
+            patch.object(main, "SerialLink") as link_cls,
+            patch.object(main, "UdpCommandSource") as source_cls,
+            patch.object(main, "PositionCsvLogger"),
+            patch.object(main.time, "monotonic", side_effect=itertools.chain([0.], itertools.repeat(10.))),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            source_cls.return_value.get.side_effect = [np.array([.2, 0, -.3]), np.zeros(3)]
+            policy = policy_cls.return_value
+            policy.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.)
+            link = link_cls.return_value
+            link.wait_for_state.return_value = state
+            link.get_latest_state.side_effect = [state, state, RuntimeError("end test")]
+            self.assertEqual(main.main(), 1)
+            self.assertEqual(policy.step.call_count, 2)
+            np.testing.assert_allclose(policy.step.call_args_list[0].kwargs["velocity_command"], [.2, 0, -.3])
+            np.testing.assert_allclose(policy.step.call_args_list[1].kwargs["velocity_command"], [0, 0, 0])
+
+    def test_remote_rejects_fixed_frames_before_loading_file(self):
+        with patch("sys.argv", ["main.py", "--fixed-policy", "unused.json", "--command-source", "remote"]):
+            args = main.parse_args()
+        with patch.object(main, "parse_args", return_value=args), self.assertRaises(SystemExit):
+            main.main()
 
 
 if __name__ == "__main__":

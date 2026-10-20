@@ -1,0 +1,48 @@
+{
+  "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands.avi",
+  "source_size": [
+    960,
+    468
+  ],
+  "source_fps": 10.0,
+  "crop": [
+    0,
+    0,
+    480,
+    358
+  ],
+  "current_bird_grid": [
+    705,
+    466
+  ],
+  "frames": 541,
+  "modes": {
+    "BOTH": 311,
+    "RIGHT_ONLY": 9,
+    "LOST": 216,
+    "LEFT_ONLY": 5
+  },
+  "rollback_modes": {
+    "BOTH": 322,
+    "LOST": 219
+  },
+  "single_valid_while_rollback_invalid": 5,
+  "new_invalid_while_rollback_valid": 2,
+  "accepted_single_frame_indices": [
+    97,
+    98,
+    99,
+    106,
+    292,
+    390,
+    393,
+    394,
+    399,
+    418,
+    468,
+    469,
+    470,
+    471
+  ],
+  "limits": "Older compressed and annotated birdseye; resized, never reprojected. Current metric positions are illustrative, not ground truth."
+}

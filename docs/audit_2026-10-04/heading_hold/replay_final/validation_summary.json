@@ -1,0 +1,29 @@
+{
+  "frames": 571,
+  "normal_completed_segments": 14,
+  "normal_short_changes": 0,
+  "safety_interrupted_new_segments": 9,
+  "new_full_stop_frames": 48,
+  "old_full_stop_frames": 3,
+  "braked_frames": 11,
+  "brake_amplitude_increases": [],
+  "stale_motion": [],
+  "heading_sign_subsets": {
+    "0": {
+      "n": 435,
+      "opposite": 30
+    },
+    "1": {
+      "n": 407,
+      "opposite": 15
+    },
+    "3": {
+      "n": 365,
+      "opposite": 1
+    },
+    "5": {
+      "n": 336,
+      "opposite": 0
+    }
+  }
+}

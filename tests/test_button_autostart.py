@@ -1,0 +1,431 @@
+"""Hardware-free checks of generated service paths and wrapper working directory."""
+import os
+from pathlib import Path, PurePosixPath
+import shutil
+import shlex
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+
+REPO = Path(__file__).resolve().parents[1]
+BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name != 'nt' else None)
+
+
+@unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
+class ButtonAutostartTests(unittest.TestCase):
+    def test_log_line_reaches_parser_and_missing_setting_keeps_legacy_behavior(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            template = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                 if not line.startswith('LOG=')) + '\n'
+            for setting, expected in (('LOG="vision control video"\nRECORD_VIDEO=0\n', ('vision', 'control', 'video')),
+                                      ('LOG=none\n', ()), ('RECORD_VIDEO=0\n', None)):
+                (checkout / 'config/button_start.env').write_text(template + setting)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    args = run_policy_vision.parse_args()
+                if expected is None:
+                    self.assertNotIn('--log-items', command)
+                    self.assertFalse(args.record_video)
+                else:
+                    self.assertEqual(args.log_items, expected)
+                    self.assertEqual(args.record_video, 'video' in expected)
+
+    def test_success_cooldown_uses_its_own_config_instead_of_distance(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('STOP_COOL_DOWN=', 'CARD_TRIGGER_DIST_CM=')))
+            original += '\nCARD_TRIGGER_DIST_CM=17\n'
+            for setting, expected in (('', 5.), ('STOP_COOL_DOWN=0.8\n', .8)):
+                (checkout / 'config/button_start.env').write_text(original + setting)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                   '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    args = run_policy_vision.parse_args()
+                self.assertEqual(args.stop_cool_down, expected)
+                self.assertEqual(args.card_trigger_dist_cm, 17.)
+
+    def test_card_failure_cooldown_defaults_and_configuration_reach_parser(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('CARD_FAILURE_COOLDOWN_S=')) + '\n'
+            for setting, expected in (('', .5), ('CARD_FAILURE_COOLDOWN_S=0.8\n', .8)):
+                (checkout / 'config/button_start.env').write_text(original + setting)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                   '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    self.assertEqual(run_policy_vision.parse_args().card_failure_cooldown_s,
+                                     expected)
+
+    def test_secondary_camera_is_disabled_even_with_old_config_and_can_be_restored(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('CARD_CAMERA_ENABLED=')) + '\n'
+            for extra, enabled in (('', False), ('CARD_CAMERA_ENABLED=1\n', True)):
+                (checkout / 'config/button_start.env').write_text(original +
+                    '\nCARD_CAMERA=1\nCARD_CAMERA_DEVICE=/dev/robot_card_camera\n' + extra)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                   '--dry-run', cwd=checkout))
+                self.assertEqual(command[command.index('--card-camera') + 1], '1' if enabled else '-1')
+                self.assertEqual('--card-camera-device' in command, enabled)
+                self.assertTrue(command[command.index('--recording-root') + 1].endswith('/records/hz_finalltest'))
+
+    def test_array_and_near_distance_config_reaches_real_parser(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = (REPO / 'config/button_start.env.example').read_text()
+            (checkout / 'config/button_start.env').write_text(original + "\nWZ_MODE=segments\n"
+                "HEADING_REGIONS_CM=''\nHEADING_NEAR_CM=27\nHEADING_FAR_CM=34\n"
+                "STEERING_ANGLE_WZ_TABLE='[[-90,-10,-0.2],[-10,10,0],[10,90,0.3]]'\n"
+                "SEGMENT_REGIONS_CM='[[20,32],[32,44]]'\n")
+            command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+            with patch.dict(os.environ, {}, clear=True), patch('sys.argv', command[2:]):
+                args = run_policy_vision.parse_args()
+            self.assertEqual(args.heading_near_cm, 27)
+            self.assertEqual(args.heading_far_cm, 34)
+            self.assertEqual(args.steering_angle_wz_table[2], (10, 90, .3))
+            self.assertEqual(len(args.segment_regions_cm), 2)
+            (checkout / 'config/button_start.env').write_text(original + "\nWZ_MODE=heading\n"
+                "HEADING_REGIONS_CM='[[24,26],[28,30]]'\n"
+                "STEERING_ANGLE_WZ_TABLE='[[-90,-10,-0.2],[-10,10,-0.1],[10,90,0.3]]'\n")
+            command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+            with patch.dict(os.environ, {}, clear=True), patch('sys.argv', command[2:]):
+                args = run_policy_vision.parse_args()
+            self.assertEqual(args.heading_regions_cm, ((24,26),(28,30)))
+            self.assertEqual(args.steering_angle_wz_table[1][2], -.1)
+
+    def test_straight_guard_parameters_reach_real_parser(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout=Path(temporary)/'robot'
+            shutil.copytree(REPO/'scripts',checkout/'scripts')
+            shutil.copytree(REPO/'config',checkout/'config',ignore=shutil.ignore_patterns('button_start.env'))
+            original=(REPO/'config/button_start.env.example').read_text()
+            (checkout/'config/button_start.env').write_text(original+'\nSTRAIGHT_ROAD_GUARD=0\n'
+                'STRAIGHT_NEAR_CM=12\nSTRAIGHT_FAR_CM=42\nSTRAIGHT_CONFIRM_S=1.5\n'
+                'STRAIGHT_EXIT_S=0.8\nSTRAIGHT_HOLD_S=4\n')
+            command=shlex.split(self.run_bash('scripts/run_button_vision.sh','--dry-run',cwd=checkout))
+            with patch('sys.argv',command[2:]):args=run_policy_vision.parse_args()
+            self.assertFalse(args.straight_road_guard)
+            self.assertEqual((args.straight_near_cm,args.straight_far_cm,args.straight_confirm_s,
+                              args.straight_exit_s,args.straight_hold_s),(12,42,1.5,.8,4))
+
+    def test_median_window_and_loss_fallback_config_reach_real_parser(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('STEERING_COMMAND_', 'STEERING_LOSS_FALLBACK_WZ='))) + '\n'
+            for extra, expected in [('', (.5, 'lower', .3)),
+                    ('STEERING_COMMAND_WINDOW_S=0.7\nSTEERING_COMMAND_MEDIAN=upper\nSTEERING_LOSS_FALLBACK_WZ=-0.25\n',
+                     (.7, 'upper', -.25))]:
+                (checkout / 'config/button_start.env').write_text(original + extra)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    args = run_policy_vision.parse_args()
+                self.assertEqual((args.steering_command_window_s, args.steering_command_median,
+                                  args.steering_loss_fallback_wz), expected)
+
+    def test_heading_far_distance_default_and_configured_value_reach_cli(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('HEADING_FAR_CM=', 'HEADING_REGIONS_CM='))) + '\n'
+            for setting, expected in (('', 29), ('HEADING_FAR_CM=30\n', 30)):
+                (checkout / 'config/button_start.env').write_text(original + setting)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                   '--dry-run', cwd=checkout))
+                with patch.dict(os.environ, {}, clear=True), patch('sys.argv', command[2:]):
+                    self.assertEqual(run_policy_vision.parse_args().heading_far_cm, expected)
+
+    def test_position_blend_weight_defaults_and_override_reach_cli(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('STEERING_POSITION_BLEND_WEIGHT=')) + '\n'
+            for override, expected in (('', '0.3'), ('STEERING_POSITION_BLEND_WEIGHT=0.8\n', '0.8')):
+                (checkout / 'config/button_start.env').write_text(original + override)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertEqual(command[command.index('--steering-position-blend-weight')+1], expected)
+                self.assertEqual(command[command.index('--steering-command-window-s')+1], '0.5')
+
+    def test_position_defaults_and_all_configured_values_reach_cli(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('POSITION_')) + '\n'
+            defaults = dict(POSITION_GAIN='1', POSITION_DEAD_CM='2', POSITION_LOOKAHEAD_CM='50', POSITION_MAX_DEG='12', POSITION_RECOVERY_CM='8',
+                POSITION_RECOVERY_FULL_SCALE_CM='12', POSITION_CONFIRM_FRAMES='2')
+            configured = dict(POSITION_GAIN='2', POSITION_DEAD_CM='1', POSITION_LOOKAHEAD_CM='40', POSITION_MAX_DEG='8', POSITION_RECOVERY_CM='6',
+                POSITION_RECOVERY_FULL_SCALE_CM='3', POSITION_CONFIRM_FRAMES='3')
+            for overrides in ({}, configured):
+                (checkout / 'config/button_start.env').write_text(original +
+                    ''.join(f'{key}={value}\n' for key, value in overrides.items()))
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                for setting, value in (overrides or defaults).items():
+                    flag = '--' + setting.lower().replace('_', '-')
+                    self.assertEqual(args[args.index(flag)+1], value)
+
+    def test_complete_button_command_is_accepted_by_vision_entrypoint(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            original = (REPO / 'config/button_start.env.example').read_text()
+            for extra in ('', 'WZ_MODE=segments\nCAMERA_EXPOSURE_MODE=manual\nCAMERA_EXPOSURE_MS=5\n',
+                          'POSITION_GAIN=2\nSHAPE_CUE_SCORE_MIN=2\n', 'LINE_PREPROCESS=legacy\n'):
+                with self.subTest(config=extra):
+                    (checkout / 'config/button_start.env').write_text(original + '\n' + extra)
+                    command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                       '--dry-run', cwd=checkout))
+                    with patch('sys.argv', command[2:]):
+                        args = run_policy_vision.parse_args()
+                    self.assertEqual(args.wz_mode, 'segments' if extra.startswith('WZ_MODE') else 'heading')
+                    self.assertEqual(args.camera_exposure_mode, 'manual' if extra.startswith('WZ_MODE') else 'keep')
+                    self.assertEqual(args.line_preprocess, 'legacy')
+
+    def test_camera_controls_defaults_and_configured_values(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('CAMERA_EXPOSURE_', 'CAMERA_BRIGHTNESS=', 'CAMERA_CONTRAST=',
+                    'CAMERA_SATURATION=', 'CAMERA_SHARPNESS=', 'CAMERA_WHITE_BALANCE_', 'CAMERA_POWER_LINE_'))) + '\n'
+            for extra in ('', 'CAMERA_EXPOSURE_MODE=manual\nCAMERA_EXPOSURE_MS=5\nCAMERA_BRIGHTNESS=-2\n'
+                           'CAMERA_SHARPNESS=3\nCAMERA_WHITE_BALANCE_MODE=manual\nCAMERA_WHITE_BALANCE_K=4600\nCAMERA_POWER_LINE_HZ=50\n'):
+                (checkout / 'config/button_start.env').write_text(original+extra)
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertEqual(args[args.index('--camera-exposure-mode')+1], 'manual' if extra else 'keep')
+                if extra:
+                    for flag,value in (('--camera-exposure-ms','5'),('--camera-brightness','-2'),
+                        ('--camera-sharpness','3'),('--camera-white-balance-k','4600'),('--camera-power-line-hz','50')):
+                        self.assertEqual(args[args.index(flag)+1],value)
+                else:
+                    self.assertNotIn('--camera-exposure-ms',args)
+                    self.assertNotIn('--camera-brightness',args)
+                    self.assertNotIn('--camera-white-balance-k',args)
+
+    def test_first_card_walk_time_defaults_and_configuration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('STARTUP_FIRST_WALK_S=')) + '\n'
+            for value in (None, '0.3', '1.0'):
+                (checkout / 'config/button_start.env').write_text(original+(f'STARTUP_FIRST_WALK_S={value}\n' if value else ''))
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertEqual(args[args.index('--startup-first-walk-s')+1], value or '0.5')
+            sequence = '[{"duration_s":0.5,"vx":0.2,"wz":0},{"duration_s":0.5,"vx":0.2,"wz":-0.5}]'
+            (checkout / 'config/button_start.env').write_text(original+f"STARTUP_SEQUENCE='{sequence}'\n")
+            args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+            self.assertEqual(args[args.index('--startup-sequence')+1], sequence)
+
+    def test_video_source_defaults_old_configs_to_bird_pair_and_can_restore(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in
+                (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith('VIDEO_SOURCE=')) + '\n'
+            for extra, expected in [('', 'bird_pair'), ('VIDEO_SOURCE=binary\n', 'binary'), ('VIDEO_SOURCE=camera\n', 'camera')]:
+                (checkout / 'config/button_start.env').write_text(original + extra)
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    self.assertEqual(run_policy_vision.parse_args().video_source, expected)
+
+    def test_video_defaults_old_config_and_passes_disable_and_size(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                if not line.startswith(('RECORD_VIDEO=', 'VIDEO_'))) + '\n'
+            for extra, flag, fps, width in (('', '--record-video', '10', '960'),
+                    ('RECORD_VIDEO=0\nVIDEO_FPS=5\nVIDEO_WIDTH=640\n', '--no-record-video', '5', '640')):
+                (checkout / 'config/button_start.env').write_text(original+extra)
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertIn(flag, args)
+                self.assertEqual(args[args.index('--video-fps')+1], fps)
+                self.assertEqual(args[args.index('--video-width')+1], width)
+
+    def test_vision_wrapper_passes_hold_filter_and_defaults_existing_configs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config', ignore=shutil.ignore_patterns('button_start.env'))
+            original = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                 if not line.startswith(('COMMAND_MIN_HOLD_S=', 'STEERING_'))) + '\n'
+            for extra, expected in (('', ('0', 'legacy')), ('COMMAND_MIN_HOLD_S=0.23\nSTEERING_FILTER_MODE=active\nSTEERING_FILTER_ALGORITHM=ema\nSTEERING_FILTER_MIN_HZ=1\nSTEERING_FILTER_ROBUST_TAU_S=0.7\nSTEERING_LOSS_MAX_S=0.6\nSTEERING_SEGMENT_FALLBACK=0\n', ('0.23','active'))):
+                (checkout / 'config/button_start.env').write_text(original+extra)
+                args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                self.assertEqual(args[args.index('--command-min-hold-s')+1], expected[0])
+                self.assertEqual(args[args.index('--steering-filter-mode')+1], expected[1])
+                if extra:
+                    self.assertEqual(args[args.index('--steering-filter-algorithm')+1], 'ema')
+                    self.assertEqual(args[args.index('--steering-filter-min-hz')+1], '1')
+                    self.assertEqual(args[args.index('--steering-filter-robust-tau-s')+1], '0.7')
+                    self.assertEqual(args[args.index('--steering-loss-max-s')+1], '0.6')
+                    self.assertIn('--no-steering-segment-fallback',args)
+
+    def run_bash(self, *args, cwd):
+        return subprocess.run([BASH, *args], cwd=cwd, text=True,
+                              capture_output=True, check=True).stdout
+
+    def test_connector_wrapper_passes_bias_and_defaults_old_config_to_zero(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot with spaces'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            old_config = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                   if not line.startswith('WZ_BIAS=')) + '\n'
+            for bias in (None, '0.1', '-0.1'):
+                with self.subTest(bias=bias):
+                    (checkout / 'config/button_start.env').write_text(
+                        old_config + (f'WZ_BIAS={bias}\n' if bias else ''))
+                    args = shlex.split(self.run_bash('scripts/run_button_connector.sh', '--dry-run', cwd=checkout))
+                    self.assertIn('--wz-bias', args)
+                    self.assertEqual(args[args.index('--wz-bias') + 1], bias or '0')
+                    self.assertEqual(args[args.index('--max-wz-accel') + 1], '0')
+
+    def test_rendered_service_working_directory_is_absolute(self):
+        # systemd parses WorkingDirectory as a whole path, without shell unquoting.
+        for name in ('robot', 'robot with spaces'):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                checkout = Path(temporary) / name
+                shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+                shutil.copytree(REPO / 'config', checkout / 'config',
+                                ignore=shutil.ignore_patterns('button_start.env'))
+                rendered = self.run_bash('scripts/install_button_autostart.sh', '--dry-run', cwd=checkout)
+                for line in rendered.splitlines():
+                    if line.startswith('WorkingDirectory='):
+                        value = line.split('=', 1)[1]
+                        self.assertTrue(PurePosixPath(value).is_absolute(), value)
+                self.assertEqual(rendered.count('ExecStart=/bin/bash '), 2)
+                self.assertIn('After=network.target time-set.target humanoid-button-connector.service', rendered)
+                self.assertIn('Wants=time-set.target', rendered)
+                self.assertFalse((checkout / 'config/button_start.env').exists())
+
+    def test_both_wrappers_set_repository_directory_before_exec(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot with spaces'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            # This stand-in interpreter imports nothing and opens no hardware.
+            fake_python = checkout / 'fake_python.sh'
+            fake_python.write_text('#!/usr/bin/env bash\n'
+                                   'if [[ "$1" != -c ]]; then printf "CWD=%s\\n" "$PWD"; fi\n')
+            fake_python.chmod(0o755)
+            config = checkout / 'config/button_start.env'
+            config.write_text('source "$BUTTON_REPO_DIR/config/button_start.env.example"\n'
+                              'VISION_PYTHON="$BUTTON_REPO_DIR/fake_python.sh"\n'
+                              'POLICY_PYTHON="$VISION_PYTHON"\n')
+            for relative in ('connector.py', 'new_vision/jetson/run_policy_vision.py',
+                             'humanoid_jetson_deploy/main.py',
+                             'humanoid_jetson_deploy/policy_49_max.onnx',
+                             'humanoid_jetson_deploy/policy-one-foot-standing_old.onnx'):
+                file = checkout / relative
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.touch()
+            expected = self.run_bash('-c', 'pwd -P', cwd=checkout).strip()
+            for wrapper in ('connector', 'vision'):
+                output = self.run_bash(f'{checkout.as_posix()}/scripts/run_button_{wrapper}.sh', cwd=REPO)
+                self.assertEqual(output.strip(), f'CWD={expected}')
+
+    def test_vision_wrapper_passes_configured_mode_and_defaults_old_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            config = checkout / 'config/button_start.env'
+            # Copy the real template but omit the new setting to represent an
+            # existing installed file, which git pull deliberately preserves.
+            old_config = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                   if not line.startswith('WZ_MODE=')) + '\n'
+            for mode in (None, 'heading', 'segments', 'segment'):
+                with self.subTest(mode=mode):
+                    config.write_text(old_config + (f'WZ_MODE={mode}\n' if mode else ''))
+                    result = subprocess.run([BASH, 'scripts/run_button_vision.sh', '--dry-run'],
+                                            cwd=checkout, text=True, capture_output=True)
+                    if mode == 'segment':
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn('WZ_MODE', result.stderr)
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        args = shlex.split(result.stdout)
+                        self.assertEqual(args[args.index('--wz-mode') + 1], mode or 'heading')
+
+    def test_vision_wrapper_exposes_loss_hold_without_changing_old_default(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            old_config = '\n'.join(line for line in (REPO / 'config/button_start.env.example').read_text().splitlines()
+                                   if not line.startswith('LOST_HOLD_S=')) + '\n'
+            for hold in (None, '0.5'):
+                with self.subTest(hold=hold):
+                    (checkout / 'config/button_start.env').write_text(
+                        old_config + (f'LOST_HOLD_S={hold}\n' if hold else ''))
+                    args = shlex.split(self.run_bash('scripts/run_button_vision.sh', '--dry-run', cwd=checkout))
+                    self.assertIn('--lost-hold-s', args)
+                    self.assertEqual(args[args.index('--lost-hold-s') + 1], hold or '0.2')
+
+
+if __name__ == '__main__':
+    unittest.main()

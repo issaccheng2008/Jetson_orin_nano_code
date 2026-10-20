@@ -1,0 +1,10 @@
+{
+  "source": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/三1.jpg",
+  "input_resize": [
+    1280,
+    720
+  ],
+  "before_commit": "f24f52b",
+  "after_commit": "6ee7493",
+  "note": "Same pixel scale; old missing rows filled dark gray for alignment."
+}

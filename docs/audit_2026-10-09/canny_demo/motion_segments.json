@@ -1,0 +1,312 @@
+{
+  "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi",
+  "fps": 10,
+  "n_frames": 1342,
+  "size": [
+    960,
+    540
+  ],
+  "time_basis": "source frame index / nominal fps, not recorded HUD timestamp",
+  "analysis_roi": [
+    0,
+    0,
+    960,
+    430
+  ],
+  "frame_end_exclusive": true,
+  "interpretation": "High motion confidence refers to observed sustained track traversal. Robot walking remains an inference from onboard bob and passage of landmarks; neither vx HUD nor frame difference proves physical gait.",
+  "segments": [
+    {
+      "start_s": 0,
+      "end_s": 19.9,
+      "start_frame": 0,
+      "end_frame": 199,
+      "role": "exclude",
+      "kind": "setup_occlusion_camera_reposition",
+      "visual_confidence": "high",
+      "evidence": "Dark/occluded first frames; large rotations, people/robot hardware visible; no reliable sustained track traversal."
+    },
+    {
+      "start_s": 19.9,
+      "end_s": 27.0,
+      "start_frame": 199,
+      "end_frame": 270,
+      "role": "exclude",
+      "kind": "idle_track_visible",
+      "visual_confidence": "high",
+      "evidence": "Triangle and both boundaries remain almost stationary; repeated source frames."
+    },
+    {
+      "start_s": 27.0,
+      "end_s": 29.2,
+      "start_frame": 270,
+      "end_frame": 292,
+      "role": "stress",
+      "kind": "camera_rotation_uncertain",
+      "visual_confidence": "medium",
+      "evidence": "View pitches/rotates; triangle changes projected position. Insufficient evidence to call walking."
+    },
+    {
+      "start_s": 29.2,
+      "end_s": 32.7,
+      "start_frame": 292,
+      "end_frame": 327,
+      "role": "exclude",
+      "kind": "idle_track_visible",
+      "visual_confidence": "high",
+      "evidence": "Triangle, boundary and background shoes remain stationary although HUD starts vx before visible travel."
+    },
+    {
+      "start_s": 32.7,
+      "end_s": 54.3,
+      "start_frame": 327,
+      "end_frame": 543,
+      "role": "main",
+      "kind": "sustained_track_travel",
+      "visual_confidence": "high",
+      "evidence": "Triangle passes below field, curve and measured track markings traverse continuously with camera bob; square approaches around51-54s."
+    },
+    {
+      "start_s": 54.3,
+      "end_s": 55.9,
+      "start_frame": 543,
+      "end_frame": 559,
+      "role": "exclude",
+      "kind": "decoded_recording_freeze",
+      "visual_confidence": "high",
+      "evidence": "Decoded frames543-558 are exactly identical including HUD; does not prove robot stopped."
+    },
+    {
+      "start_s": 55.9,
+      "end_s": 71.0,
+      "start_frame": 559,
+      "end_frame": 710,
+      "role": "main",
+      "kind": "sustained_track_travel_with_line_loss",
+      "visual_confidence": "high",
+      "evidence": "Square exits, boundaries curve and circle approaches. Retain58.4-60.4 and67-68.8s loss/reacquisition stress, not only good frames."
+    },
+    {
+      "start_s": 71.0,
+      "end_s": 74.8,
+      "start_frame": 710,
+      "end_frame": 748,
+      "role": "stress",
+      "kind": "stop_pitch_transition",
+      "visual_confidence": "medium",
+      "evidence": "Circle held at similar position while camera pitches down/up and old HUD changes STOP/TRACK; no robust translation."
+    },
+    {
+      "start_s": 74.8,
+      "end_s": 79.6,
+      "start_frame": 748,
+      "end_frame": 796,
+      "role": "exclude",
+      "kind": "idle_track_visible",
+      "visual_confidence": "high",
+      "evidence": "Boundary/background/circle remain nearly stationary until resumed motion around79.6s."
+    },
+    {
+      "start_s": 79.6,
+      "end_s": 85.8,
+      "start_frame": 796,
+      "end_frame": 858,
+      "role": "main",
+      "kind": "sustained_track_travel",
+      "visual_confidence": "high",
+      "evidence": "Circle passes downward out of view; curve and background shift continuously; retain82.6-83.8s LINE LOST."
+    },
+    {
+      "start_s": 85.8,
+      "end_s": 87.7,
+      "start_frame": 858,
+      "end_frame": 877,
+      "role": "stress",
+      "kind": "stop_pitch_transition",
+      "visual_confidence": "medium",
+      "evidence": "View swings upward toward wall as HUD stops; useful failure/transition, walking evidence limited."
+    },
+    {
+      "start_s": 87.7,
+      "end_s": 96.3,
+      "start_frame": 877,
+      "end_frame": 963,
+      "role": "exclude",
+      "kind": "idle_track_visible",
+      "visual_confidence": "high",
+      "evidence": "Wall, rack and outer boundary fixed; minor flicker and tiny shakes only."
+    },
+    {
+      "start_s": 96.3,
+      "end_s": 98.7,
+      "start_frame": 963,
+      "end_frame": 987,
+      "role": "stress",
+      "kind": "camera_reposition_restart",
+      "visual_confidence": "medium",
+      "evidence": "View pans down from wall to track; motion alone insufficient to establish walking."
+    },
+    {
+      "start_s": 98.7,
+      "end_s": 110.5,
+      "start_frame": 987,
+      "end_frame": 1105,
+      "role": "main",
+      "kind": "sustained_track_travel_with_obstacles",
+      "visual_confidence": "high",
+      "evidence": "Track ticks, cable and white obstacle move through view; human shoe near109s adds occlusion stress."
+    },
+    {
+      "start_s": 110.5,
+      "end_s": 112.5,
+      "start_frame": 1105,
+      "end_frame": 1125,
+      "role": "stress",
+      "kind": "human_occlusion_and_reacquisition",
+      "visual_confidence": "medium",
+      "evidence": "Legs/feet occlude view and view pitches toward track; retains LINE LOST transition."
+    },
+    {
+      "start_s": 112.5,
+      "end_s": 116.6,
+      "start_frame": 1125,
+      "end_frame": 1166,
+      "role": "main",
+      "kind": "sustained_track_travel_card_visible",
+      "visual_confidence": "high",
+      "evidence": "Square approaches continuously between boundaries, visible ink at113-116s; LINE LOST at115s despite visible track."
+    },
+    {
+      "start_s": 116.6,
+      "end_s": 117.8,
+      "start_frame": 1166,
+      "end_frame": 1178,
+      "role": "stress",
+      "kind": "off_track_pitch_human_occlusion",
+      "visual_confidence": "medium",
+      "evidence": "View tilts toward sideline then human legs dominate; uncertain actual gait."
+    },
+    {
+      "start_s": 117.8,
+      "end_s": 121.3,
+      "start_frame": 1178,
+      "end_frame": 1213,
+      "role": "exclude",
+      "kind": "decoded_recording_freeze",
+      "visual_confidence": "high",
+      "evidence": "Frames1178-1212 exactly identical including nonzero vx and HUD t117.76s; cannot be motion ground truth."
+    },
+    {
+      "start_s": 121.3,
+      "end_s": 125.8,
+      "start_frame": 1213,
+      "end_frame": 1258,
+      "role": "stress",
+      "kind": "human_occluded_travel_uncertain",
+      "visual_confidence": "medium",
+      "evidence": "Square moves below image while shoes occupy both sides; useful ink/occlusion example, possible robot travel but cannot exclude handling."
+    },
+    {
+      "start_s": 125.8,
+      "end_s": 134.2,
+      "start_frame": 1258,
+      "end_frame": 1342,
+      "role": "stress",
+      "kind": "human_occlusion_shake_off_track",
+      "visual_confidence": "medium",
+      "evidence": "Large shakes and panning near people and sideline; no clean sustained lane-following evidence."
+    }
+  ],
+  "recommended_continuous_renderer_windows": [
+    {
+      "start_s": 32.7,
+      "end_s": 71.0,
+      "start_frame": 327,
+      "end_frame": 710,
+      "note": "Retain existing LINE LOST; optional skip543-558 decoded freeze with labeled cut."
+    },
+    {
+      "start_s": 79.6,
+      "end_s": 87.7,
+      "start_frame": 796,
+      "end_frame": 877,
+      "note": "Retain stop/failure tail85.8-87.7, label it."
+    },
+    {
+      "start_s": 98.7,
+      "end_s": 117.8,
+      "start_frame": 987,
+      "end_frame": 1178,
+      "note": "Retain cable, obstruction, LINE LOST and off-track tails; label ambiguous intervals."
+    }
+  ],
+  "optional_stress_windows": [
+    {
+      "start_frame": 270,
+      "end_frame": 292
+    },
+    {
+      "start_frame": 710,
+      "end_frame": 748
+    },
+    {
+      "start_frame": 963,
+      "end_frame": 987
+    },
+    {
+      "start_frame": 1213,
+      "end_frame": 1342
+    }
+  ],
+  "card_examples": [
+    {
+      "frame": 1130,
+      "source_s": 113,
+      "observed_shape": "square-like nested rectangular outlines",
+      "roi_xywh": [
+        400,
+        145,
+        135,
+        95
+      ],
+      "quality": "clear ink, small and slightly tilted, human shoe near top"
+    },
+    {
+      "frame": 1150,
+      "source_s": 115,
+      "observed_shape": "square-like nested rectangular outlines",
+      "roi_xywh": [
+        365,
+        180,
+        150,
+        125
+      ],
+      "quality": "best late clear complete card, both lane boundaries visible; HUD LINE LOST"
+    },
+    {
+      "frame": 1220,
+      "source_s": 122,
+      "observed_shape": "square-like nested rectangular outlines",
+      "roi_xywh": [
+        410,
+        225,
+        175,
+        125
+      ],
+      "quality": "larger card under shadow with feet nearby"
+    },
+    {
+      "frame": 1230,
+      "source_s": 123,
+      "observed_shape": "square-like nested rectangular outlines",
+      "roi_xywh": [
+        365,
+        275,
+        150,
+        120
+      ],
+      "quality": "larger complete outline, stronger tilt and human occlusion adjacent"
+    }
+  ],
+  "ground_truth_limit": "Video visibly contains triangle-like, circle-like and square-like cards. It does not establish all six card classes or annotated success rates."
+}
