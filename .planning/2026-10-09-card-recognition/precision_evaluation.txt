@@ -1,0 +1,12 @@
+photos31 1.0
+photos31 0.6
+photos31 0.4
+WIN11 1.0
+WIN11 1.0 11 {'old': {'correct': 2, 'wrong': 4, 'no_shape': 5}, 'new': {'correct': 6, 'wrong': 0, 'no_shape': 5}, 'combined': {'correct': 6, 'wrong': 0, 'no_shape': 5}}
+disagree [('WIN_20260922_20_32_48_Pro.jpg', 'pentagon', 'triangle', 'separate_outline_hole'), ('WIN_20260922_20_33_20_Pro.jpg', 'diamond', 'triangle', 'enclosed_symbol'), ('WIN_20260922_20_33_21_Pro.jpg', 'diamond', 'triangle', 'enclosed_symbol'), ('WIN_20260922_20_33_43_Pro.jpg', 'circle', 'triangle', 'enclosed_symbol')]
+photos31 0.4 31 {'old': {'correct': 26, 'wrong': 1, 'no_shape': 4}, 'new': {'correct': 25, 'wrong': 0, 'no_shape': 6}, 'combined': {'correct': 27, 'wrong': 0, 'no_shape': 4}}
+disagree [('三1.jpg', 'cross', 'triangle', 'separate_outline_hole'), ('十2.jpg', 'cross', None, 'no_separated_symbol'), ('正6.jpg', 'square', None, 'no_separated_symbol')]
+photos31 0.6 31 {'old': {'correct': 26, 'wrong': 2, 'no_shape': 3}, 'new': {'correct': 25, 'wrong': 0, 'no_shape': 6}, 'combined': {'correct': 28, 'wrong': 0, 'no_shape': 3}}
+disagree [('三1.jpg', 'cross', 'triangle', 'separate_outline_hole'), ('十2.jpg', 'cross', None, 'no_separated_symbol'), ('正2.jpg', 'square', None, 'no_separated_symbol'), ('正3.jpg', 'cross', 'square', 'separate_outline_hole'), ('正6.jpg', 'square', None, 'no_separated_symbol')]
+photos31 1.0 31 {'old': {'correct': 27, 'wrong': 0, 'no_shape': 4}, 'new': {'correct': 25, 'wrong': 0, 'no_shape': 6}, 'combined': {'correct': 28, 'wrong': 0, 'no_shape': 3}}
+disagree [('十2.jpg', 'cross', None, 'no_separated_symbol'), ('正2.jpg', None, 'square', 'separate_outline_hole'), ('正3.jpg', 'square', None, 'no_separated_symbol'), ('正6.jpg', 'square', None, 'no_separated_symbol')]
