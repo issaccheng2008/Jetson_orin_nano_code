@@ -1,0 +1,17 @@
+sequence,truth,calls,unique_scene_calls,exact_duplicate_scene_calls,moving_scene_calls,eligible_calls,presence_calls,matched_presence_calls,matched_precise_calls,correct_calls,wrong_calls,negative_presence_calls,negative_cue_gate_calls,first_match_frame,first_cue_match_frame,cue_to_presence_saved_seconds,onset_to_presence_saved_seconds
+new_triangle,triangle,3,3,0,2,3,2,2,1,1,0,0,0,330,,,0.3
+new_square_approach,square,11,11,0,10,3,1,1,0,0,0,0,0,540,,,3.0
+new_circle_approach,circle,7,6,1,5,6,4,4,0,0,0,0,0,697,,,0.9
+new_circle_restart,circle,4,4,0,3,4,0,0,0,0,0,0,0,,,,
+new_square_clear,square,12,11,1,10,7,7,7,4,4,0,0,0,1140,,,1.5
+new_empty_reflection,negative,31,31,0,30,0,0,0,0,0,0,0,0,,,,
+new_empty_floor,negative,44,44,0,23,0,0,0,0,0,0,0,0,,,,
+new_cable_powerstrip,negative,39,39,0,38,0,0,0,0,0,0,0,0,,,,
+old_triangle,triangle,11,11,0,10,10,6,4,0,0,0,0,0,55,,,0.7488019169329073
+old_triangle_empty,negative,12,12,0,11,0,0,0,0,0,0,0,0,,,,
+old_square,square,17,17,0,16,12,5,5,0,0,0,0,0,86,,,1.798740881383032
+old_square_empty,negative,8,8,0,7,0,0,0,0,0,0,0,0,,,,
+old_star_long,pentagon,6,6,0,5,5,4,4,0,0,0,0,0,91,,,0.2997002997002997
+old_star_empty,negative,18,18,0,17,0,0,0,0,0,0,0,0,,,,
+old_star_short,pentagon,9,9,0,8,7,6,6,0,0,0,0,0,44,,,0.44937088076692633
+old_star_short_empty,negative,15,15,0,14,0,0,0,0,0,0,0,0,,,,

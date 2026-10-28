@@ -1,0 +1,10 @@
+Camera 0: 1280x720; UDP -> 127.0.0.1:5006; vx=0.3 m/s; max_wz=0.5 rad/s (right 0.5); yaw_sign=1; red=off; sl_gain=1.0; line_pitch=on; hold-still=off; center_dead=10.0cm; bias=0.0->2.0(dead 6.0, full 12.0)
+Body attitude: udp://127.0.0.1:5007 tau=1.2s; 安装角 45.0° 会被机身俯仰实时修正
+[shape] /home/isaac/shape_dump_3: cleared 0 files from the last run
+[vision] /home/isaac/loss_dump_3: cleared 0 files from the last run
+[vision]   28Hz vx=+0.300 wz=-0.029 err=-1.2cm conf=0.32 qr=-1 | steer=-4.94 eff=-1.2 ang=-29.7 curve=0/+15 far=+47 lr=11 lock=0pair=0.00 lost=0 lscale=1.002 pitch=45.0
+[vision]   14Hz vx=+0.181 wz=-0.029 err=-4.3cm conf=0.00 qr=-1 | steer=+0.00 eff=-4.3 ang=+9.9 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.020 pitch=45.0
+[vision]   16Hz vx=+0.095 wz=+0.028 err=-6.2cm conf=0.00 qr=-1 | steer=+0.00 eff=-4.2 ang=+74.9 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=2 lscale=1.041 pitch=45.0
+[vision]   16Hz vx=+0.169 wz=-0.149 err=-7.2cm conf=0.00 qr=-1 | steer=+0.00 eff=-5.3 ang=-78.7 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.053 pitch=45.0
+[vision]   15Hz vx=+0.172 wz=-0.088 err=-6.6cm conf=0.00 qr=-1 | steer=+0.00 eff=-6.0 ang=-0.4 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.067 pitch=45.0
+[vision]   16Hz vx=+0.300 wz=-0.256 err=-5.7cm conf=0.42 qr=-1 | steer=-8.89 eff=-5.7 ang=-30.9 curve=1/+0 far=-0 lr=11 lock=0pair=0.00 lost=0 lscale=1.080 pitch=45.0

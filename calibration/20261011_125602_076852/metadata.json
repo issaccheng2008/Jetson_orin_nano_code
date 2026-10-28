@@ -1,0 +1,356 @@
+{
+  "schema_version": 1,
+  "session_id": "20261011_125602_076852",
+  "started_at": "2026-10-11T04:56:02.079+00:00",
+  "device": "@device:pnp:\\\\?\\usb#vid_1bcf&pid_2281&mi_00#6&35e346e4&0&0000#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global",
+  "camera_index": 1,
+  "camera_profile": "usb_main",
+  "camera_profile_values": {
+    "index": 0,
+    "width": 1280,
+    "height": 720
+  },
+  "initial_camera_format": {
+    "resolution_property": [
+      640,
+      480
+    ],
+    "format": "YUY2",
+    "fps": "unknown"
+  },
+  "requested_resolution": [
+    1280,
+    720
+  ],
+  "resolution_set_return_values": {
+    "width": true,
+    "height": true
+  },
+  "actual_resolution": [
+    1280,
+    720
+  ],
+  "format": "YUY2",
+  "fps_readback": "unknown",
+  "backend": "DSHOW",
+  "saved_image_format": "PNG of unmodified OpenCV-decoded camera frame; not sensor RAW",
+  "fixed_settings": {
+    "exposure_ms": 30.0,
+    "white_balance": "auto",
+    "source": {
+      "exposure_ms": "command line",
+      "white_balance": "auto (both groups)"
+    },
+    "allow_exposure_rounding": true
+  },
+  "capture_config": {
+    "warmup_seconds": 3.0,
+    "stability_window_seconds": 1.5,
+    "stability_timeout_seconds": 25.0,
+    "check_interval_seconds": 0.15,
+    "brightness_relative_range": 0.02,
+    "channel_ratio_range": 0.012,
+    "sample_interval_seconds": 0.5,
+    "group_brightness_relative_range": 0.03,
+    "group_channel_ratio_range": 0.015,
+    "group_exposure_relative_range": 0.05,
+    "group_white_balance_range_k": 150.0,
+    "count": 10
+  },
+  "stability_roi": "central x=25..75%, y=35..75%; median brightness and R/G,B/G",
+  "initial_camera_state": {
+    "device": "@device:pnp:\\\\?\\usb#vid_1bcf&pid_2281&mi_00#6&35e346e4&0&0000#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global",
+    "camera_index": 1,
+    "backend": "DirectShow",
+    "controls": {
+      "exposure_log2_seconds": {
+        "kind": "DirectShow property",
+        "min": -11,
+        "max": -2,
+        "step": 1,
+        "default": -6,
+        "capability_flags": 3,
+        "menu": {
+          "1": "Auto",
+          "2": "Manual"
+        },
+        "actual": -6
+      },
+      "brightness": {
+        "kind": "DirectShow property",
+        "min": -64,
+        "max": 64,
+        "step": 1,
+        "default": 0,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 0
+      },
+      "contrast": {
+        "kind": "DirectShow property",
+        "min": 0,
+        "max": 95,
+        "step": 1,
+        "default": 2,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 2
+      },
+      "hue": {
+        "kind": "DirectShow property",
+        "min": -2000,
+        "max": 2000,
+        "step": 1,
+        "default": 0,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 0
+      },
+      "saturation": {
+        "kind": "DirectShow property",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "default": 75,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 75
+      },
+      "sharpness": {
+        "kind": "DirectShow property",
+        "min": 1,
+        "max": 7,
+        "step": 1,
+        "default": 2,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 2
+      },
+      "gamma": {
+        "kind": "DirectShow property",
+        "min": 100,
+        "max": 300,
+        "step": 1,
+        "default": 100,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 100
+      },
+      "white_balance_temperature": {
+        "kind": "DirectShow property",
+        "min": 2800,
+        "max": 6500,
+        "step": 1,
+        "default": 4600,
+        "capability_flags": 3,
+        "menu": {
+          "1": "Auto",
+          "2": "Manual"
+        },
+        "actual": 4600
+      },
+      "backlight_compensation": {
+        "kind": "DirectShow property",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 1,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 1
+      },
+      "exposure_ms": {
+        "kind": "derived from driver log2-seconds exposure",
+        "unit": "ms",
+        "min": 0.48828125,
+        "max": 250.0,
+        "actual": 15.625
+      },
+      "exposure_mode": {
+        "kind": "driver flags",
+        "menu": {
+          "1": "Auto",
+          "2": "Manual"
+        },
+        "actual": 1
+      },
+      "white_balance_mode": {
+        "kind": "driver flags",
+        "menu": {
+          "1": "Auto",
+          "2": "Manual"
+        },
+        "actual": 1
+      }
+    },
+    "native_initial": {
+      "exposure_log2_seconds": {
+        "value": -6,
+        "flags": 1
+      },
+      "brightness": {
+        "value": 0,
+        "flags": 2
+      },
+      "contrast": {
+        "value": 2,
+        "flags": 2
+      },
+      "hue": {
+        "value": 0,
+        "flags": 2
+      },
+      "saturation": {
+        "value": 75,
+        "flags": 2
+      },
+      "sharpness": {
+        "value": 2,
+        "flags": 2
+      },
+      "gamma": {
+        "value": 100,
+        "flags": 2
+      },
+      "white_balance_temperature": {
+        "value": 4600,
+        "flags": 1
+      },
+      "backlight_compensation": {
+        "value": 1,
+        "flags": 2
+      }
+    },
+    "captured_at": "2026-10-11T04:56:01.295+00:00"
+  },
+  "groups": {
+    "auto": {
+      "mode": "auto",
+      "started_at": "2026-10-11T04:56:05.866+00:00",
+      "status": "incomplete",
+      "settings": {
+        "mode": "auto",
+        "requested": {
+          "exposure_ms": "auto",
+          "white_balance": "auto"
+        },
+        "exposure_selection": null,
+        "operations": [
+          {
+            "control": "exposure_log2_seconds",
+            "semantic": "auto_exposure",
+            "requested_value": -6,
+            "requested_flags": 1,
+            "actual_value": -6,
+            "actual_flags": 1,
+            "verified": true,
+            "actual_ms": 15.625
+          },
+          {
+            "control": "white_balance_temperature",
+            "semantic": "auto_white_balance",
+            "requested_value": 4600,
+            "requested_flags": 1,
+            "actual_value": 4600,
+            "actual_flags": 1,
+            "verified": true
+          }
+        ],
+        "verified": true
+      },
+      "stability": {
+        "stable": true,
+        "elapsed_seconds": 4.520421199995326,
+        "window_seconds": 1.5061714999901596,
+        "sample_count": 8,
+        "brightness_relative_p90_p10": 0.011188811188811348,
+        "r_over_g_p90_p10": 0.0023912151067322363,
+        "b_over_g_p90_p10": 0.0024943123210550144
+      },
+      "frames": [
+        {
+          "index": 0,
+          "file": "000.png",
+          "captured_at": "2026-10-11T04:56:10.684+00:00",
+          "frame_sequence": 81,
+          "frame_age_at_save_ms": 180.79589999979362,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 144.0,
+            "bgr_median": [
+              150.0,
+              145.0,
+              139.0
+            ],
+            "r_over_g": 0.958904109589041,
+            "b_over_g": 1.0342465753424657
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        }
+      ],
+      "drift": null,
+      "capture_error": "timed out waiting for a fresh camera frame"
+    }
+  },
+  "restore": {
+    "status": "restored",
+    "operations": [],
+    "finished_at": "2026-10-11T04:56:27.318+00:00",
+    "resolution": {
+      "status": "restored",
+      "initial": [
+        640,
+        480
+      ],
+      "actual": [
+        640,
+        480
+      ],
+      "initial_format": "YUY2",
+      "actual_format": "YUY2",
+      "initial_fps": "unknown",
+      "actual_fps": "unknown",
+      "set_return_values": {
+        "width": true,
+        "height": true
+      }
+    }
+  },
+  "finished_at": "2026-10-11T04:56:28.104+00:00"
+}

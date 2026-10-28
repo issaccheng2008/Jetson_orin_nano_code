@@ -1,0 +1,4 @@
+# Port-based camera role rules retired. Do not install the old ID_PATH rules.
+# Both cameras report the same product name and serial; a name-only udev
+# match would attach both roles to both cameras. Register current connection
+# IDs with scripts/name_robot_cameras.py instead; runtime verifies identity.

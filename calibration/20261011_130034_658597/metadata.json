@@ -1,0 +1,1253 @@
+{
+  "schema_version": 1,
+  "session_id": "20261011_130034_658597",
+  "started_at": "2026-10-11T05:00:34.660+00:00",
+  "device": "@device:pnp:\\\\?\\usb#vid_1bcf&pid_2281&mi_00#6&35e346e4&0&0000#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global",
+  "camera_index": 1,
+  "camera_profile": "usb_main",
+  "camera_profile_values": {
+    "index": 0,
+    "width": 1280,
+    "height": 720
+  },
+  "initial_camera_format": {
+    "resolution_property": [
+      640,
+      480
+    ],
+    "format": "YUY2",
+    "fps": "unknown"
+  },
+  "requested_resolution": [
+    1280,
+    720
+  ],
+  "resolution_set_return_values": {
+    "width": true,
+    "height": true
+  },
+  "actual_resolution": [
+    1280,
+    720
+  ],
+  "format": "YUY2",
+  "fps_readback": "unknown",
+  "backend": "DSHOW",
+  "saved_image_format": "PNG of unmodified OpenCV-decoded camera frame; not sensor RAW",
+  "fixed_settings": {
+    "exposure_ms": 30.0,
+    "white_balance": "auto",
+    "source": {
+      "exposure_ms": "command line",
+      "white_balance": "auto (both groups)"
+    },
+    "allow_exposure_rounding": true
+  },
+  "capture_config": {
+    "warmup_seconds": 3.0,
+    "stability_window_seconds": 1.5,
+    "stability_timeout_seconds": 25.0,
+    "check_interval_seconds": 0.15,
+    "brightness_relative_range": 0.02,
+    "channel_ratio_range": 0.012,
+    "sample_interval_seconds": 0.5,
+    "group_brightness_relative_range": 0.03,
+    "group_channel_ratio_range": 0.015,
+    "group_exposure_relative_range": 0.05,
+    "group_white_balance_range_k": 150.0,
+    "count": 10
+  },
+  "stability_roi": "central x=25..75%, y=35..75%; median brightness and R/G,B/G",
+  "initial_camera_state": {
+    "device": "@device:pnp:\\\\?\\usb#vid_1bcf&pid_2281&mi_00#6&35e346e4&0&0000#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global",
+    "camera_index": 1,
+    "backend": "DirectShow",
+    "controls": {
+      "exposure_log2_seconds": {
+        "kind": "DirectShow property",
+        "min": -11,
+        "max": -2,
+        "step": 1,
+        "default": -6,
+        "capability_flags": 3,
+        "menu": {
+          "1": "Auto",
+          "2": "Manual"
+        },
+        "actual": -6
+      },
+      "brightness": {
+        "kind": "DirectShow property",
+        "min": -64,
+        "max": 64,
+        "step": 1,
+        "default": 0,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 0
+      },
+      "contrast": {
+        "kind": "DirectShow property",
+        "min": 0,
+        "max": 95,
+        "step": 1,
+        "default": 2,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 2
+      },
+      "hue": {
+        "kind": "DirectShow property",
+        "min": -2000,
+        "max": 2000,
+        "step": 1,
+        "default": 0,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 0
+      },
+      "saturation": {
+        "kind": "DirectShow property",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "default": 75,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 75
+      },
+      "sharpness": {
+        "kind": "DirectShow property",
+        "min": 1,
+        "max": 7,
+        "step": 1,
+        "default": 2,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 2
+      },
+      "gamma": {
+        "kind": "DirectShow property",
+        "min": 100,
+        "max": 300,
+        "step": 1,
+        "default": 100,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 100
+      },
+      "white_balance_temperature": {
+        "kind": "DirectShow property",
+        "min": 2800,
+        "max": 6500,
+        "step": 1,
+        "default": 4600,
+        "capability_flags": 3,
+        "menu": {
+          "1": "Auto",
+          "2": "Manual"
+        },
+        "actual": 4600
+      },
+      "backlight_compensation": {
+        "kind": "DirectShow property",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 1,
+        "capability_flags": 2,
+        "menu": {
+          "2": "Manual"
+        },
+        "actual": 1
+      },
+      "exposure_ms": {
+        "kind": "derived from driver log2-seconds exposure",
+        "unit": "ms",
+        "min": 0.48828125,
+        "max": 250.0,
+        "actual": 15.625
+      },
+      "exposure_mode": {
+        "kind": "driver flags",
+        "menu": {
+          "1": "Auto",
+          "2": "Manual"
+        },
+        "actual": 1
+      },
+      "white_balance_mode": {
+        "kind": "driver flags",
+        "menu": {
+          "1": "Auto",
+          "2": "Manual"
+        },
+        "actual": 1
+      }
+    },
+    "native_initial": {
+      "exposure_log2_seconds": {
+        "value": -6,
+        "flags": 1
+      },
+      "brightness": {
+        "value": 0,
+        "flags": 2
+      },
+      "contrast": {
+        "value": 2,
+        "flags": 2
+      },
+      "hue": {
+        "value": 0,
+        "flags": 2
+      },
+      "saturation": {
+        "value": 75,
+        "flags": 2
+      },
+      "sharpness": {
+        "value": 2,
+        "flags": 2
+      },
+      "gamma": {
+        "value": 100,
+        "flags": 2
+      },
+      "white_balance_temperature": {
+        "value": 4600,
+        "flags": 1
+      },
+      "backlight_compensation": {
+        "value": 1,
+        "flags": 2
+      }
+    },
+    "captured_at": "2026-10-11T05:00:33.844+00:00"
+  },
+  "groups": {
+    "auto": {
+      "mode": "auto",
+      "started_at": "2026-10-11T05:00:38.474+00:00",
+      "status": "unqualified_drift",
+      "settings": {
+        "mode": "auto",
+        "requested": {
+          "exposure_ms": "auto",
+          "white_balance": "auto"
+        },
+        "exposure_selection": null,
+        "operations": [
+          {
+            "control": "exposure_log2_seconds",
+            "semantic": "auto_exposure",
+            "requested_value": -6,
+            "requested_flags": 1,
+            "actual_value": -6,
+            "actual_flags": 1,
+            "verified": true,
+            "actual_ms": 15.625
+          },
+          {
+            "control": "white_balance_temperature",
+            "semantic": "auto_white_balance",
+            "requested_value": 4600,
+            "requested_flags": 1,
+            "actual_value": 4600,
+            "actual_flags": 1,
+            "verified": true
+          }
+        ],
+        "verified": true
+      },
+      "stability": {
+        "stable": true,
+        "elapsed_seconds": 7.782001399988076,
+        "window_seconds": 1.6921244999975897,
+        "sample_count": 9,
+        "brightness_relative_p90_p10": 0.01176470588235299,
+        "r_over_g_p90_p10": 0.0099180327868853,
+        "b_over_g_p90_p10": 0.0082782369146005
+      },
+      "frames": [
+        {
+          "index": 0,
+          "file": "000.png",
+          "captured_at": "2026-10-11T05:00:46.566+00:00",
+          "frame_sequence": 114,
+          "frame_age_at_save_ms": 189.7463999921456,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 119.0,
+            "bgr_median": [
+              119.0,
+              119.0,
+              118.0
+            ],
+            "r_over_g": 0.9916666666666667,
+            "b_over_g": 1.0
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 1,
+          "file": "001.png",
+          "captured_at": "2026-10-11T05:00:47.375+00:00",
+          "frame_sequence": 122,
+          "frame_age_at_save_ms": 198.08430000557564,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 119.0,
+            "bgr_median": [
+              119.0,
+              120.0,
+              118.0
+            ],
+            "r_over_g": 0.9834710743801653,
+            "b_over_g": 0.9917355371900827
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 2,
+          "file": "002.png",
+          "captured_at": "2026-10-11T05:00:48.170+00:00",
+          "frame_sequence": 130,
+          "frame_age_at_save_ms": 193.33039998309687,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 119.0,
+            "bgr_median": [
+              119.0,
+              120.0,
+              118.0
+            ],
+            "r_over_g": 0.9834710743801653,
+            "b_over_g": 0.9917355371900827
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 3,
+          "file": "003.png",
+          "captured_at": "2026-10-11T05:00:48.951+00:00",
+          "frame_sequence": 138,
+          "frame_age_at_save_ms": 188.2575000054203,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 124.0,
+            "bgr_median": [
+              125.0,
+              124.0,
+              122.0
+            ],
+            "r_over_g": 0.984,
+            "b_over_g": 1.008
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 4,
+          "file": "004.png",
+          "captured_at": "2026-10-11T05:00:49.745+00:00",
+          "frame_sequence": 146,
+          "frame_age_at_save_ms": 182.91930001578294,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 125.0,
+            "bgr_median": [
+              127.0,
+              125.0,
+              122.0
+            ],
+            "r_over_g": 0.9761904761904762,
+            "b_over_g": 1.0158730158730158
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 5,
+          "file": "005.png",
+          "captured_at": "2026-10-11T05:00:50.502+00:00",
+          "frame_sequence": 153,
+          "frame_age_at_save_ms": 236.281899997266,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 124.0,
+            "bgr_median": [
+              125.0,
+              124.0,
+              122.0
+            ],
+            "r_over_g": 0.984,
+            "b_over_g": 1.008
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 6,
+          "file": "006.png",
+          "captured_at": "2026-10-11T05:00:51.208+00:00",
+          "frame_sequence": 161,
+          "frame_age_at_save_ms": 144.7022000211291,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 123.0,
+            "bgr_median": [
+              124.0,
+              124.0,
+              122.0
+            ],
+            "r_over_g": 0.984,
+            "b_over_g": 1.0
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 7,
+          "file": "007.png",
+          "captured_at": "2026-10-11T05:00:51.963+00:00",
+          "frame_sequence": 168,
+          "frame_age_at_save_ms": 208.46170000731945,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 122.0,
+            "bgr_median": [
+              123.0,
+              123.0,
+              121.0
+            ],
+            "r_over_g": 0.9838709677419355,
+            "b_over_g": 1.0
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 8,
+          "file": "008.png",
+          "captured_at": "2026-10-11T05:00:52.711+00:00",
+          "frame_sequence": 176,
+          "frame_age_at_save_ms": 157.5095999869518,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 123.0,
+            "bgr_median": [
+              124.0,
+              123.0,
+              121.0
+            ],
+            "r_over_g": 0.9838709677419355,
+            "b_over_g": 1.0080645161290323
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 9,
+          "file": "009.png",
+          "captured_at": "2026-10-11T05:00:53.446+00:00",
+          "frame_sequence": 183,
+          "frame_age_at_save_ms": 185.75189998955466,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 123.0,
+            "bgr_median": [
+              124.0,
+              123.0,
+              121.0
+            ],
+            "r_over_g": 0.9838709677419355,
+            "b_over_g": 1.0080645161290323
+          },
+          "controls": {
+            "exposure_log2_seconds": -6,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 15.625,
+            "exposure_mode": 1,
+            "white_balance_mode": 1
+          }
+        }
+      ],
+      "drift": {
+        "qualified": false,
+        "reasons": [
+          "brightness_drift",
+          "b_over_g_drift"
+        ],
+        "brightness_relative_range": 0.04878048780487805,
+        "r_over_g_p90_p10": 0.002023652105470286,
+        "b_over_g_p90_p10": 0.017109828913348002,
+        "parameter_ranges": {
+          "exposure_ms": {
+            "min": 15.625,
+            "max": 15.625,
+            "relative_range": 0.0
+          },
+          "white_balance_temperature": {
+            "min": 4600.0,
+            "max": 4600.0,
+            "range": 0.0
+          }
+        }
+      },
+      "capture_policy": "quality_checks_advisory",
+      "warnings": [
+        "brightness_drift",
+        "b_over_g_drift"
+      ],
+      "unrequested_control_changes": {},
+      "capture_complete": true,
+      "quality_qualified": false,
+      "finished_at": "2026-10-11T05:00:53.460+00:00"
+    },
+    "fixed": {
+      "mode": "fixed",
+      "started_at": "2026-10-11T05:01:00.497+00:00",
+      "status": "complete",
+      "settings": {
+        "mode": "fixed",
+        "requested": {
+          "exposure_ms": 30.0,
+          "white_balance": "auto"
+        },
+        "exposure_selection": {
+          "requested_ms": 30.0,
+          "selected_ms": 31.25,
+          "native_value": -5,
+          "rounded": true,
+          "unit": "log2 seconds",
+          "rounding_allowed": true
+        },
+        "operations": [
+          {
+            "control": "exposure_log2_seconds",
+            "semantic": "fixed_exposure",
+            "requested_value": -5,
+            "requested_flags": 2,
+            "actual_value": -5,
+            "actual_flags": 2,
+            "verified": true,
+            "actual_ms": 31.25,
+            "requested_ms": 30.0
+          },
+          {
+            "control": "white_balance_temperature",
+            "semantic": "auto_white_balance",
+            "requested_value": 4600,
+            "requested_flags": 1,
+            "actual_value": 4600,
+            "actual_flags": 1,
+            "verified": true
+          }
+        ],
+        "verified": true
+      },
+      "stability": {
+        "stable": true,
+        "elapsed_seconds": 4.604995300003793,
+        "window_seconds": 1.6045731000194792,
+        "sample_count": 9,
+        "brightness_relative_p90_p10": 0.010909090909090934,
+        "r_over_g_p90_p10": 0.0024375097034622373,
+        "b_over_g_p90_p10": 0.00877192982456143
+      },
+      "frames": [
+        {
+          "index": 0,
+          "file": "000.png",
+          "captured_at": "2026-10-11T05:01:05.399+00:00",
+          "frame_sequence": 303,
+          "frame_age_at_save_ms": 171.41219999757595,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 110.0,
+            "bgr_median": [
+              109.0,
+              113.0,
+              102.0
+            ],
+            "r_over_g": 0.9035087719298246,
+            "b_over_g": 0.9649122807017544
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 1,
+          "file": "001.png",
+          "captured_at": "2026-10-11T05:01:06.083+00:00",
+          "frame_sequence": 310,
+          "frame_age_at_save_ms": 169.9920000100974,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 110.0,
+            "bgr_median": [
+              109.0,
+              114.0,
+              103.0
+            ],
+            "r_over_g": 0.9043478260869565,
+            "b_over_g": 0.9565217391304348
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 2,
+          "file": "002.png",
+          "captured_at": "2026-10-11T05:01:06.893+00:00",
+          "frame_sequence": 318,
+          "frame_age_at_save_ms": 177.56869998993352,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 110.0,
+            "bgr_median": [
+              109.0,
+              114.0,
+              103.0
+            ],
+            "r_over_g": 0.9043478260869565,
+            "b_over_g": 0.9565217391304348
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 3,
+          "file": "003.png",
+          "captured_at": "2026-10-11T05:01:07.595+00:00",
+          "frame_sequence": 325,
+          "frame_age_at_save_ms": 177.94309998862445,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 110.0,
+            "bgr_median": [
+              109.0,
+              113.0,
+              102.0
+            ],
+            "r_over_g": 0.9035087719298246,
+            "b_over_g": 0.9649122807017544
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 4,
+          "file": "004.png",
+          "captured_at": "2026-10-11T05:01:08.306+00:00",
+          "frame_sequence": 332,
+          "frame_age_at_save_ms": 181.45979999098927,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 110.0,
+            "bgr_median": [
+              109.0,
+              114.0,
+              103.0
+            ],
+            "r_over_g": 0.9043478260869565,
+            "b_over_g": 0.9565217391304348
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 5,
+          "file": "005.png",
+          "captured_at": "2026-10-11T05:01:09.094+00:00",
+          "frame_sequence": 340,
+          "frame_age_at_save_ms": 186.21600000187755,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 111.0,
+            "bgr_median": [
+              110.0,
+              114.0,
+              104.0
+            ],
+            "r_over_g": 0.9130434782608695,
+            "b_over_g": 0.9652173913043478
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 6,
+          "file": "006.png",
+          "captured_at": "2026-10-11T05:01:09.815+00:00",
+          "frame_sequence": 347,
+          "frame_age_at_save_ms": 202.83930000732653,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 111.0,
+            "bgr_median": [
+              110.0,
+              114.0,
+              103.0
+            ],
+            "r_over_g": 0.9043478260869565,
+            "b_over_g": 0.9652173913043478
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 7,
+          "file": "007.png",
+          "captured_at": "2026-10-11T05:01:10.573+00:00",
+          "frame_sequence": 355,
+          "frame_age_at_save_ms": 163.49620002438314,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 109.0,
+            "bgr_median": [
+              108.0,
+              112.0,
+              101.0
+            ],
+            "r_over_g": 0.9026548672566371,
+            "b_over_g": 0.9646017699115044
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 8,
+          "file": "008.png",
+          "captured_at": "2026-10-11T05:01:11.260+00:00",
+          "frame_sequence": 362,
+          "frame_age_at_save_ms": 161.50779998861253,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 111.0,
+            "bgr_median": [
+              110.0,
+              114.0,
+              103.0
+            ],
+            "r_over_g": 0.9043478260869565,
+            "b_over_g": 0.9652173913043478
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        },
+        {
+          "index": 9,
+          "file": "009.png",
+          "captured_at": "2026-10-11T05:01:11.946+00:00",
+          "frame_sequence": 369,
+          "frame_age_at_save_ms": 144.5438000082504,
+          "resolution": [
+            1280,
+            720
+          ],
+          "roi_metrics": {
+            "roi_xyxy_fraction": [
+              0.25,
+              0.35,
+              0.75,
+              0.75
+            ],
+            "brightness_gray_median": 108.0,
+            "bgr_median": [
+              107.0,
+              111.0,
+              100.0
+            ],
+            "r_over_g": 0.9017857142857143,
+            "b_over_g": 0.9642857142857143
+          },
+          "controls": {
+            "exposure_log2_seconds": -5,
+            "brightness": 0,
+            "contrast": 2,
+            "hue": 0,
+            "saturation": 75,
+            "sharpness": 2,
+            "gamma": 100,
+            "white_balance_temperature": 4600,
+            "backlight_compensation": 1,
+            "exposure_ms": 31.25,
+            "exposure_mode": 2,
+            "white_balance_mode": 1
+          }
+        }
+      ],
+      "drift": {
+        "qualified": true,
+        "reasons": [],
+        "brightness_relative_range": 0.02727272727272727,
+        "r_over_g_p90_p10": 0.002649439344802995,
+        "b_over_g_p90_p10": 0.008695652173912993,
+        "parameter_ranges": {
+          "exposure_ms": {
+            "min": 31.25,
+            "max": 31.25,
+            "relative_range": 0.0
+          },
+          "white_balance_temperature": {
+            "min": 4600.0,
+            "max": 4600.0,
+            "range": 0.0
+          }
+        }
+      },
+      "capture_policy": "quality_checks_advisory",
+      "warnings": [],
+      "unrequested_control_changes": {},
+      "capture_complete": true,
+      "quality_qualified": true,
+      "finished_at": "2026-10-11T05:01:11.957+00:00"
+    }
+  },
+  "restore": {
+    "status": "restored",
+    "operations": [
+      {
+        "control": "exposure_log2_seconds",
+        "semantic": "restore_initial",
+        "requested_value": -6,
+        "requested_flags": 1,
+        "actual_value": -5,
+        "actual_flags": 1,
+        "verified": true
+      }
+    ],
+    "finished_at": "2026-10-11T05:01:18.933+00:00",
+    "resolution": {
+      "status": "restored",
+      "initial": [
+        640,
+        480
+      ],
+      "actual": [
+        640,
+        480
+      ],
+      "initial_format": "YUY2",
+      "actual_format": "YUY2",
+      "initial_fps": "unknown",
+      "actual_fps": "unknown",
+      "set_return_values": {
+        "width": true,
+        "height": true
+      }
+    }
+  },
+  "finished_at": "2026-10-11T05:01:19.774+00:00"
+}

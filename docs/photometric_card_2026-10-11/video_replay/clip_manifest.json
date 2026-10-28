@@ -1,0 +1,58 @@
+[
+  {
+    "name": "square_clear",
+    "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi",
+    "source_sha256": "d41e8d4d6ce0d36b7d2d844c25a9b2e47b8e41a21c268f8b18feba43beb78446",
+    "source_start_frame": 1120,
+    "source_end_frame": 1160,
+    "source_fps": 10.0,
+    "clip_frame_count": 41,
+    "output": "square_clear.avi",
+    "output_sha256": "de569e469405f86c543dd3619dd5a00c5d7e1617c8e52f5920b00da7b1dd68e0",
+    "width": 960,
+    "height": 540,
+    "spatial_crop": false
+  },
+  {
+    "name": "circle_motion",
+    "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi",
+    "source_sha256": "d41e8d4d6ce0d36b7d2d844c25a9b2e47b8e41a21c268f8b18feba43beb78446",
+    "source_start_frame": 684,
+    "source_end_frame": 707,
+    "source_fps": 10.0,
+    "clip_frame_count": 24,
+    "output": "circle_motion.avi",
+    "output_sha256": "9ce99179d1147a642c3c2c073389ec546bcc3fbf685e4b580597a46b23de973d",
+    "width": 960,
+    "height": 540,
+    "spatial_crop": false
+  },
+  {
+    "name": "negative_cable",
+    "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi",
+    "source_sha256": "d41e8d4d6ce0d36b7d2d844c25a9b2e47b8e41a21c268f8b18feba43beb78446",
+    "source_start_frame": 990,
+    "source_end_frame": 1030,
+    "source_fps": 10.0,
+    "clip_frame_count": 41,
+    "output": "negative_cable.avi",
+    "output_sha256": "553453ec62a0e01683c5b9f159d44cf565fd237099e1464de27a1cddd67f1432",
+    "width": 960,
+    "height": 540,
+    "spatial_crop": false
+  },
+  {
+    "name": "star_motion_old",
+    "source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_13_53_Pro_flip.mp4",
+    "source_sha256": "7f0e2fe4230c38db3c4f77dcfda208ff0c375ae6eb42a06b5ecef34e5d1cdab1",
+    "source_start_frame": 35,
+    "source_end_frame": 60,
+    "source_fps": 20.028,
+    "clip_frame_count": 26,
+    "output": "star_motion_old.avi",
+    "output_sha256": "380754a5f18b017fa46eaeb5166afb869c38c48c4d08c16a23d8dfe154b8d760",
+    "width": 1920,
+    "height": 1080,
+    "spatial_crop": false
+  }
+]

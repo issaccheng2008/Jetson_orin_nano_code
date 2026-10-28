@@ -1,0 +1,108 @@
+{
+  "raw": {
+    "line": {
+      "median": 2.0,
+      "mean": 4.93681917211329,
+      "n": 459,
+      "xyxy": [
+        551,
+        558,
+        568,
+        585
+      ]
+    },
+    "floor": {
+      "median": 108.0,
+      "mean": 108.092,
+      "n": 2000,
+      "xyxy": [
+        640,
+        530,
+        680,
+        580
+      ]
+    },
+    "card_paper": {
+      "median": 84.0,
+      "mean": 83.86938775510204,
+      "n": 980,
+      "xyxy": [
+        765,
+        507,
+        800,
+        535
+      ]
+    },
+    "card_black_frame": {
+      "median": 3.0,
+      "mean": 16.04421768707483,
+      "n": 294,
+      "xyxy": [
+        742,
+        503,
+        749,
+        545
+      ]
+    },
+    "line_floor_median_contrast": 106.0,
+    "card_paper_frame_median_contrast": 81.0
+  },
+  "match": {
+    "line": {
+      "median": 80.0,
+      "mean": 82.59041394335512,
+      "n": 459,
+      "xyxy": [
+        551,
+        558,
+        568,
+        585
+      ]
+    },
+    "floor": {
+      "median": 171.0,
+      "mean": 171.3625,
+      "n": 2000,
+      "xyxy": [
+        640,
+        530,
+        680,
+        580
+      ]
+    },
+    "card_paper": {
+      "median": 151.0,
+      "mean": 150.49795918367346,
+      "n": 980,
+      "xyxy": [
+        765,
+        507,
+        800,
+        535
+      ]
+    },
+    "card_black_frame": {
+      "median": 81.0,
+      "mean": 92.20068027210884,
+      "n": 294,
+      "xyxy": [
+        742,
+        503,
+        749,
+        545
+      ]
+    },
+    "line_floor_median_contrast": 91.0,
+    "card_paper_frame_median_contrast": 70.0
+  },
+  "mapping": {
+    "gain": 0.8590558857762994,
+    "bias": 78.4478620092066,
+    "pre_mean": 86.2973724048443,
+    "pre_std": 24.05575765232165,
+    "post_mean": 152.57355103806228,
+    "post_std": 20.687625041656595,
+    "black_clip_fraction": 0.0,
+    "white_clip_fraction": 0.0
+  }
+}

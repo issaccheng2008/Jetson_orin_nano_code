@@ -1,0 +1,6 @@
+Camera 0: 1280x720; UDP -> 127.0.0.1:5006; vx=0.3 m/s; max_wz=0.5 rad/s (right 0.5); yaw_sign=1; red=off; sl_gain=1.0; line_pitch=on; hold-still=off; gate=off; center_dead=10.0cm; bias=0.0->2.0(dead 6.0, full 12.0)
+Body attitude: udp://127.0.0.1:5007 tau=1.2s; 安装角 45.0° 会被机身俯仰实时修正
+[shape] /home/isaac/shape_dump_3: cleared 0 files from the last run
+[vision] /home/isaac/loss_dump_3: cleared 0 files from the last run
+[vision]   29Hz vx=+0.300 wz=+0.017 err=-0.5cm conf=0.40 qr=-1 | steer=+7.51 eff=-0.5 ang=+84.7 curve=0/+13 far=+40 lr=11 lock=0pair=0.00 lost=0 lscale=1.004 pitch=45.0
+[vision]   14Hz vx=+0.300 wz=-0.182 err=-6.1cm conf=0.27 qr=-1 | steer=-10.64 eff=-4.1 ang=-64.6 curve=1/-28 far=+2 lr=11 lock=0pair=0.00 lost=0 lscale=1.030 pitch=45.0

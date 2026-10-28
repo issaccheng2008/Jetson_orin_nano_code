@@ -1,0 +1,372 @@
+{
+  "opencv_version": "4.10.0",
+  "images": [
+    {
+      "id": "0002",
+      "truth": "triangle",
+      "pitch_deg": 45.0,
+      "recorded_shape": "diamond",
+      "current_shape": "triangle",
+      "old_same_box_shape": "diamond",
+      "local_same_box_shape": "triangle",
+      "verified_box": true,
+      "failure_stage": "classified",
+      "proposal_counts": {
+        "hough": 256,
+        "lsd": 256,
+        "corner": 14,
+        "cc": 1,
+        "ring": 1
+      },
+      "quad_total": 528,
+      "quad_geom": 2,
+      "geom_rejects": {
+        "ground": 396,
+        "area_max": 119,
+        "angle": 4,
+        "area_min": 7
+      },
+      "appearance_reason": "enclosed_symbol",
+      "classification_path": "local_gray",
+      "source_sha256": "46287c766badd1966743f941066a63dab75455ce5bb9e47661318a15285204b4",
+      "bird_size": [
+        623,
+        466
+      ],
+      "contrast_box_probe": {
+        "association": "manual ROI for diagnosis only",
+        "quad_work": [
+          [
+            411.61639404296875,
+            259.7569274902344
+          ],
+          [
+            338.82427978515625,
+            268.9714660644531
+          ],
+          [
+            341.7176513671875,
+            326.42401123046875
+          ],
+          [
+            426.48773193359375,
+            316.43011474609375
+          ]
+        ],
+        "geometry_accepted": true,
+        "geometry_reject": {},
+        "appearance_reason": "enclosed_symbol",
+        "local_shape": "triangle",
+        "old_same_box_shape": "diamond"
+      }
+    },
+    {
+      "id": "0017",
+      "truth": "square",
+      "pitch_deg": 45.0,
+      "recorded_shape": "cross",
+      "current_shape": "square",
+      "old_same_box_shape": "square",
+      "local_same_box_shape": "square",
+      "verified_box": true,
+      "failure_stage": "classified",
+      "proposal_counts": {
+        "hough": 256,
+        "lsd": 256,
+        "corner": 15,
+        "cc": 3,
+        "ring": 1
+      },
+      "quad_total": 531,
+      "quad_geom": 2,
+      "geom_rejects": {
+        "area_max": 512,
+        "ground": 13,
+        "area_min": 2,
+        "min_wh": 2
+      },
+      "appearance_reason": "enclosed_symbol",
+      "classification_path": "local_gray",
+      "source_sha256": "b6f0d97750af0f17cdd42bb167fd698a1d1800c84ec49182ed0747c4e1d46db5",
+      "bird_size": [
+        623,
+        466
+      ],
+      "contrast_box_probe": {
+        "association": "manual ROI for diagnosis only",
+        "quad_work": [
+          [
+            279.51446533203125,
+            349.098876953125
+          ],
+          [
+            343.3419189453125,
+            431.5621337890625
+          ],
+          [
+            409.13092041015625,
+            398.52581787109375
+          ],
+          [
+            382.52813720703125,
+            320.66961669921875
+          ]
+        ],
+        "geometry_accepted": false,
+        "geometry_reject": {
+          "ground": 1
+        },
+        "appearance_reason": "separate_outline_hole",
+        "local_shape": "diamond",
+        "old_same_box_shape": "cross"
+      }
+    },
+    {
+      "id": "0027",
+      "truth": "pentagon",
+      "pitch_deg": 42.417691488335294,
+      "recorded_shape": "pentagon",
+      "current_shape": "pentagon",
+      "old_same_box_shape": "pentagon",
+      "local_same_box_shape": null,
+      "verified_box": true,
+      "failure_stage": "classified",
+      "proposal_counts": {
+        "hough": 208,
+        "lsd": 224,
+        "corner": 9,
+        "cc": 1,
+        "ring": 0
+      },
+      "quad_total": 442,
+      "quad_geom": 2,
+      "geom_rejects": {
+        "angle": 232,
+        "area_max": 168,
+        "ground": 35,
+        "area_min": 5
+      },
+      "appearance_reason": "no_separated_symbol",
+      "classification_path": "legacy",
+      "source_sha256": "fe730679be9715d262240fe7f75ce12d0a5082e1a7042f92a046555729846abb",
+      "bird_size": [
+        623,
+        466
+      ],
+      "contrast_box_probe": {
+        "association": "manual ROI for diagnosis only",
+        "quad_work": [
+          [
+            361.0625915527344,
+            233.00009155273438
+          ],
+          [
+            286.7191162109375,
+            253.06240844726562
+          ],
+          [
+            307.3563232421875,
+            302.7507019042969
+          ],
+          [
+            389.0089416503906,
+            283.44970703125
+          ]
+        ],
+        "geometry_accepted": true,
+        "geometry_reject": {},
+        "appearance_reason": "no_separated_symbol",
+        "local_shape": null,
+        "old_same_box_shape": "pentagon"
+      }
+    },
+    {
+      "id": "0028",
+      "truth": "pentagon",
+      "pitch_deg": 41.58901731488918,
+      "recorded_shape": null,
+      "current_shape": null,
+      "old_same_box_shape": null,
+      "local_same_box_shape": null,
+      "verified_box": false,
+      "failure_stage": "box_proposal_or_geometry",
+      "proposal_counts": {
+        "hough": 256,
+        "lsd": 256,
+        "corner": 0,
+        "cc": 0,
+        "ring": 0
+      },
+      "quad_total": 512,
+      "quad_geom": 0,
+      "geom_rejects": {
+        "area_max": 492,
+        "angle": 20
+      },
+      "appearance_reason": null,
+      "classification_path": null,
+      "source_sha256": "74cfca6ac8f616d1a2ab46200daf9f20c6c59dcaa770bdccfc3ba546c8a02c81",
+      "bird_size": [
+        623,
+        466
+      ],
+      "contrast_box_probe": {
+        "association": "manual ROI for diagnosis only",
+        "quad_work": [
+          [
+            460.74749755859375,
+            338.2951354980469
+          ],
+          [
+            373.4044189453125,
+            360.3145446777344
+          ],
+          [
+            391.41595458984375,
+            444.0545654296875
+          ],
+          [
+            494.72857666015625,
+            423.484619140625
+          ]
+        ],
+        "geometry_accepted": true,
+        "geometry_reject": {},
+        "appearance_reason": "no_separated_symbol",
+        "local_shape": null,
+        "old_same_box_shape": null
+      }
+    },
+    {
+      "id": "0029",
+      "truth": "pentagon",
+      "pitch_deg": 45.0,
+      "recorded_shape": null,
+      "current_shape": null,
+      "old_same_box_shape": null,
+      "local_same_box_shape": null,
+      "verified_box": false,
+      "failure_stage": "box_proposal_or_geometry",
+      "proposal_counts": {
+        "hough": 256,
+        "lsd": 256,
+        "corner": 1,
+        "cc": 0,
+        "ring": 0
+      },
+      "quad_total": 513,
+      "quad_geom": 0,
+      "geom_rejects": {
+        "area_max": 512,
+        "area_min": 1
+      },
+      "appearance_reason": null,
+      "classification_path": null,
+      "source_sha256": "0b97ac633dba39a945c908a8f7cc39eec1d54c10b3c9097c031dadd9ba62cc4f",
+      "bird_size": [
+        623,
+        466
+      ],
+      "contrast_box_probe": {
+        "association": "manual ROI for diagnosis only",
+        "quad_work": [
+          [
+            525.5574951171875,
+            444.0545654296875
+          ],
+          [
+            414.0647277832031,
+            472.78509521484375
+          ],
+          [
+            425.28741455078125,
+            538.161376953125
+          ],
+          [
+            560.6290893554688,
+            538.161376953125
+          ]
+        ],
+        "geometry_accepted": false,
+        "geometry_reject": {
+          "ground": 1
+        },
+        "appearance_reason": "no_separated_symbol",
+        "local_shape": null,
+        "old_same_box_shape": "cross"
+      }
+    },
+    {
+      "id": "dark_square",
+      "truth": "square",
+      "pitch_deg": 45.0,
+      "recorded_shape": null,
+      "current_shape": "square",
+      "old_same_box_shape": "square",
+      "local_same_box_shape": "square",
+      "verified_box": true,
+      "failure_stage": "classified",
+      "proposal_counts": {
+        "hough": 256,
+        "lsd": 256,
+        "corner": 14,
+        "cc": 1,
+        "ring": 1
+      },
+      "quad_total": 528,
+      "quad_geom": 2,
+      "geom_rejects": {
+        "area_max": 512,
+        "ground": 6,
+        "area_min": 9
+      },
+      "appearance_reason": "separate_outline_hole",
+      "classification_path": "local_gray",
+      "source_sha256": "1b59a7aa07dcfe1e93370a9e16cecdb83b15f4ea006750fb66073adef7579be4",
+      "bird_size": [
+        623,
+        466
+      ],
+      "contrast_box_probe": {
+        "association": "manual ROI for diagnosis only",
+        "quad_work": [
+          [
+            546.80419921875,
+            361.9518127441406
+          ],
+          [
+            536.6301879882812,
+            425.4857177734375
+          ],
+          [
+            635.9520874023438,
+            439.83905029296875
+          ],
+          [
+            625.5374755859375,
+            365.2532958984375
+          ]
+        ],
+        "geometry_accepted": true,
+        "geometry_reject": {},
+        "appearance_reason": "separate_outline_hole",
+        "local_shape": "square",
+        "old_same_box_shape": "square"
+      }
+    }
+  ],
+  "baseline_contrast_sha256": "65eb7dc00dfd5e5f61ca26e353da805af2cf75750aa0f664e2bdbcfffcebf087",
+  "synthetic_scope": "Ideal pinhole ground quads, no image detection, no motor/action execution",
+  "source_sha256": {
+    "shape_detector.py": "599bf11d1717f2bc1b5866895475168f3ff4eb12508b9db7a5db8d3f33537e97",
+    "card_appearance.py": "52d8574c28ffab198a6c2acd694262d0cb4b5e8069f03055bfd9e04106a7dd16",
+    "line_detector_v1_warp.py": "4db7a916e4a2a8f182cbc18be41e02126af802c049474484df24dcbe2ff240aa",
+    "photometric_thresholds.py": "0af0d53c9e6d81493e53c8bfe55cf63ed146bdf7659df62ff3b5fc83a7bb533f",
+    "line_preprocess.py": "d38f0d915ac7377c8825e956c1ad909fab130e00f7fef2ac158ee07a7b75ca08"
+  },
+  "lut_sha256": {
+    "lut_gray.npy": "fd93e92ef7b250c9a72149700b8ea679fecf7d5b692a7bcc882637dde9bbc7d7",
+    "lut_max.npy": "67647b0f5b12d319c106178fd64c807f3cb9f453adf9195af8595e2eb6928fe8",
+    "mapping.json": "9a5ea763d94ff1f445d4cc5d57f0104aa992bad7a4076052f0e11a6e67135a8b"
+  }
+}

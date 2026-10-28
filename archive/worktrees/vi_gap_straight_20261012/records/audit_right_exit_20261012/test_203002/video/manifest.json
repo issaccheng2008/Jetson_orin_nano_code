@@ -1,0 +1,23 @@
+{
+  "schema": "command_video_v2",
+  "codec": "MJPG",
+  "video": "camera_commands.avi",
+  "frame_index": "frames.jsonl",
+  "fps": 10.0,
+  "dimensions": [
+    960,
+    468
+  ],
+  "frame_source": "bird_pair",
+  "detector_debug_key": "bird_color,binary",
+  "image_source": "left: original BGR birdseye; right: final lane candidate mask; HUD below",
+  "command_source": "vision publish -> connector; before connector bias/model hold",
+  "executed_command_source": "policy feedback after model hold/takeovers and serial send; not measured body motion",
+  "colour": "BGR blue for tracking, red for lost line; STOP has no direction arrow",
+  "clock": "video_time_s + origin_monotonic_s; ceil to next tick; repeated source frames allowed",
+  "origin_monotonic_s": 13662.548822965,
+  "written_frames": 1044,
+  "dropped_samples": 0,
+  "truncated": false,
+  "error": null
+}

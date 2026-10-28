@@ -1,0 +1,24 @@
+[0;93m2026-10-04 16:04:55.197284964 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card1": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card1/device/vendor"[m
+[0;93m2026-10-04 16:04:55.197396264 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card0": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card0/device/vendor"[m
+ONNX input='obs', output='actions'
+Shape one-foot ONNX input='obs', output='actions'
+Policy command source: new_vision/connector on udp://127.0.0.1:5005; timeout=0.250s; live vx/wz, vy=0; fixed-command timer disabled
+Step: 5.00 cm (--step-cm), independent of vx; the cadence is the policy's own
+Target limits: margin=0.05 rad; slew=3 rad/s (0=off); feedback-window=10 deg (0=off); absolute-lower=[-1.5700000524520874, -1.5700000524520874, -1.5700000524520874, -1.5700000524520874, -0.5, -0.5, -1.5700000524520874, -0.5, -1.5700000524520874, -1.5700000524520874, -0.5, -0.5]; absolute-upper=[1.5700000524520874, 0.5, 1.5700000524520874, 1.5700000524520874, 0.5, 0.5, 1.5700000524520874, 1.5700000524520874, 1.5700000524520874, 1.5700000524520874, 0.5, 0.5]
+Body attitude broadcast: udp://127.0.0.1:5007 at 10 Hz
+Opening /dev/ttyACM0 (line coding 921600; native USB CDC ignores physical baud)
+MOTORS ENABLED
+Walking vx/wz minimum hold: 0.5 s at model input; stops and takeovers preempt
+Motor-position and IMU log: records/motor_positions/motor_positions_20261004_160455_253418.csv
+Received STM32 state packet, sequence=14
+Control diagnostic run=20261004T080455_e6e37213ba894becb84c8ee681b5420a: records/control_diagnostics/control_trace_20261004T080455_e6e37213ba894becb84c8ee681b5420a.csv; manifest=records/control_diagnostics/control_trace_20261004T080455_e6e37213ba894becb84c8ee681b5420a.manifest.json
+step=     0 state_seq=   21 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.500s infer=0.271ms |obs|max=0.999 |action|max=1.319 crc_errors=0
+step=    25 state_seq=  522 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.000s infer=0.246ms |obs|max=1.768 |action|max=1.667 crc_errors=0
+step=    50 state_seq= 1022 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.400 rad/s] hold_remaining=0.240s infer=0.417ms |obs|max=2.193 |action|max=2.064 crc_errors=0
+step=    75 state_seq= 1522 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.240s infer=0.307ms |obs|max=2.453 |action|max=1.633 crc_errors=0
+step=   100 state_seq= 2022 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=-0.500 rad/s] hold_remaining=0.320s infer=0.323ms |obs|max=1.475 |action|max=1.139 crc_errors=0
+step=   125 state_seq= 2522 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.420s infer=0.293ms |obs|max=2.214 |action|max=2.164 crc_errors=0
+step=   150 state_seq= 3022 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.000s infer=0.426ms |obs|max=1.551 |action|max=1.422 crc_errors=0
+step=   175 state_seq= 3522 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=-0.400 rad/s] hold_remaining=0.140s infer=0.290ms |obs|max=1.881 |action|max=2.126 crc_errors=0
+step=   200 state_seq= 4022 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=-0.500 rad/s] hold_remaining=0.180s infer=0.375ms |obs|max=1.958 |action|max=1.931 crc_errors=0
+step=   225 state_seq= 4522 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=-0.400 rad/s] hold_remaining=0.320s infer=0.228ms |obs|max=1.483 |action|max=1.538 crc_errors=0

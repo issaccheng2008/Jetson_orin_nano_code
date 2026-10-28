@@ -1,0 +1,101 @@
+[
+  {
+    "id": "0002",
+    "image": "inputs/0002_diamond_cy0.5453703703703704_g1.jpg",
+    "truth": "triangle",
+    "roi_xyxy": [
+      425,
+      335,
+      590,
+      455
+    ],
+    "pitch_deg": 45.0,
+    "recorded_shape": "diamond",
+    "recorded_time": 6770.821525002,
+    "source_run": "run_20261011_151606_11971_1791702966441372669",
+    "card_window": false,
+    "image_note": "Unannotated saved camera JPEG; current-code replay, not original executable"
+  },
+  {
+    "id": "0017",
+    "image": "inputs/0017_cross_cy0.6893931636103877_g1.jpg",
+    "truth": "square",
+    "roi_xyxy": [
+      380,
+      400,
+      565,
+      590
+    ],
+    "pitch_deg": 45.0,
+    "recorded_shape": "cross",
+    "recorded_time": 6800.62645766,
+    "source_run": "run_20261011_151606_11971_1791702966441372669",
+    "card_window": true,
+    "image_note": "Unannotated saved camera JPEG; current-code replay, not original executable"
+  },
+  {
+    "id": "0027",
+    "image": "inputs/0027_pentagon_cy0.4977203369140625_g1.jpg",
+    "truth": "pentagon",
+    "roi_xyxy": [
+      360,
+      280,
+      550,
+      430
+    ],
+    "pitch_deg": 42.417691488335294,
+    "recorded_shape": "pentagon",
+    "recorded_time": 6816.063479409,
+    "source_run": "run_20261011_151606_11971_1791702966441372669",
+    "card_window": false,
+    "image_note": "Unannotated saved camera JPEG; current-code replay, not original executable"
+  },
+  {
+    "id": "0028",
+    "image": "inputs/0028_None_cy0.7425925925925926_g0.jpg",
+    "truth": "pentagon",
+    "roi_xyxy": [
+      470,
+      420,
+      705,
+      635
+    ],
+    "pitch_deg": 41.58901731488918,
+    "recorded_shape": null,
+    "recorded_time": 6816.98532371,
+    "source_run": "run_20261011_151606_11971_1791702966441372669",
+    "card_window": true,
+    "image_note": "Unannotated saved camera JPEG; current-code replay, not original executable"
+  },
+  {
+    "id": "0029",
+    "image": "inputs/0029_None_cyNone_g0.jpg",
+    "truth": "pentagon",
+    "roi_xyxy": [
+      530,
+      555,
+      785,
+      720
+    ],
+    "pitch_deg": 45.0,
+    "recorded_shape": null,
+    "recorded_time": 6818.469683231,
+    "source_run": "run_20261011_151606_11971_1791702966441372669",
+    "card_window": true,
+    "image_note": "Unannotated saved camera JPEG; current-code replay, not original executable"
+  },
+  {
+    "id": "dark_square",
+    "image": "inputs/latest_square_card_capture_20261010.jpg",
+    "truth": "square",
+    "roi_xyxy": [
+      690,
+      455,
+      865,
+      605
+    ],
+    "pitch_deg": 45.0,
+    "recorded_shape": null,
+    "image_note": "Archived photo, exact exposure and pose unverified"
+  }
+]

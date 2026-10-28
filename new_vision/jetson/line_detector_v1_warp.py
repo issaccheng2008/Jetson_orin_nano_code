@@ -183,6 +183,7 @@ class LineDetector:
         self._rebuild_err_scale()
 
         # ── Threshold params ──
+        self.vision_backend = None  # Explicitly assigned by --vision-device.
         self.preprocess_mode = "legacy"
         self.adaptive_c = -12.0
         self.photometric_mode = "legacy"
@@ -1896,7 +1897,9 @@ class LineDetector:
                                    MAX_CHANNEL_REFERENCE, lut_input="max_channel")
 
         # ── Step 1: Warp to birdseye (single warp, derive gray on birdseye) ──
-        bgr_bird = cv2.warpPerspective(bgr, self.M, (self.bird_w, self.bird_h))
+        bgr_bird = (self.vision_backend.warp(bgr, self.M, (self.bird_w, self.bird_h))
+                    if self.vision_backend is not None
+                    else cv2.warpPerspective(bgr, self.M, (self.bird_w, self.bird_h)))
         # Unobserved ground stays black for display, and has ZERO weight in processing.
         valid = self.ground_valid_mask
         bgr_bird[~valid] = 0
@@ -1908,13 +1911,16 @@ class LineDetector:
         img_cx = self.center_x
         gray_detect, binary_clean, black_th, preprocess_debug = extract_lane_candidates(
             gray, self.preprocess_mode, self.th_offset, self.th_min, self.th_max,
-            photometry=self._photometry, adaptive_c=self.adaptive_c, valid_mask=valid)
+            photometry=self._photometry, adaptive_c=self.adaptive_c, backend=self.vision_backend,
+            valid_mask=valid)
         gray_detect[~valid] = 0
         binary_clean[~valid] = 0
         preprocess_debug["ipm_metric_cm_per_px"] = self.cm_per_px
         preprocess_debug["ipm_valid_fraction"] = float(np.mean(valid))
         preprocess_debug.update(self._photometry.diagnostics())
         preprocess_debug["photometric_match_applied"] = self._photometry.match_allowed
+        if self.vision_backend is not None:
+            preprocess_debug.update(self.vision_backend.diagnostics())
         preprocess_debug["centroid_min_contrast_effective"] = self._photometry.difference(
             self.centroid_min_contrast)
 

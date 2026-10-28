@@ -1,0 +1,4 @@
+old_bright raw 31 conf>0.5 31 pair>=0.5 31
+old_bright match 31 conf>0.5 31 pair>=0.5 31
+dark_unverified raw 1 conf>0.5 1 pair>=0.5 1
+dark_unverified match 1 conf>0.5 0 pair>=0.5 0

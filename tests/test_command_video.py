@@ -15,6 +15,26 @@ from command_video import CommandVideo, draw_command, line_lost
 
 
 class CommandVideoTests(unittest.TestCase):
+    def test_processed_bird_pair_records_lane_luminance_without_rethresholding(self):
+        luminance = np.tile(np.arange(320, dtype=np.uint8), (400, 1))
+        mask = np.zeros((400, 320), np.uint8)
+        mask[:, 100:115] = 255
+        writer = Mock()
+        writer.isOpened.return_value = True
+        with tempfile.TemporaryDirectory() as tmp, patch('command_video.cv2.VideoWriter', return_value=writer):
+            recorder = CommandVideo(Path(tmp), frame_source='bird_luma_pair')
+            recorder.submit((luminance, mask), frame_id=1, host_time_ns=1,
+                            monotonic_s=1., vx=.2, wz=0., lost=False)
+            recorder.close()
+            manifest = json.loads((Path(tmp)/'manifest.json').read_text())
+        self.assertIsNone(recorder.error)
+        encoded = writer.write.call_args.args[0]
+        for channel in range(3):
+            np.testing.assert_array_equal(encoded[:400, :320, channel], luminance)
+            np.testing.assert_array_equal(encoded[:400, 320:, channel], mask)
+        self.assertEqual(manifest['detector_debug_key'], 'bird,binary')
+        self.assertEqual(manifest['frame_source'], 'bird_luma_pair')
+
     def test_bird_pair_preserves_colour_mask_and_existing_footer(self):
         colour = np.full((400,320,3), (30,100,220), np.uint8)
         mask = np.zeros((400,320), np.uint8)

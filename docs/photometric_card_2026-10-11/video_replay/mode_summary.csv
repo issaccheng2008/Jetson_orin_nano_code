@@ -1,0 +1,5 @@
+mode,preprocess,positive_episodes,negative_episodes,positive_calls,negative_calls,matched_presence_calls,matched_quad_calls,correct_class_calls,wrong_class_calls,episodes_with_any_correct,episodes_with_any_wrong,potential_gate_positive_episodes,potential_gate_negative_episodes,negative_presence_calls,negative_cue_gate_calls
+match,selective,9,7,80,167,33,5,5,0,2,0,8,0,0,0
+raw,selective,9,7,80,167,22,5,5,0,2,0,6,0,0,0
+threshold,selective,9,7,80,167,33,6,6,0,2,0,8,0,0,0
+raw,local_dark,9,7,80,167,27,15,10,5,3,4,7,0,0,0

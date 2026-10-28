@@ -1,0 +1,38 @@
+Camera 0: 1280x720; UDP -> 127.0.0.1:5006; vx=0.2 m/s; max_wz=0.5 rad/s (right 0.5); yaw_sign=1; red=off; sl_gain=1.0; line_pitch=off; hold-still=off; gate=off; wz_mode=discrete; center_dead=4.0cm; bias=0.0->3.0(dead 6.0, full 12.0)
+Body attitude: udp://127.0.0.1:5007 tau=1.2s; 安装角 45.0° 会被机身俯仰实时修正
+[wz] 离散模式：wz 只有 {0, +0.5} 两个状态。err ≥ 3.5cm 就开一段转向，err 回到 0.1cm 以内就提前收手，最多 2.50s（--wz-turn-s 是上限，不是定长）；转完强制空 0.50s 才允许下一段。五个数都自由可调。只在车身偏右（err>0）时才左转，偏左不转；--center-dead-cm / --steer-full-scale-cm / --bias-cm / PID 增益在这个模式下不影响输出。
+[wz] ⚠️ A 那边要用 --max-wz-accel 0，否则一段转向会被它的斜率限制削成三角形（默认 2.0 时 0→0.5 要爬 0.25s）
+[wz] 幅度 0.5 挑的是「大且稳」那一端：关节在小角度下比大角度还不稳，所以不拿小量加精确时长去凑。参考：--vx 0.2 下跟住一个弯要 0.258 rad/s（只是参考，幅度不跟着它走）。触发看原始 err=
+[shape] records/shape_dump: cleared 38 files from the last run
+[vision] records/loss_dump: cleared 36 files from the last run
+[vision]   31Hz vx=+0.200 wz=+0.000 err=+1.9cm conf=0.97 qr=-1 | steer=+1.54 eff=+1.9 ang=+17.9 curve=0/-3 far=-24 lr=11 lock=1pair=1.00 lost=0 lscale=1.001 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.500 err=+6.3cm conf=0.97 qr=-1 | steer=+6.03 eff=+6.3 ang=+17.9 curve=0/-1 far=-24 lr=11 lock=1pair=1.00 lost=0 lscale=1.005 pitch=45.0
+[vision]   14Hz vx=+0.200 wz=+0.500 err=+7.1cm conf=0.97 qr=-1 | steer=+6.18 eff=+7.1 ang=+17.9 curve=0/-1 far=-24 lr=11 lock=1pair=1.00 lost=0 lscale=1.009 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.500 err=+7.2cm conf=0.97 qr=-1 | steer=+6.05 eff=+7.2 ang=+17.5 curve=0/-0 far=-24 lr=11 lock=1pair=1.00 lost=0 lscale=1.012 pitch=45.0
+[vision]   13Hz vx=+0.200 wz=+0.500 err=+7.6cm conf=0.98 qr=-1 | steer=+6.51 eff=+7.6 ang=+21.2 curve=0/-9 far=-32 lr=11 lock=1pair=1.00 lost=0 lscale=1.015 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.000 err=+7.8cm conf=0.98 qr=-1 | steer=+7.53 eff=+8.6 ang=+21.0 curve=0/-9 far=-32 lr=11 lock=1pair=1.00 lost=0 lscale=1.018 pitch=45.0
+[shape] cy=0.48 cue=0.10 found=0 shape=- quad=513g0v0 rej=area_max:368 ground:85 armed=1 cand=Nonex0
+[shape] cy=0.47 cue=0.09 found=0 shape=- quad=514g0v0 rej=area_max:396 angle:68 armed=1 cand=Nonex0
+[vision]   11Hz vx=+0.200 wz=+0.000 err=+7.8cm conf=0.98 qr=-1 | steer=+7.85 eff=+9.1 ang=+21.1 curve=0/-9 far=-32 lr=11 lock=1pair=1.00 lost=0 lscale=1.019 pitch=45.0
+[shape] cy=- cue=0.00 found=0 shape=- quad=515g0v0 rej=area_max:353 ground:111 armed=1 cand=Nonex0
+[vision]   12Hz vx=+0.200 wz=+0.500 err=+7.8cm conf=0.98 qr=-1 | steer=+7.93 eff=+9.3 ang=+21.1 curve=0/-9 far=-32 lr=11 lock=1pair=1.00 lost=0 lscale=1.021 pitch=45.0
+[shape] cy=- cue=0.00 found=0 shape=- quad=514g0v0 rej=area_max:364 ground:97 armed=1 cand=Nonex0
+[vision]   14Hz vx=+0.200 wz=+0.500 err=+7.8cm conf=0.98 qr=-1 | steer=+7.95 eff=+9.4 ang=+21.2 curve=0/-9 far=-32 lr=11 lock=1pair=1.00 lost=0 lscale=1.023 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.500 err=+7.9cm conf=0.98 qr=-1 | steer=+7.98 eff=+9.4 ang=+21.0 curve=0/-9 far=-32 lr=11 lock=1pair=1.00 lost=0 lscale=1.024 pitch=42.9
+[vision] lock lost (pair 1.00->0.00, conf 0.98->0.46) -> records/loss_dump #1
+[vision]   12Hz vx=+0.200 wz=+0.500 err=+10.9cm conf=0.37 qr=-1 | steer=+12.10 eff=+13.3 ang=+27.7 curve=0/-13 far=-74 lr=11 lock=0pair=0.00 lost=0 lscale=1.020 pitch=45.0
+[vision]   18Hz vx=+0.200 wz=+0.500 err=+12.7cm conf=0.45 qr=-1 | steer=+12.67 eff=+15.1 ang=+31.4 curve=0/-14 far=-55 lr=11 lock=0pair=0.00 lost=0 lscale=1.007 pitch=46.1
+[vision]   15Hz vx=+0.200 wz=+0.000 err=+7.8cm conf=0.17 qr=-1 | steer=+7.01 eff=+9.2 ang=+69.4 curve=1/-4 far=+39 lr=11 lock=0pair=0.00 lost=0 lscale=1.009 pitch=44.4
+[vision]   16Hz vx=+0.200 wz=+0.500 err=+2.9cm conf=0.30 qr=-1 | steer=+4.96 eff=+5.9 ang=+48.9 curve=1/-25 far=+5 lr=11 lock=0pair=0.00 lost=0 lscale=1.003 pitch=43.9
+[vision]   17Hz vx=+0.200 wz=+0.000 err=-3.6cm conf=0.60 qr=-1 | steer=-2.97 eff=-0.6 ang=+43.1 curve=1/-22 far=+41 lr=10 lock=0pair=0.00 lost=0 lscale=1.000 pitch=44.3
+[vision]   17Hz vx=+0.200 wz=+0.000 err=-6.1cm conf=0.36 qr=-1 | steer=-3.70 eff=-3.1 ang=+48.7 curve=1/-24 far=+29 lr=11 lock=0pair=0.00 lost=0 lscale=0.994 pitch=43.4
+[vision]   18Hz vx=+0.200 wz=+0.000 err=-6.3cm conf=0.40 qr=-1 | steer=-2.69 eff=-3.3 ang=-22.1 curve=1/-30 far=+7 lr=10 lock=0pair=0.00 lost=0 lscale=0.991 pitch=44.1
+[vision]   18Hz vx=+0.200 wz=+0.000 err=-6.3cm conf=0.40 qr=-1 | steer=-2.73 eff=-3.3 ang=+10.5 curve=1/+0 far=+59 lr=11 lock=0pair=0.00 lost=0 lscale=0.997 pitch=43.9
+[vision]   18Hz vx=+0.200 wz=+0.000 err=-8.5cm conf=0.40 qr=-1 | steer=-4.75 eff=-5.7 ang=+55.8 curve=1/+0 far=+79 lr=11 lock=0pair=0.00 lost=0 lscale=1.016 pitch=43.9
+[vision]   17Hz vx=+0.200 wz=+0.000 err=-8.2cm conf=0.33 qr=-1 | steer=-6.68 eff=-8.0 ang=-52.3 curve=1/+35 far=+30 lr=11 lock=0pair=0.00 lost=0 lscale=1.034 pitch=40.5
+[vision]   13Hz vx=+0.200 wz=+0.000 err=-7.9cm conf=0.29 qr=-1 | steer=-6.54 eff=-7.9 ang=-65.8 curve=1/+54 far=+70 lr=11 lock=0pair=0.00 lost=0 lscale=1.055 pitch=45.0
+[vision]   17Hz vx=+0.200 wz=+0.000 err=-6.4cm conf=0.23 qr=-1 | steer=-5.16 eff=-6.4 ang=-41.1 curve=1/+0 far=-96 lr=11 lock=0pair=0.00 lost=0 lscale=1.066 pitch=44.3
+[vision]   18Hz vx=+0.200 wz=+0.000 err=-1.9cm conf=0.16 qr=-1 | steer=+3.57 eff=+1.1 ang=-56.0 curve=1/+36 far=+18 lr=11 lock=0pair=0.00 lost=0 lscale=1.086 pitch=43.8
+[vision]   15Hz vx=+0.200 wz=+0.500 err=+3.8cm conf=0.41 qr=-1 | steer=+3.44 eff=+3.8 ang=-28.2 curve=0/+16 far=-61 lr=11 lock=0pair=0.00 lost=0 lscale=1.103 pitch=43.2
+[vision]   15Hz vx=+0.200 wz=+0.500 err=+4.6cm conf=0.39 qr=-1 | steer=+3.83 eff=+4.6 ang=+30.2 curve=1/-28 far=-3 lr=11 lock=0pair=0.00 lost=0 lscale=1.094 pitch=42.1
+[vision]   15Hz vx=+0.200 wz=+0.500 err=+4.7cm conf=0.13 qr=-1 | steer=+6.40 eff=+7.7 ang=-66.0 curve=1/+50 far=+17 lr=11 lock=0pair=0.00 lost=0 lscale=1.096 pitch=40.1

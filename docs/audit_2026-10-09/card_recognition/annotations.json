@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "coordinate_system": "box_keyframes xyxy in normalized original uncropped coordinates; manually rough outer card ROI, linear interpolation between manually inspected keyframes",
+  "selection": "Uniform temporal contact sheets and human image review before detector outputs. Shared development validation; not an unseen holdout.",
+  "frame_indexing": "zero based inclusive",
+  "sampling_default_every": 3,
+  "restoration_note": "Recovered exact intervals and ROI coordinates from this conversation after temporary files were lost; no detector outputs used to alter GT.",
+  "excluded_frozen_intervals": [
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 543, "end": 558},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 1178, "end": 1212}
+  ],
+  "excluded_stress_intervals": [
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 1213, "end": 1341}
+  ],
+  "sequences": [
+    {"id": "new_triangle", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 327, "end": 335, "truth": "triangle", "split": "validation", "note": "Historical HUD; not true capture latency evidence", "box_keyframes": [{"frame": 327, "xyxy": [0.53,0.55,0.66,0.73]}, {"frame": 330, "xyxy": [0.53,0.50,0.65,0.70]}, {"frame": 335, "xyxy": [0.56,0.74,0.72,0.98]}]},
+    {"id": "new_square_approach", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 510, "end": 540, "truth": "square", "split": "validation", "note": "", "box_keyframes": [{"frame": 510, "xyxy": [0.305,0.18,0.40,0.31]}, {"frame": 520, "xyxy": [0.375,0.235,0.475,0.375]}, {"frame": 530, "xyxy": [0.385,0.315,0.485,0.465]}, {"frame": 540, "xyxy": [0.35,0.43,0.48,0.61]}]},
+    {"id": "new_circle_approach", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 688, "end": 707, "truth": "circle", "split": "validation", "note": "", "box_keyframes": [{"frame": 688, "xyxy": [0.03,0.29,0.16,0.43]}, {"frame": 695, "xyxy": [0.075,0.395,0.185,0.525]}, {"frame": 700, "xyxy": [0.09,0.485,0.235,0.685]}, {"frame": 707, "xyxy": [0.075,0.49,0.23,0.72]}]},
+    {"id": "new_circle_restart", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 798, "end": 809, "truth": "circle", "split": "validation", "note": "Short moving restart; HUD may cover lower border", "box_keyframes": [{"frame": 798, "xyxy": [0.225,0.675,0.36,0.855]}, {"frame": 804, "xyxy": [0.465,0.915,0.645,1.0]}, {"frame": 809, "xyxy": [0.38,0.65,0.52,0.855]}]},
+    {"id": "new_square_clear", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 1125, "end": 1160, "truth": "square", "split": "validation", "note": "", "box_keyframes": [{"frame": 1125, "xyxy": [0.55,0.11,0.655,0.255]}, {"frame": 1130, "xyxy": [0.43,0.285,0.535,0.395]}, {"frame": 1140, "xyxy": [0.41,0.25,0.50,0.355]}, {"frame": 1150, "xyxy": [0.395,0.38,0.505,0.515]}, {"frame": 1160, "xyxy": [0.315,0.415,0.46,0.58]}]},
+    {"id": "new_empty_reflection", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 370, "end": 460, "truth": "negative", "split": "validation", "note": "Floor glare and lane marks; no card visible", "box_keyframes": []},
+    {"id": "new_empty_floor", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 850, "end": 980, "truth": "negative", "split": "validation", "note": "Floor/view transitions and still scenes; no card visible", "box_keyframes": []},
+    {"id": "new_cable_powerstrip", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi", "start": 990, "end": 1105, "truth": "negative", "split": "validation", "note": "Loose cable, power strip, floor reflections and shoes; no card visible", "box_keyframes": []},
+    {"id": "old_triangle", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_10_34_Pro_flip.mp4", "start": 40, "end": 70, "truth": "triangle", "split": "validation", "note": "", "box_keyframes": [{"frame": 40, "xyxy": [0.495,0.28,0.60,0.43]}, {"frame": 50, "xyxy": [0.565,0.43,0.675,0.56]}, {"frame": 60, "xyxy": [0.655,0.555,0.80,0.73]}, {"frame": 70, "xyxy": [0.70,0.76,0.88,1.0]}]},
+    {"id": "old_triangle_empty", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_10_34_Pro_flip.mp4", "start": 95, "end": 130, "truth": "negative", "split": "validation", "note": "Card has left image; floor reflections and lane edge", "box_keyframes": []},
+    {"id": "old_square", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_11_50_Pro_flip.mp4", "start": 50, "end": 100, "truth": "square", "split": "validation", "note": "", "box_keyframes": [{"frame": 50, "xyxy": [0.22,0.28,0.31,0.38]}, {"frame": 60, "xyxy": [0.20,0.23,0.29,0.345]}, {"frame": 70, "xyxy": [0.19,0.43,0.33,0.565]}, {"frame": 80, "xyxy": [0.58,0.48,0.73,0.635]}, {"frame": 90, "xyxy": [0.575,0.55,0.745,0.76]}, {"frame": 100, "xyxy": [0.53,0.72,0.705,1.0]}]},
+    {"id": "old_square_empty", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_11_50_Pro_flip.mp4", "start": 115, "end": 138, "truth": "negative", "split": "validation", "note": "", "box_keyframes": []},
+    {"id": "old_star_long", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_13_14_Pro_flip.mp4", "start": 85, "end": 100, "truth": "pentagon", "split": "validation", "note": "Human visually identifies five point star; action class pentagon=2", "box_keyframes": [{"frame": 85, "xyxy": [0.555,0.32,0.70,0.52]}, {"frame": 90, "xyxy": [0.46,0.465,0.605,0.61]}, {"frame": 95, "xyxy": [0.575,0.50,0.755,0.795]}, {"frame": 100, "xyxy": [0.585,0.64,0.72,0.885]}]},
+    {"id": "old_star_empty", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_13_14_Pro_flip.mp4", "start": 120, "end": 172, "truth": "negative", "split": "validation", "note": "", "box_keyframes": []},
+    {"id": "old_star_short", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_13_53_Pro_flip.mp4", "start": 35, "end": 60, "truth": "pentagon", "split": "validation", "note": "Human visually identifies five point star; action class pentagon=2", "box_keyframes": [{"frame": 35, "xyxy": [0.315,0.31,0.43,0.485]}, {"frame": 40, "xyxy": [0.43,0.405,0.575,0.54]}, {"frame": 45, "xyxy": [0.405,0.405,0.52,0.605]}, {"frame": 50, "xyxy": [0.49,0.49,0.645,0.675]}, {"frame": 55, "xyxy": [0.495,0.545,0.675,0.805]}, {"frame": 60, "xyxy": [0.51,0.66,0.71,0.975]}]},
+    {"id": "old_star_short_empty", "source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_13_53_Pro_flip.mp4", "start": 80, "end": 124, "truth": "negative", "split": "validation", "note": "", "box_keyframes": []}
+  ],
+  "stills": [
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_32_21_Pro.jpg", "truth": "triangle", "box": [0.50,0.33,0.625,0.485], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_32_48_Pro.jpg", "truth": "triangle", "box": [0.49,0.46,0.635,0.66], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_32_50_Pro.jpg", "truth": "triangle", "box": [0.49,0.46,0.635,0.66], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_20_Pro.jpg", "truth": "triangle", "box": [0.475,0.235,0.59,0.39], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_21_Pro.jpg", "truth": "triangle", "box": [0.465,0.27,0.58,0.415], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_43_Pro.jpg", "truth": "triangle", "box": [0.47,0.18,0.575,0.29], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_45_Pro.jpg", "truth": "triangle", "box": [0.47,0.18,0.575,0.29], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_52_Pro.jpg", "truth": "triangle", "box": [0.47,0.18,0.575,0.29], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_34_06_Pro.jpg", "truth": "triangle", "box": [0.47,0.18,0.57,0.275], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_34_08_Pro.jpg", "truth": "triangle", "box": [0.47,0.18,0.57,0.275], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_34_10_Pro.jpg", "truth": "triangle", "box": [0.47,0.18,0.57,0.275], "note": "Human visual triangle; rough ROI; no chronology"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Github Repository/Jetson_orin_nano_code/records/shape_dump_3/0001_None_cy0.36574074074074076_g0.jpg", "truth": "negative", "box": null, "split": "independent_negative", "note": "Visual no card; filenames/HUD ignored; no chronology inferred"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Github Repository/Jetson_orin_nano_code/records/shape_dump_3/0002_None_cyNone_g0.jpg", "truth": "negative", "box": null, "split": "independent_negative", "note": "Visual no card; filenames/HUD ignored; no chronology inferred"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Github Repository/Jetson_orin_nano_code/records/shape_dump_3/0003_None_cyNone_g0.jpg", "truth": "negative", "box": null, "split": "independent_negative", "note": "Visual no card; filenames/HUD ignored; no chronology inferred"},
+    {"source": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/背景.png", "truth": "negative", "box": null, "note": "Dedicated background capture"}
+  ],
+  "limitations": [
+    "Rough ROI interpolation tolerates shaking and is not segmentation or precision IoU ground truth.",
+    "Historical HUD is not target detector evidence and must not be interpreted as labels.",
+    "Motion selected visually; saved video FPS is not proven original capture FPS or real robot time.",
+    "Continuous frames are correlated; aggregate by encounter, not independent image confidence intervals.",
+    "Videos cover triangle, square, circle and star; all six classes are covered by 31 photos separately."
+  ]
+}

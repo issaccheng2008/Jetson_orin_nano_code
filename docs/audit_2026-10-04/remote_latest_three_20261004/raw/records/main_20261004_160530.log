@@ -1,0 +1,33 @@
+[0;93m2026-10-04 16:05:30.696283422 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card1": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card1/device/vendor"[m
+[0;93m2026-10-04 16:05:30.696395394 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card0": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card0/device/vendor"[m
+ONNX input='obs', output='actions'
+Shape one-foot ONNX input='obs', output='actions'
+Policy command source: new_vision/connector on udp://127.0.0.1:5005; timeout=0.250s; live vx/wz, vy=0; fixed-command timer disabled
+Step: 5.00 cm (--step-cm), independent of vx; the cadence is the policy's own
+Target limits: margin=0.05 rad; slew=3 rad/s (0=off); feedback-window=10 deg (0=off); absolute-lower=[-1.5700000524520874, -1.5700000524520874, -1.5700000524520874, -1.5700000524520874, -0.5, -0.5, -1.5700000524520874, -0.5, -1.5700000524520874, -1.5700000524520874, -0.5, -0.5]; absolute-upper=[1.5700000524520874, 0.5, 1.5700000524520874, 1.5700000524520874, 0.5, 0.5, 1.5700000524520874, 1.5700000524520874, 1.5700000524520874, 1.5700000524520874, 0.5, 0.5]
+Body attitude broadcast: udp://127.0.0.1:5007 at 10 Hz
+Opening /dev/ttyACM0 (line coding 921600; native USB CDC ignores physical baud)
+MOTORS ENABLED
+Walking vx/wz minimum hold: 0.5 s at model input; stops and takeovers preempt
+Motor-position and IMU log: records/motor_positions/motor_positions_20261004_160530_750237.csv
+Received STM32 state packet, sequence=4
+Control diagnostic run=20261004T080530_0aa94a362c57485f9d78a8d342be4519: records/control_diagnostics/control_trace_20261004T080530_0aa94a362c57485f9d78a8d342be4519.csv; manifest=records/control_diagnostics/control_trace_20261004T080530_0aa94a362c57485f9d78a8d342be4519.manifest.json
+step=     0 state_seq=   13 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.500s infer=0.317ms |obs|max=0.999 |action|max=1.384 crc_errors=0
+step=    25 state_seq=  513 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.000s infer=0.458ms |obs|max=1.693 |action|max=1.689 crc_errors=0
+step=    50 state_seq= 1013 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.400 rad/s] hold_remaining=0.100s infer=0.398ms |obs|max=1.705 |action|max=1.495 crc_errors=0
+step=    75 state_seq= 1513 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.360s infer=0.299ms |obs|max=1.814 |action|max=1.415 crc_errors=0
+step=   100 state_seq= 2013 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=-0.100 rad/s] hold_remaining=0.460s infer=0.414ms |obs|max=1.618 |action|max=1.486 crc_errors=0
+step=   125 state_seq= 2513 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=-0.100 rad/s] hold_remaining=0.000s infer=0.280ms |obs|max=1.398 |action|max=1.202 crc_errors=0
+step=   150 state_seq= 3013 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=-0.400 rad/s] hold_remaining=0.140s infer=0.297ms |obs|max=1.783 |action|max=1.871 crc_errors=0
+step=   175 state_seq= 3513 policy_target_velocity=[vx=+0.000 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.000s infer=0.375ms |obs|max=1.708 |action|max=1.776 crc_errors=0
+
+====================================================================
+  ●●●  姿态事件 action=7 event=1    重摆：机身扳回安装姿态（等到了站定才发）
+====================================================================
+
+step=   200 state_seq= 4014 policy_target_velocity=[vx=+0.000 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.000s infer=0.314ms |obs|max=1.765 |action|max=1.765 crc_errors=0
+step=   225 state_seq= 4515 policy_target_velocity=[vx=+0.000 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.000s infer=0.567ms |obs|max=1.765 |action|max=1.765 crc_errors=0
+step=   250 state_seq= 5015 policy_target_velocity=[vx=+0.000 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.000s infer=0.261ms |obs|max=1.765 |action|max=1.765 crc_errors=0
+step=   275 state_seq= 5515 policy_target_velocity=[vx=+0.000 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] hold_remaining=0.000s infer=0.114ms |obs|max=1.765 |action|max=1.765 crc_errors=0
+[link] STM32 掉线（state: STM32 state is missing or stale (0.058 s)）—— 等 USB 回来重连
+FAULT: STM32 did not come back on /dev/ttyACM0 within 10s (No valid STM32 state packet received)

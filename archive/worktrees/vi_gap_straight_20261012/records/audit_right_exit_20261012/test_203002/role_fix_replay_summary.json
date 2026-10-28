@@ -1,0 +1,8 @@
+{
+  "frames": 279,
+  "baseline_frame_matches": 279,
+  "baseline_final_matches": 279,
+  "changed_frame_commands": 23,
+  "changed_final_commands": 27,
+  "limitations": "Same recorded geometry, controller/window replay. Does not predict driving trajectory; new commands would change future real observations."
+}

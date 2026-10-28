@@ -1,0 +1,868 @@
+From 628d296203d86a63d8fd42b3c4b62412f8ced3a1 Mon Sep 17 00:00:00 2001
+From: yuque <3957054419@qq.com>
+Date: Fri, 2 Oct 2026 13:22:58 +0800
+Subject: [PATCH 1/3] =?UTF-8?q?feat:=20=E5=81=9C=E8=BD=A6=E8=AF=BB?=
+ =?UTF-8?q?=E5=8D=A1=E7=9A=84=E9=87=8D=E6=91=86=20=E2=80=94=E2=80=94=20?=
+ =?UTF-8?q?=E5=8A=A8=E4=BD=9C=207/8=EF=BC=8Cleg=20pitch=20=E5=81=8F?=
+ =?UTF-8?q?=E7=BD=AE=20+=20=E9=94=81=E5=AD=98=E5=A7=BF=E6=80=81=E4=B8=8A?=
+ =?UTF-8?q?=E6=8A=A5?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+上位机在停车那一刻发动作号 7、识别到形状那一刻发 8（见 Jetson_orin_nano_code
+humanoid_jetson_deploy/protocol.py 的 ACTION_CARD_TILT / ACTION_CARD_RESTORE）。
+顺序：前倾 -> 识别 -> 后仰 -> 做动作。重摆只服务于读卡，认出形状后机身就回去，
+动作期间给 Nano 的是真实姿态。
+
+动作 7 锁存此刻的 IMU 姿态，并给左右 leg pitch 加偏置把机身扳回去；动作 8 撤销。
+锁存期间上报锁存值 —— 上位机的图卡几何按安装角 45° 标定，全程看到的姿态没变。
+
+改动：
+- main.c 枚举加 ROBOT_STATE_CARD_TILT / ROBOT_STATE_CARD_RESTORE
+- main.c Handle_Action_Request 加 case 7U / case 8U
+- main.c 状态机加两个 case，加 ROBOT_CARD_TILT() / ROBOT_CARD_RESTORE()
+- jetson_robot_bridge.c 加 CardTiltLatch / CardTiltRelease / CardTiltSetOffset
+- jetson_robot_bridge.c apply_position_targets 叠加 leg pitch 偏置
+- jetson_robot_bridge.c SendState 在锁存期间上报锁存四元数
+
+三个刻意的决定：
+
+1. 偏置是**叠加**在 Nano 的关节目标上，不是接管。Nano 每 20ms 一直在发目标，
+   接管就得跟它抢；叠加没有这个问题，两边谁也不用停。
+2. 偏置按**电机 ID** 判（l_leg_pitch / r_leg_pitch），不按协议下标。
+   本文件开头那段注释说协议 0..5 是左腿，而上位机的 config.JOINT_NAMES 是
+   右腿在前，两边对不上；按电机 ID 判就不用先弄清谁对。
+3. 两个状态走完都回 ROBOT_STATE_IDLE，但**偏置和锁存留着**。
+   Handle_Action_Request 里 active_action_status == ACCEPTED 会把后续请求全判成
+   BUSY —— 状态停在那儿不退的话，紧接着来的那条图形动作（1/2/5/6）会被拒掉。
+
+⚠️ CARD_TILT_LEG_PITCH_RAD 的正负方向要台架试，见头文件里那段注释。倾角不用准。
+⚠️ 偏置必须逐步给（CARD_TILT_STEP_RAD / STEP_MS），一步跳 20° 会直接把人掀了。
+⚠️ 锁存点在 ROBOT_CARD_TILT 的 case 0，也就是"偏置还没加"的那一刻 —— 取的是
+   前倾之前的值，正是"Nano 看到的旧值不变"。如果你要的是前倾之后的值，把
+   CardTiltLatch() 挪到 case 2 即可（一行）。
+
+没有 arm-none-eabi-gcc，编不了。用宿主 gcc 做了语法检查（两个文件零错误，
+只有 ARM 相关的警告），真正的编译和上电还没做。
+---
+ Core/Inc/jetson_robot_bridge.h |  34 +++++++++++
+ Core/Src/jetson_robot_bridge.c |  66 +++++++++++++++++++-
+ Core/Src/main.c                | 106 +++++++++++++++++++++++++++++++++
+ 3 files changed, 204 insertions(+), 2 deletions(-)
+
+diff --git a/Core/Inc/jetson_robot_bridge.h b/Core/Inc/jetson_robot_bridge.h
+index fc94aca..2f32069 100644
+--- a/Core/Inc/jetson_robot_bridge.h
++++ b/Core/Inc/jetson_robot_bridge.h
+@@ -15,6 +15,40 @@ void JetsonRobotBridge_ProcessCommand(void);
+ uint8_t JetsonRobotBridge_SendState(void);
+ void JetsonRobotBridge_OnUsbReceive(uint8_t *data, uint32_t length);
+ 
++/*
++ * 停车读卡时的机身重摆（Nano 发动作号 7 / 8）。
++ *
++ * Latch 记下那一刻的姿态，Release 之后恢复真实上报；两者之间上报的都是
++ * 锁存值。上位机的图卡几何按安装角 45° 标定，重摆把机身扳回那个姿态，
++ * 所以锁存值在重摆之后恰好是真值 —— Nano 看到的姿态从头到尾没变。
++ *
++ * SetOffset 设腿 pitch 偏置（弧度，0 = 撤销）。Nano 每 20ms 发来的关节目标
++ * 被叠加上这个偏置，不是被接管 —— 所以 Nano 那边不用停发，也不会打架。
++ *
++ * ⚠️ SetOffset 必须是**逐步**调用的，别一次给满：0.2 rad 是 11°，踝关节
++ * 一步跳过去会直接把人掀了。状态机里按小步逼近，具体见 main.c 的
++ * ROBOT_CARD_TILT()。
++ */
++void JetsonRobotBridge_CardTiltLatch(void);
++void JetsonRobotBridge_CardTiltRelease(void);
++void JetsonRobotBridge_CardTiltSetOffset(float radians);
++
++/* 重摆倾角总量，弧度，加在**左右 leg pitch** 两个关节的**电机**目标上。
++ * 单位是电机坐标系（已经过了 motor_direction_target 的反向），左右两条腿
++ * 用同一个数 —— 镜像在电机那一侧，不在这里。
++ *
++ * 为什么是 leg pitch：停车的后仰就是这两个关节造成的，把同一个偏置加回去
++ * 是最直接的抵消。倾角**不需要准**——上位机那边的姿态是锁存的，重摆偏多少
++ * 只影响识别好不好认，不影响几何；而且它就是个固定偏置，不跟踪任何东西。
++ *
++ * ⚠️ **正负方向要台架试**：改成 +0.10 / -0.10 各跑一眼，看机身往哪边倒，
++ *    然后把实测的方向和数值写在这行注释里。 */
++#define CARD_TILT_LEG_PITCH_RAD    0.35f
++/* 每步弧度 / 每步间隔 ms。0.35 / 0.05 = 7 步、约 0.4 s。
++ * 必须逐步给：一步跳 20° 会直接把人掀了。 */
++#define CARD_TILT_STEP_RAD         0.05f
++#define CARD_TILT_STEP_MS          60U
++
+ /* Values after URDF-to-motor direction conversion, visible over ST-Link. */
+ extern volatile float g_debug_motor_target[12];
+ extern volatile uint8_t g_debug_jetson_control_active;
+diff --git a/Core/Src/jetson_robot_bridge.c b/Core/Src/jetson_robot_bridge.c
+index 048d90a..72fef4a 100644
+--- a/Core/Src/jetson_robot_bridge.c
++++ b/Core/Src/jetson_robot_bridge.c
+@@ -17,6 +17,13 @@
+ 
+ static uint32_t last_applied_command_count;
+ 
++/* 当前生效的腿 pitch 偏置，由状态机逐步逼近 CARD_TILT_LEG_PITCH_RAD */
++static volatile float card_tilt_offset_rad;
++/* 1 = 上报锁存姿态而不是真实姿态 */
++static volatile uint8_t card_tilt_latched;
++/* 触发那一刻锁存的姿态，重摆期间原样上报 */
++static float card_tilt_quat[4];
++
+ /* ---- 反馈前向预测滤波 ---- */
+ #define SMOOTHING_ALPHA         0.0f     /* 0~1: 越大越跟随预测值 */
+ #define FRAME_ANGLE_LIMIT       0.5f     /* 反馈偏离目标的最大单帧变化量 (rad) */
+@@ -68,6 +75,22 @@ static bool command_targets_are_valid(const RobotCommandPayload *command)
+     return true;
+ }
+ 
++/* 重摆期间给腿 pitch 关节的偏置。
++ *
++ * 是腿 pitch，不是踝：停车的后仰来自 leg pitch 那两个关节，所以把同一个偏置
++ * 加回去就是最直接的抵消。
++ *
++ * 按电机 ID 判，不按协议下标：本文件开头那段注释说协议 0..5 是左腿，而上位机
++ * 的 config.JOINT_NAMES 是右腿在前，两边对不上，按电机 ID 判就不用先弄清谁对。
++ */
++static float card_tilt_offset(uint8_t motor_id)
++{
++    if ((motor_id != l_leg_pitch) && (motor_id != r_leg_pitch)) {
++        return 0.0f;
++    }
++    return card_tilt_offset_rad;
++}
++
+ static void apply_position_targets(const RobotCommandPayload *command)
+ {
+     static const float base_kp[6] = {
+@@ -95,6 +118,7 @@ static void apply_position_targets(const RobotCommandPayload *command)
+         //  if(index == 0U) {
+         //     target = target - 0.08f;
+         // }
++        target += card_tilt_offset(left_motor_id[index]);
+         g_debug_motor_target[index] = target;
+         Motor_limitCtrl_float(
+             &hfdcan2,
+@@ -112,7 +136,8 @@ static void apply_position_targets(const RobotCommandPayload *command)
+             command->joint_target[protocol_index]);
+         // if(index == 0U) {
+         //     target = target +  0.08f;
+-        // }    
++        // }
++        target += card_tilt_offset(right_motor_id[index]);
+         g_debug_motor_target[protocol_index] = target;
+         Motor_limitCtrl_float(
+             &hfdcan1,
+@@ -145,6 +170,36 @@ void JetsonRobotBridge_Init(void)
+     g_debug_invalid_command_count = 0U;
+     memset(target_position, 0, sizeof(target_position));
+     last_send_tick_ms = HAL_GetTick();
++    card_tilt_offset_rad = 0.0f;
++    card_tilt_latched = 0U;
++    memset(card_tilt_quat, 0, sizeof(card_tilt_quat));
++}
++
++void JetsonRobotBridge_CardTiltLatch(void)
++{
++    __disable_irq();
++    memcpy(card_tilt_quat, &MotorIMU_Packet_float[30], sizeof(card_tilt_quat));
++    card_tilt_latched = 1U;
++    __enable_irq();
++}
++
++void JetsonRobotBridge_CardTiltRelease(void)
++{
++    card_tilt_latched = 0U;
++}
++
++void JetsonRobotBridge_CardTiltSetOffset(float radians)
++{
++    if (!isfinite(radians)) {
++        return;
++    }
++    if (radians > CARD_TILT_LEG_PITCH_RAD) {
++        radians = CARD_TILT_LEG_PITCH_RAD;
++    }
++    if (radians < -CARD_TILT_LEG_PITCH_RAD) {
++        radians = -CARD_TILT_LEG_PITCH_RAD;
++    }
++    card_tilt_offset_rad = radians;
+ }
+ 
+ void JetsonRobotBridge_ProcessCommand(void)
+@@ -263,7 +318,14 @@ uint8_t JetsonRobotBridge_SendState(void)
+     }
+     memcpy(state.accel_m_s2, &feedback[24], sizeof(state.accel_m_s2));
+     memcpy(state.gyro_rad_s, &feedback[27], sizeof(state.gyro_rad_s));
+-    memcpy(state.orientation_wxyz, &feedback[30], sizeof(state.orientation_wxyz));
++    if (card_tilt_latched != 0U) {
++        /* 重摆期间上报锁存姿态。重摆把机身扳回锁存那一刻的姿态，所以这个值
++         * 在重摆到位之后是真值 —— 上位机的图卡几何按它算，全程不受影响。 */
++        memcpy(state.orientation_wxyz, card_tilt_quat,
++               sizeof(state.orientation_wxyz));
++    } else {
++        memcpy(state.orientation_wxyz, &feedback[30], sizeof(state.orientation_wxyz));
++    }
+ 
+     if (mode_flags == 0x0FFFU) {
+         state.status_flags |= STATE_MOTORS_ENABLED;
+diff --git a/Core/Src/main.c b/Core/Src/main.c
+index 17b2878..9ab6446 100644
+--- a/Core/Src/main.c
++++ b/Core/Src/main.c
+@@ -57,6 +57,8 @@ typedef enum
+     ROBOT_STATE_TEST_IMU,         // 测试状态
+     ROBOT_STATE_TEST_UART,            // 测试状态
+     ROBOT_STATE_TEST_INIT,            // 测试状态
++    ROBOT_STATE_CARD_TILT,            // 停车读卡：重摆机身回触发那一刻的姿态
++    ROBOT_STATE_CARD_RESTORE,         // 停车读卡：撤销重摆，恢复真实姿态上报
+ }Robot_StateTypeDef;
+ 
+ /* USER CODE END PTD */
+@@ -155,6 +157,8 @@ void ROBOT_CROSS(void);
+ void ROBOT_TEST_IMU(void);
+ void ROBOT_TEST_UART(void);
+ void ROBOT_TEST_INIT(void);
++void ROBOT_CARD_TILT(void);
++void ROBOT_CARD_RESTORE(void);
+ 
+ void LCD_State_Machine(void);
+ 
+@@ -438,6 +442,20 @@ void Robot_State_Machine(void)
+         break;
+       }
+ 
++      // 停车读卡：重摆机身
++      case ROBOT_STATE_CARD_TILT:
++      {
++        ROBOT_CARD_TILT();
++        break;
++      }
++
++      // 停车读卡：撤销重摆
++      case ROBOT_STATE_CARD_RESTORE:
++      {
++        ROBOT_CARD_RESTORE();
++        break;
++      }
++
+       default:
+       {
+           robot_state = ROBOT_STATE_IDLE;
+@@ -473,6 +491,11 @@ static void Handle_Action_Request(const ActionRequestPayload *request)
+     case 2U: next_state = ROBOT_STATE_RHAND; action_count++; break;
+     case 5U: next_state = ROBOT_STATE_BOTHH; action_count++; break;
+     case 6U: next_state = ROBOT_STATE_HEAD; action_count++; break;
++    /* 停车读卡的重摆 / 恢复。不是六种图形之一，也不改 action_state。
++     * 上位机每条请求都带新的 event_id（上面那段去重逻辑靠它），所以 7 和 8
++     * 不会被当成彼此的重复。 */
++    case 7U: next_state = ROBOT_STATE_CARD_TILT; break;
++    case 8U: next_state = ROBOT_STATE_CARD_RESTORE; break;
+     default:
+       Queue_Action_Status(request->event_id, request->action_id, ACTION_STATUS_INVALID);
+       return;
+@@ -685,6 +708,89 @@ void ROBOT_HEAD(void)
+   }
+ }
+ 
++/* 当前已经施加的腿 pitch 偏置，逐步逼近 CARD_TILT_LEG_PITCH_RAD */
++static float card_tilt_cmd = 0.0f;
++
++/*
++ * 停车读卡：重摆机身。
++ *
++ * 上位机在停车那一刻发动作号 7。此刻机器人在走路，机身是直的，所以锁存下来
++ * 的姿态就是相机安装角标定时的那个姿态；接下来把机身扳回那里，锁存值就重新
++ * 变成真值 —— 上位机的图卡几何全程看到的姿态没变，但它是对的。
++ *
++ * ⚠️ 走完必须回 ROBOT_STATE_IDLE，但**偏置和锁存要留着**。
++ *    Handle_Action_Request 里 `active_action_status == ACTION_STATUS_ACCEPTED`
++ *    会把后续请求全判成 BUSY —— 而这个状态要是停在这儿不退，紧接着来的那条
++ *    图形动作（1/2/5/6）就会被拒掉。
++ */
++void ROBOT_CARD_TILT(void)
++{
++  switch (action_step)
++  {
++    case 0:
++      JetsonRobotBridge_CardTiltLatch();
++      card_tilt_cmd = 0.0f;
++      JetsonRobotBridge_CardTiltSetOffset(0.0f);
++      LCD_ClearRect(10, 10, 240, 24);
++      LCD_DisplayText(10, 10, "Mode : TILT");
++      Action_Step_Begin();
++      action_step = 1U;
++      break;
++
++    case 1:                                   /* 逐步把机身扳回去 */
++      if (!Action_Step_Elapsed(CARD_TILT_STEP_MS)) return;
++      card_tilt_cmd += CARD_TILT_STEP_RAD;
++      if (card_tilt_cmd >= CARD_TILT_LEG_PITCH_RAD) {
++        card_tilt_cmd = CARD_TILT_LEG_PITCH_RAD;
++        action_step = 2U;
++      }
++      JetsonRobotBridge_CardTiltSetOffset(card_tilt_cmd);
++      Action_Step_Begin();
++      break;
++
++    case 2:                                   /* 到位：交还 IDLE，偏置和锁存都留着 */
++      robot_state = ROBOT_STATE_IDLE;
++      LCD_ClearRect(10, 10, 240, 24);
++      LCD_DisplayText(0, 10, "Mode : IDLE");
++      break;
++  }
++}
++
++/*
++ * 停车读卡：撤销重摆。上位机在整段停车窗口关闭时发动作号 8。
++ * 同样走完回 IDLE —— 后面还要继续巡线。
++ */
++void ROBOT_CARD_RESTORE(void)
++{
++  switch (action_step)
++  {
++    case 0:
++      LCD_ClearRect(10, 10, 240, 24);
++      LCD_DisplayText(10, 10, "Mode : UNTILT");
++      Action_Step_Begin();
++      action_step = 1U;
++      break;
++
++    case 1:                                   /* 逐步放回 */
++      if (!Action_Step_Elapsed(CARD_TILT_STEP_MS)) return;
++      card_tilt_cmd -= CARD_TILT_STEP_RAD;
++      if (card_tilt_cmd <= 0.0f) {
++        card_tilt_cmd = 0.0f;
++        action_step = 2U;
++      }
++      JetsonRobotBridge_CardTiltSetOffset(card_tilt_cmd);
++      Action_Step_Begin();
++      break;
++
++    case 2:                                   /* 机身回位了，姿态上报改回真实的 */
++      JetsonRobotBridge_CardTiltRelease();
++      robot_state = ROBOT_STATE_IDLE;
++      LCD_ClearRect(10, 10, 240, 24);
++      LCD_DisplayText(0, 10, "Mode : IDLE");
++      break;
++  }
++}
++
+ void ROBOT_RESET(void)
+ {
+   if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0) == GPIO_PIN_SET){
+-- 
+2.53.0.windows.2
+
+
+From bbc204f8045661621b75784525b7f5e809d6bbbc Mon Sep 17 00:00:00 2001
+From: yuque <3957054419@qq.com>
+Date: Fri, 2 Oct 2026 14:05:59 +0800
+Subject: [PATCH 2/3] =?UTF-8?q?feat(card-tilt):=20=E9=94=81=E5=AD=98?=
+ =?UTF-8?q?=E7=82=B9=E6=8C=AA=E5=88=B0=E7=AB=99=E5=AE=9A=E4=B9=8B=E5=90=8E?=
+ =?UTF-8?q?=EF=BC=8C=E6=8A=8A=E6=95=B4=E4=BB=BD=E7=8A=B6=E6=80=81=E9=83=BD?=
+ =?UTF-8?q?=E5=81=9A=E6=88=90"=E5=8A=A0=E5=81=8F=E7=BD=AE=E4=B9=8B?=
+ =?UTF-8?q?=E5=89=8D"?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+三条，都是为同一个要求：模型看不见我们内部加的偏置。
+
+1. 锁存点。原来动作 7 一到就锁 —— 那一刻机器人还在刹车，锁下来的是个
+   步态相位。模型停车后进入的是站姿，它期待的就是站姿；喂它一个走路中的
+   瞬时姿态，它会以为自己在走路。改成等陀螺仪安静（CARD_TILT_QUIET_RAD_S
+   =0.35，抄 imu_filter.py 启动检查那个门限）连续 150ms 才锁；等超过
+   600ms 就按现状锁，免得一直微晃把整个图卡窗口耗掉。
+
+2. 冻的东西补齐。原来只冻四元数。但加速度计静止时读的就是重力，和四元数
+   说的是同一件事 —— 只冻一个等于给模型两个自相矛盾的姿态。现在姿态、
+   加速度、角速度一起冻。
+
+3. 关节角。偏置加在电机目标上，反馈跟着动 0.35 rad（20°），模型从关节
+   通道照样看得见。上报时在电机坐标系、过 sign 之前减掉，还原出来的正是
+   模型自己下发的目标；速度减掉偏置的变化率（0.35rad/0.4s = 0.83 rad/s，
+   比站着不动时关节的真实速度大得多）。
+
+下发和上报的电机 ID 表现在共用一份 k_left/right_motor_id —— 两份一旦漂开，
+减掉的就不是加上的那个，而且是静默的。
+
+⚠️ 冻的是"加偏置之前"，而机身这时已经扳到安装姿态：上报值和相机真实朝向
+   不一致，是故意的。视觉的图卡几何必须用静态安装角，见 run_policy_vision.py
+   里按停车窗口区分的那段。别把这条"修掉"。
+
+⚠️ 没编译、没上电。宿主 gcc -fsyntax-only 零错误。
+---
+ Core/Inc/jetson_robot_bridge.h |  38 ++++++++--
+ Core/Src/jetson_robot_bridge.c | 130 +++++++++++++++++++++++++++------
+ Core/Src/main.c                |  28 ++++---
+ 3 files changed, 160 insertions(+), 36 deletions(-)
+
+diff --git a/Core/Inc/jetson_robot_bridge.h b/Core/Inc/jetson_robot_bridge.h
+index 2f32069..f141784 100644
+--- a/Core/Inc/jetson_robot_bridge.h
++++ b/Core/Inc/jetson_robot_bridge.h
+@@ -18,21 +18,47 @@ void JetsonRobotBridge_OnUsbReceive(uint8_t *data, uint32_t length);
+ /*
+  * 停车读卡时的机身重摆（Nano 发动作号 7 / 8）。
+  *
+- * Latch 记下那一刻的姿态，Release 之后恢复真实上报；两者之间上报的都是
+- * 锁存值。上位机的图卡几何按安装角 45° 标定，重摆把机身扳回那个姿态，
+- * 所以锁存值在重摆之后恰好是真值 —— Nano 看到的姿态从头到尾没变。
++ * 模型停下后进入站姿，而那个站姿在实机上后仰约 20° —— 相机因此只朝下 25°，
++ * 图卡看不清。重摆把机身扳回安装姿态 45°。
++ *
++ * 「冻结」= 保留**加偏置之前的最后一个真值**。偏置落地那一刻「站着后仰」这个
++ * 事实就不成立了，所以只能在它还成立的时候记下来，之后一直报这个值。模型不
++ * 能知道自己被搬动了，否则它会去纠回来。
++ *
++ * ⚠️ 要冻的不只是四元数：Nano 的策略观测里还有加速度计、角速度和关节角，
++ *    只要还有一条通道在说真话，偏置就藏不住（加速度计静止时读的就是重力，
++ *    它和四元数说的是同一件事）。所以 Latch 把姿态、加速度、角速度一起冻住，
++ *    两个腿 pitch 关节的关节角/角速度则从上报值里把偏置减掉 —— 减在电机
++ *    坐标系、过 sign 之前，还原出来的正是模型自己下发的那个目标。
++ *
++ * ⚠️ 锁存点必须是**机身站定之后**那个站姿，不是走路中的某一瞬：模型停车后
++ *    期待的是站姿，喂它一个步态相位它会以为自己在走路。所以先等站定
++ *    （CardTiltBodySettled），再 Latch。状态机见 main.c 的 ROBOT_CARD_TILT()。
++ *
++ * ⚠️ 冻的是「加偏置之前」，而机身这时已经被搬到 45° 了 —— 上报值和相机真实
++ *    姿态**不一致**，这是故意的。所以视觉的图卡几何不能用这个上报值，得用
++ *    静态安装角；run_policy_vision.py 里按停车窗口区分。别把这条"修掉"。
+  *
+  * SetOffset 设腿 pitch 偏置（弧度，0 = 撤销）。Nano 每 20ms 发来的关节目标
+  * 被叠加上这个偏置，不是被接管 —— 所以 Nano 那边不用停发，也不会打架。
+  *
+- * ⚠️ SetOffset 必须是**逐步**调用的，别一次给满：0.2 rad 是 11°，踝关节
+- * 一步跳过去会直接把人掀了。状态机里按小步逼近，具体见 main.c 的
+- * ROBOT_CARD_TILT()。
++ * ⚠️ SetOffset 必须是**逐步**调用的，别一次给满：0.35 rad 是 20°，一步跳
++ *    过去会直接把人掀了。状态机里按小步逼近，见 main.c 的 ROBOT_CARD_TILT()。
+  */
+ void JetsonRobotBridge_CardTiltLatch(void);
+ void JetsonRobotBridge_CardTiltRelease(void);
+ void JetsonRobotBridge_CardTiltSetOffset(float radians);
+ 
++/* 机身站定了没有：陀螺仪连续 CARD_TILT_QUIET_MS 都在门限以下。
++ * 门限抄的是 imu_filter.py 启动检查里那个 0.35 rad/s —— 那是验证过的
++ * 「这台机器人站着不动」的判据。等超过 CARD_TILT_SETTLE_MAX_MS 就按现状认，
++ * 免得机身一直微晃把整个图卡窗口耗掉。 */
++void JetsonRobotBridge_CardTiltSettleReset(void);
++uint8_t JetsonRobotBridge_CardTiltBodySettled(void);
++#define CARD_TILT_QUIET_RAD_S      0.35f
++#define CARD_TILT_QUIET_MS         150U
++#define CARD_TILT_SETTLE_MAX_MS    600U
++
+ /* 重摆倾角总量，弧度，加在**左右 leg pitch** 两个关节的**电机**目标上。
+  * 单位是电机坐标系（已经过了 motor_direction_target 的反向），左右两条腿
+  * 用同一个数 —— 镜像在电机那一侧，不在这里。
+diff --git a/Core/Src/jetson_robot_bridge.c b/Core/Src/jetson_robot_bridge.c
+index 72fef4a..3a798e5 100644
+--- a/Core/Src/jetson_robot_bridge.c
++++ b/Core/Src/jetson_robot_bridge.c
+@@ -19,10 +19,15 @@ static uint32_t last_applied_command_count;
+ 
+ /* 当前生效的腿 pitch 偏置，由状态机逐步逼近 CARD_TILT_LEG_PITCH_RAD */
+ static volatile float card_tilt_offset_rad;
+-/* 1 = 上报锁存姿态而不是真实姿态 */
++/* 偏置的当前变化率 (rad/s)：上报关节角速度时要把这一份减掉 */
++static float card_tilt_rate_rad_s;
++static uint32_t card_tilt_rate_tick_ms;
++/* 1 = 上报锁存的旧状态而不是真实状态 */
+ static volatile uint8_t card_tilt_latched;
+-/* 触发那一刻锁存的姿态，重摆期间原样上报 */
++/* 站定那一刻锁存的姿态/加速度/角速度，重摆期间原样上报 */
+ static float card_tilt_quat[4];
++static float card_tilt_accel[3];
++static float card_tilt_gyro[3];
+ 
+ /* ---- 反馈前向预测滤波 ---- */
+ #define SMOOTHING_ALPHA         0.0f     /* 0~1: 越大越跟随预测值 */
+@@ -53,6 +58,24 @@ static float limit_gain_scale(float scale)
+     return scale;
+ }
+ 
++/* 协议下标 → 电机 ID：0..5 左腿，6..11 右腿。
++ *
++ * 下发和上报共用这一份表。偏置是按电机 ID 加的，上报要按同一个 ID 减掉 ——
++ * 两份表一旦漂开，减掉的就不是加上的那个，而且是静默的。 */
++static const uint8_t k_left_motor_id[6] = {
++    l_leg_pitch, l_leg_roll, l_leg_yaw,
++    l_knee_pitch, l_ankle_pitch, l_ankle_roll
++};
++static const uint8_t k_right_motor_id[6] = {
++    r_leg_pitch, r_leg_roll, r_leg_yaw,
++    r_knee_pitch, r_ankle_pitch, r_ankle_roll
++};
++
++static uint8_t protocol_motor_id(uint8_t index)
++{
++    return (index < 6U) ? k_left_motor_id[index] : k_right_motor_id[index - 6U];
++}
++
+ static float motor_direction_target(uint8_t joint_index, float model_target)
+ {
+     /* These four joint directions are reversed between the URDF and motors. */
+@@ -91,6 +114,16 @@ static float card_tilt_offset(uint8_t motor_id)
+     return card_tilt_offset_rad;
+ }
+ 
++/* 同一个偏置的变化率。位置减偏置、速度减变化率，两者才自洽 ——
++ * 0.35 rad / 0.4 s 是 0.83 rad/s，比站着不动时关节的真实速度大得多。 */
++static float card_tilt_offset_rate(uint8_t motor_id)
++{
++    if ((motor_id != l_leg_pitch) && (motor_id != r_leg_pitch)) {
++        return 0.0f;
++    }
++    return card_tilt_rate_rad_s;
++}
++
+ static void apply_position_targets(const RobotCommandPayload *command)
+ {
+     static const float base_kp[6] = {
+@@ -99,14 +132,6 @@ static void apply_position_targets(const RobotCommandPayload *command)
+     static const float base_kd[6] = {
+         2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f
+     };
+-    static const uint8_t left_motor_id[6] = {
+-        l_leg_pitch, l_leg_roll, l_leg_yaw,
+-        l_knee_pitch, l_ankle_pitch, l_ankle_roll
+-    };
+-    static const uint8_t right_motor_id[6] = {
+-        r_leg_pitch, r_leg_roll, r_leg_yaw,
+-        r_knee_pitch, r_ankle_pitch, r_ankle_roll
+-    };
+     // float kp_scale = limit_gain_scale(command->kp_scale);
+     // float kd_scale = limit_gain_scale(command->kd_scale);
+     float kp_scale = 1.0f;
+@@ -118,11 +143,11 @@ static void apply_position_targets(const RobotCommandPayload *command)
+         //  if(index == 0U) {
+         //     target = target - 0.08f;
+         // }
+-        target += card_tilt_offset(left_motor_id[index]);
++        target += card_tilt_offset(k_left_motor_id[index]);
+         g_debug_motor_target[index] = target;
+         Motor_limitCtrl_float(
+             &hfdcan2,
+-            left_motor_id[index],
++            k_left_motor_id[index],
+             target,
+             0.0f,         
+             base_kp[index] * kp_add * kp_scale,
+@@ -137,11 +162,11 @@ static void apply_position_targets(const RobotCommandPayload *command)
+         // if(index == 0U) {
+         //     target = target +  0.08f;
+         // }
+-        target += card_tilt_offset(right_motor_id[index]);
++        target += card_tilt_offset(k_right_motor_id[index]);
+         g_debug_motor_target[protocol_index] = target;
+         Motor_limitCtrl_float(
+             &hfdcan1,
+-            right_motor_id[index],
++            k_right_motor_id[index],
+             target,
+             0.0f,
+             base_kp[index] * kp_add * kp_scale,
+@@ -171,14 +196,20 @@ void JetsonRobotBridge_Init(void)
+     memset(target_position, 0, sizeof(target_position));
+     last_send_tick_ms = HAL_GetTick();
+     card_tilt_offset_rad = 0.0f;
++    card_tilt_rate_rad_s = 0.0f;
++    card_tilt_rate_tick_ms = HAL_GetTick();
+     card_tilt_latched = 0U;
+     memset(card_tilt_quat, 0, sizeof(card_tilt_quat));
++    memset(card_tilt_accel, 0, sizeof(card_tilt_accel));
++    memset(card_tilt_gyro, 0, sizeof(card_tilt_gyro));
+ }
+ 
+ void JetsonRobotBridge_CardTiltLatch(void)
+ {
+     __disable_irq();
+     memcpy(card_tilt_quat, &MotorIMU_Packet_float[30], sizeof(card_tilt_quat));
++    memcpy(card_tilt_accel, &MotorIMU_Packet_float[24], sizeof(card_tilt_accel));
++    memcpy(card_tilt_gyro, &MotorIMU_Packet_float[27], sizeof(card_tilt_gyro));
+     card_tilt_latched = 1U;
+     __enable_irq();
+ }
+@@ -190,6 +221,9 @@ void JetsonRobotBridge_CardTiltRelease(void)
+ 
+ void JetsonRobotBridge_CardTiltSetOffset(float radians)
+ {
++    uint32_t now_ms;
++    uint32_t dt_ms;
++
+     if (!isfinite(radians)) {
+         return;
+     }
+@@ -199,9 +233,52 @@ void JetsonRobotBridge_CardTiltSetOffset(float radians)
+     if (radians < -CARD_TILT_LEG_PITCH_RAD) {
+         radians = -CARD_TILT_LEG_PITCH_RAD;
+     }
++    now_ms = HAL_GetTick();
++    dt_ms = now_ms - card_tilt_rate_tick_ms;
++    if (dt_ms > 0U) {
++        card_tilt_rate_rad_s =
++            (radians - card_tilt_offset_rad) / ((float)dt_ms * 0.001f);
++        card_tilt_rate_tick_ms = now_ms;
++    }
+     card_tilt_offset_rad = radians;
+ }
+ 
++/* 一次停车读卡的等待从这里重新开始。每次动作 7 都要清，不然上一张卡留下的
++ * 时间戳会让这一次在第一帧就判成"已经站定"。 */
++static uint32_t card_tilt_settle_since_ms;
++static uint32_t card_tilt_quiet_since_ms;
++
++void JetsonRobotBridge_CardTiltSettleReset(void)
++{
++    uint32_t now_ms = HAL_GetTick();
++    card_tilt_settle_since_ms = now_ms;
++    card_tilt_quiet_since_ms = now_ms;
++}
++
++uint8_t JetsonRobotBridge_CardTiltBodySettled(void)
++{
++    uint32_t now_ms = HAL_GetTick();
++    float gx;
++    float gy;
++    float gz;
++
++    __disable_irq();
++    gx = MotorIMU_Packet_float[27];
++    gy = MotorIMU_Packet_float[28];
++    gz = MotorIMU_Packet_float[29];
++    __enable_irq();
++
++    if (sqrtf(gx * gx + gy * gy + gz * gz) > CARD_TILT_QUIET_RAD_S) {
++        card_tilt_quiet_since_ms = now_ms;
++    }
++    if ((now_ms - card_tilt_quiet_since_ms) >= CARD_TILT_QUIET_MS) {
++        return 1U;
++    }
++    /* 一直微晃也不能把整个图卡窗口耗掉：到点就按现状锁。 */
++    return (uint8_t)((now_ms - card_tilt_settle_since_ms)
++                     >= CARD_TILT_SETTLE_MAX_MS);
++}
++
+ void JetsonRobotBridge_ProcessCommand(void)
+ {
+     RobotCommandPayload command;
+@@ -293,9 +370,14 @@ uint8_t JetsonRobotBridge_SendState(void)
+         float sign = ((index == 0U) || (index == 4U) ||
+                       (index == 6U) || (index == 10U)) ? -1.0f : 1.0f;
+ 
+-        /* 原始反馈（已转模型坐标系） */
+-        float raw_pos = sign * feedback[index * 2U];
+-        float raw_vel = sign * feedback[index * 2U + 1U];
++        /* 原始反馈（已转模型坐标系）。偏置是我们内部加的，模型不该看见：
++         * 在电机坐标系里、过 sign 之前减掉，还原出来的就是模型自己下发的
++         * 那个目标。 */
++        uint8_t motor_id = protocol_motor_id(index);
++        float raw_pos = sign * (feedback[index * 2U]
++                                - card_tilt_offset(motor_id));
++        float raw_vel = sign * (feedback[index * 2U + 1U]
++                                - card_tilt_offset_rate(motor_id));
+ 
+         /* 1. 速度外推 —— 补偿1帧滞后：p_pred = p_raw + v * Δt */
+         float predicted = raw_pos + raw_vel * delta_t;
+@@ -316,14 +398,20 @@ uint8_t JetsonRobotBridge_SendState(void)
+         state.joint_position[index] = corrected;
+         state.joint_velocity[index] = raw_vel;
+     }
+-    memcpy(state.accel_m_s2, &feedback[24], sizeof(state.accel_m_s2));
+-    memcpy(state.gyro_rad_s, &feedback[27], sizeof(state.gyro_rad_s));
+     if (card_tilt_latched != 0U) {
+-        /* 重摆期间上报锁存姿态。重摆把机身扳回锁存那一刻的姿态，所以这个值
+-         * 在重摆到位之后是真值 —— 上位机的图卡几何按它算，全程不受影响。 */
++        /* 重摆期间上报站定那一刻的姿态/加速度/角速度。模型不能知道自己被搬动
++         * 了 —— 静止时加速度计读的就是重力，它和四元数说的是同一件事，只冻
++         * 四元数等于给模型两个自相矛盾的姿态。
++         *
++         * ⚠️ 这个姿态是**加偏置之前**的，而机身这时已经扳到安装姿态了：上报
++         *    值和相机真实朝向不一致，是故意的。视觉的图卡几何不能用它。 */
++        memcpy(state.accel_m_s2, card_tilt_accel, sizeof(state.accel_m_s2));
++        memcpy(state.gyro_rad_s, card_tilt_gyro, sizeof(state.gyro_rad_s));
+         memcpy(state.orientation_wxyz, card_tilt_quat,
+                sizeof(state.orientation_wxyz));
+     } else {
++        memcpy(state.accel_m_s2, &feedback[24], sizeof(state.accel_m_s2));
++        memcpy(state.gyro_rad_s, &feedback[27], sizeof(state.gyro_rad_s));
+         memcpy(state.orientation_wxyz, &feedback[30], sizeof(state.orientation_wxyz));
+     }
+ 
+diff --git a/Core/Src/main.c b/Core/Src/main.c
+index 9ab6446..c20b44c 100644
+--- a/Core/Src/main.c
++++ b/Core/Src/main.c
+@@ -714,9 +714,13 @@ static float card_tilt_cmd = 0.0f;
+ /*
+  * 停车读卡：重摆机身。
+  *
+- * 上位机在停车那一刻发动作号 7。此刻机器人在走路，机身是直的，所以锁存下来
+- * 的姿态就是相机安装角标定时的那个姿态；接下来把机身扳回那里，锁存值就重新
+- * 变成真值 —— 上位机的图卡几何全程看到的姿态没变，但它是对的。
++ * 上位机在停车那一刻发动作号 7，但**不能立刻锁也不能立刻扳**：那一刻机器人
++ * 还在刹车，锁下来的是个步态相位。模型停车后进入的是站姿，它期待的就是站姿
++ * —— 喂它一个走路中的瞬时姿态，它会以为自己在走路。所以先等机身站定。
++ *
++ * 站定之后：锁存这一刻的姿态（**加偏置之前的最后一个真值**），再把机身一步步
++ * 扳回安装姿态。模型全程看到的还是那个站姿，它不会去纠。等超过
++ * CARD_TILT_SETTLE_MAX_MS 就按现状锁，免得机身一直微晃把窗口耗掉。
+  *
+  * ⚠️ 走完必须回 ROBOT_STATE_IDLE，但**偏置和锁存要留着**。
+  *    Handle_Action_Request 里 `active_action_status == ACTION_STATUS_ACCEPTED`
+@@ -727,28 +731,34 @@ void ROBOT_CARD_TILT(void)
+ {
+   switch (action_step)
+   {
+-    case 0:
+-      JetsonRobotBridge_CardTiltLatch();
++    case 0:                                   /* 动作 7 到了：先别锁，等站定 */
+       card_tilt_cmd = 0.0f;
+       JetsonRobotBridge_CardTiltSetOffset(0.0f);
++      JetsonRobotBridge_CardTiltSettleReset();
+       LCD_ClearRect(10, 10, 240, 24);
+       LCD_DisplayText(10, 10, "Mode : TILT");
+-      Action_Step_Begin();
+       action_step = 1U;
+       break;
+ 
+-    case 1:                                   /* 逐步把机身扳回去 */
++    case 1:                                   /* 等机身站定，然后锁 */
++      if (!JetsonRobotBridge_CardTiltBodySettled()) return;
++      JetsonRobotBridge_CardTiltLatch();
++      Action_Step_Begin();
++      action_step = 2U;
++      break;
++
++    case 2:                                   /* 逐步把机身扳回去 */
+       if (!Action_Step_Elapsed(CARD_TILT_STEP_MS)) return;
+       card_tilt_cmd += CARD_TILT_STEP_RAD;
+       if (card_tilt_cmd >= CARD_TILT_LEG_PITCH_RAD) {
+         card_tilt_cmd = CARD_TILT_LEG_PITCH_RAD;
+-        action_step = 2U;
++        action_step = 3U;
+       }
+       JetsonRobotBridge_CardTiltSetOffset(card_tilt_cmd);
+       Action_Step_Begin();
+       break;
+ 
+-    case 2:                                   /* 到位：交还 IDLE，偏置和锁存都留着 */
++    case 3:                                   /* 到位：交还 IDLE，偏置和锁存都留着 */
+       robot_state = ROBOT_STATE_IDLE;
+       LCD_ClearRect(10, 10, 240, 24);
+       LCD_DisplayText(0, 10, "Mode : IDLE");
+-- 
+2.53.0.windows.2
+
+
+From aa2b736bcc0aba4824a43f6fa2d666a66878cf64 Mon Sep 17 00:00:00 2001
+From: yuque <3957054419@qq.com>
+Date: Fri, 2 Oct 2026 14:16:19 +0800
+Subject: [PATCH 3/3] =?UTF-8?q?fix(card-tilt):=20=E5=8F=98=E5=8C=96?=
+ =?UTF-8?q?=E7=8E=87=E8=BF=87=E6=9C=9F=E5=BD=92=E9=9B=B6=EF=BC=9B=E9=87=8D?=
+ =?UTF-8?q?=E6=91=86=E4=BB=8E=E5=BD=93=E5=89=8D=E5=81=8F=E7=BD=AE=E8=B5=B7?=
+ =?UTF-8?q?=E7=88=AC=EF=BC=8C=E4=B8=8D=E5=86=8D=E7=94=A9=E5=88=B0=200?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+两条都是上一版自己带出来的。
+
+1. 变化率不归零。上报速度要减掉偏置的变化率（0.83 rad/s），但状态机走完就
+   没人再调 SetOffset 了，那个值就永远停在上一次 —— 等于给两个 leg pitch
+   关节的**上报**角速度加了一个永久的 0.83 rad/s 偏差。而上位机正是靠 qd 判断
+   "停稳了没有"（main.py 的 stopped，阈值 0.2）：偏着 0.83，下一张卡会在
+   wait_stop 里一直等不到 stopped，4s 超时直接把 main.py 打断。
+   两次 CARD_TILT_STEP_MS 没来 SetOffset 就当斜坡停了，读 0。
+
+2. 重摆起点甩到 0。case 0 原本 SetOffset(0.0f)，而偏置只该由恢复动作降下去。
+   万一恢复被 BUSY 丢掉（见 vision 侧 --card-tilt-ms 那条），偏置还在身上，
+   清零就是一步 20° 的跳变 —— 头文件自己写着"一步跳过去会直接把人掀了"。
+   改成从 CardTiltGetOffset() 起爬。
+
+⚠️ 没编译、没上电。宿主 gcc -fsyntax-only 零错误。
+---
+ Core/Inc/jetson_robot_bridge.h |  8 ++++++++
+ Core/Src/jetson_robot_bridge.c | 15 ++++++++++++++-
+ Core/Src/main.c                |  5 +++--
+ 3 files changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/Core/Inc/jetson_robot_bridge.h b/Core/Inc/jetson_robot_bridge.h
+index f141784..6107d39 100644
+--- a/Core/Inc/jetson_robot_bridge.h
++++ b/Core/Inc/jetson_robot_bridge.h
+@@ -59,6 +59,14 @@ uint8_t JetsonRobotBridge_CardTiltBodySettled(void);
+ #define CARD_TILT_QUIET_MS         150U
+ #define CARD_TILT_SETTLE_MAX_MS    600U
+ 
++/* 偏置的变化率多久算过期。状态机每 CARD_TILT_STEP_MS 调一次 SetOffset，
++ * 两次没来就说明斜坡停了 —— 之后再减这个变化率就是纯偏差。 */
++#define CARD_TILT_RATE_STALE_MS    (2U * CARD_TILT_STEP_MS)
++
++/* 当前已经施加的偏置。状态机用它做起点，别让重摆从 0 重新爬 —— 万一上一次的
++ * 恢复被丢掉，偏置还在身上，从 0 开始就是一步 20° 的跳变。 */
++float JetsonRobotBridge_CardTiltGetOffset(void);
++
+ /* 重摆倾角总量，弧度，加在**左右 leg pitch** 两个关节的**电机**目标上。
+  * 单位是电机坐标系（已经过了 motor_direction_target 的反向），左右两条腿
+  * 用同一个数 —— 镜像在电机那一侧，不在这里。
+diff --git a/Core/Src/jetson_robot_bridge.c b/Core/Src/jetson_robot_bridge.c
+index 3a798e5..d824e84 100644
+--- a/Core/Src/jetson_robot_bridge.c
++++ b/Core/Src/jetson_robot_bridge.c
+@@ -115,12 +115,20 @@ static float card_tilt_offset(uint8_t motor_id)
+ }
+ 
+ /* 同一个偏置的变化率。位置减偏置、速度减变化率，两者才自洽 ——
+- * 0.35 rad / 0.4 s 是 0.83 rad/s，比站着不动时关节的真实速度大得多。 */
++ * 0.35 rad / 0.4 s 是 0.83 rad/s，比站着不动时关节的真实速度大得多。
++ *
++ * ⚠️ 只有刚调过偏置才算还在动。状态机走完就没入再调 SetOffset 了，这个变化率
++ *    必须自己过期 —— 留在那儿等于给这两个关节的上报速度加一个**永久**的
++ *    0.83 rad/s 偏差，而上位机正是靠 qd 判断"停稳了没有"（阈值 0.2）：偏着
++ *    0.83，下一张卡会在 wait_stop 里一直等不到 stopped，最后超时把进程打断。 */
+ static float card_tilt_offset_rate(uint8_t motor_id)
+ {
+     if ((motor_id != l_leg_pitch) && (motor_id != r_leg_pitch)) {
+         return 0.0f;
+     }
++    if ((HAL_GetTick() - card_tilt_rate_tick_ms) > CARD_TILT_RATE_STALE_MS) {
++        return 0.0f;
++    }
+     return card_tilt_rate_rad_s;
+ }
+ 
+@@ -219,6 +227,11 @@ void JetsonRobotBridge_CardTiltRelease(void)
+     card_tilt_latched = 0U;
+ }
+ 
++float JetsonRobotBridge_CardTiltGetOffset(void)
++{
++    return card_tilt_offset_rad;
++}
++
+ void JetsonRobotBridge_CardTiltSetOffset(float radians)
+ {
+     uint32_t now_ms;
+diff --git a/Core/Src/main.c b/Core/Src/main.c
+index c20b44c..8de3d18 100644
+--- a/Core/Src/main.c
++++ b/Core/Src/main.c
+@@ -732,8 +732,9 @@ void ROBOT_CARD_TILT(void)
+   switch (action_step)
+   {
+     case 0:                                   /* 动作 7 到了：先别锁，等站定 */
+-      card_tilt_cmd = 0.0f;
+-      JetsonRobotBridge_CardTiltSetOffset(0.0f);
++      /* 从当前值开始加，不是从 0：偏置只该由恢复动作降下去。万一上一次的恢复
++       * 被 BUSY 丢掉了，偏置还在身上，直接清零就是一步 20° 的跳变。 */
++      card_tilt_cmd = JetsonRobotBridge_CardTiltGetOffset();
+       JetsonRobotBridge_CardTiltSettleReset();
+       LCD_ClearRect(10, 10, 240, 24);
+       LCD_DisplayText(10, 10, "Mode : TILT");
+-- 
+2.53.0.windows.2
+

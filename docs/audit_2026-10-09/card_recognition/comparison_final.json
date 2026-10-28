@@ -1,0 +1,1023 @@
+{
+  "summary": {
+    "baseline_reviewed_c7ad975": {
+      "calls": 80,
+      "eligible_calls": 57,
+      "presence_calls": 40,
+      "matched_presence_calls": 35,
+      "matched_precise_calls": 6,
+      "correct_calls": 6,
+      "wrong_calls": 0,
+      "exact_duplicate_scene_calls": 2,
+      "moving_scene_calls": 69,
+      "negative_calls": 167,
+      "negative_presence_calls": 0,
+      "negative_cue_gate_calls": 0,
+      "positive_encounters_detected": 8,
+      "win_correct": 2,
+      "win_wrong": 4,
+      "win_unclassified": 5,
+      "timing": {
+        "p50": 50.18337299998166,
+        "p95": 78.76451609995456,
+        "max": 144.72485400006008
+      },
+      "shape_sha256": "6552cb9c3c41f580760d1407fa453642cea36516f97fb5929f9132807d3e68bc",
+      "helper_sha256": null,
+      "config_sha256": {
+        "cameras.json": "56ee1af62c23ec236c5495615a5cec09ee5f508ed36af378b27a1885fb9f5b1c",
+        "README.md": "179910bb514fe49b402e370258c6e9bac084a83a5387ed7bad9019a6f283292d",
+        "field/场地参数基线.json": "b0d6d1235c07575ee9af3d9e5ec1f3c170bc94cbfd4f58a44b9fca9149903221"
+      },
+      "annotation_sha256": "d1a68e8f49d37e9a7b16a6d7b5d778a346ead31c90b889e7b7c2962edd1d185e"
+    },
+    "final_reviewed": {
+      "calls": 80,
+      "eligible_calls": 57,
+      "presence_calls": 48,
+      "matched_presence_calls": 44,
+      "matched_precise_calls": 6,
+      "correct_calls": 6,
+      "wrong_calls": 0,
+      "exact_duplicate_scene_calls": 2,
+      "moving_scene_calls": 69,
+      "negative_calls": 167,
+      "negative_presence_calls": 0,
+      "negative_cue_gate_calls": 0,
+      "positive_encounters_detected": 8,
+      "win_correct": 6,
+      "win_wrong": 0,
+      "win_unclassified": 5,
+      "timing": {
+        "p50": 37.383984999905806,
+        "p95": 58.32105020008384,
+        "max": 176.81518800009144
+      },
+      "shape_sha256": "97564859ebe737b7262971db1c1c46ce33ac41a4ce63a20acad02d20081c158d",
+      "helper_sha256": "a5009b34591ee63955386d87ae1b1502979a5a0c22f665fbbb2e2ecf994d7cda",
+      "config_sha256": {
+        "cameras.json": "56ee1af62c23ec236c5495615a5cec09ee5f508ed36af378b27a1885fb9f5b1c",
+        "README.md": "179910bb514fe49b402e370258c6e9bac084a83a5387ed7bad9019a6f283292d",
+        "field/场地参数基线.json": "b0d6d1235c07575ee9af3d9e5ec1f3c170bc94cbfd4f58a44b9fca9149903221"
+      },
+      "annotation_sha256": "d1a68e8f49d37e9a7b16a6d7b5d778a346ead31c90b889e7b7c2962edd1d185e"
+    }
+  },
+  "framewise_changes": {
+    "presence": [
+      {
+        "sequence": "old_star_long",
+        "frame": 88,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 91,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 94,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 97,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 41,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 44,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 47,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 50,
+        "baseline": "False",
+        "current": "True"
+      }
+    ],
+    "presence_box_match": [
+      {
+        "sequence": "new_square_clear",
+        "frame": 1143,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 88,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 91,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 94,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 97,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 41,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 44,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 47,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 50,
+        "baseline": "False",
+        "current": "True"
+      }
+    ],
+    "card_found": [],
+    "precise_box_match": [],
+    "prediction": [],
+    "class_correct": [],
+    "class_wrong": [],
+    "cue_gate_hit": [
+      {
+        "sequence": "new_square_clear",
+        "frame": 1143,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 85,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 88,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 94,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 97,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 38,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 41,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 44,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 50,
+        "baseline": "False",
+        "current": "True"
+      }
+    ],
+    "cue_box_match": [
+      {
+        "sequence": "new_square_clear",
+        "frame": 1143,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 85,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 88,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 94,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_long",
+        "frame": 97,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 38,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 41,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 44,
+        "baseline": "False",
+        "current": "True"
+      },
+      {
+        "sequence": "old_star_short",
+        "frame": 50,
+        "baseline": "False",
+        "current": "True"
+      }
+    ]
+  },
+  "retained_baseline_correct_frames": 6,
+  "lost_baseline_correct_frames": [],
+  "sequences": [
+    {
+      "baseline": {
+        "sequence": "new_triangle",
+        "truth": "triangle",
+        "calls": 3,
+        "unique_scene_calls": 3,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 2,
+        "eligible_calls": 3,
+        "presence_calls": 3,
+        "matched_presence_calls": 3,
+        "matched_precise_calls": 2,
+        "correct_calls": 2,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 327,
+        "first_cue_match_frame": 333,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": 0
+      },
+      "current": {
+        "sequence": "new_triangle",
+        "truth": "triangle",
+        "calls": 3,
+        "unique_scene_calls": 3,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 2,
+        "eligible_calls": 3,
+        "presence_calls": 3,
+        "matched_presence_calls": 3,
+        "matched_precise_calls": 2,
+        "correct_calls": 2,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 327,
+        "first_cue_match_frame": 333,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": 0
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "new_square_approach",
+        "truth": "square",
+        "calls": 11,
+        "unique_scene_calls": 11,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 10,
+        "eligible_calls": 3,
+        "presence_calls": 5,
+        "matched_presence_calls": 3,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 528,
+        "first_cue_match_frame": 522,
+        "cue_to_presence_saved_seconds": 0.5999999999999943,
+        "onset_to_presence_saved_seconds": 1.8
+      },
+      "current": {
+        "sequence": "new_square_approach",
+        "truth": "square",
+        "calls": 11,
+        "unique_scene_calls": 11,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 10,
+        "eligible_calls": 3,
+        "presence_calls": 5,
+        "matched_presence_calls": 3,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 528,
+        "first_cue_match_frame": 522,
+        "cue_to_presence_saved_seconds": 0.5999999999999943,
+        "onset_to_presence_saved_seconds": 1.8
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "new_circle_approach",
+        "truth": "circle",
+        "calls": 7,
+        "unique_scene_calls": 6,
+        "exact_duplicate_scene_calls": 1,
+        "moving_scene_calls": 5,
+        "eligible_calls": 6,
+        "presence_calls": 6,
+        "matched_presence_calls": 5,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 691,
+        "first_cue_match_frame": 688,
+        "cue_to_presence_saved_seconds": 0.29999999999999716,
+        "onset_to_presence_saved_seconds": 0.3
+      },
+      "current": {
+        "sequence": "new_circle_approach",
+        "truth": "circle",
+        "calls": 7,
+        "unique_scene_calls": 6,
+        "exact_duplicate_scene_calls": 1,
+        "moving_scene_calls": 5,
+        "eligible_calls": 6,
+        "presence_calls": 6,
+        "matched_presence_calls": 5,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 691,
+        "first_cue_match_frame": 688,
+        "cue_to_presence_saved_seconds": 0.29999999999999716,
+        "onset_to_presence_saved_seconds": 0.3
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "new_circle_restart",
+        "truth": "circle",
+        "calls": 4,
+        "unique_scene_calls": 4,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 3,
+        "eligible_calls": 4,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": 801,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "current": {
+        "sequence": "new_circle_restart",
+        "truth": "circle",
+        "calls": 4,
+        "unique_scene_calls": 4,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 3,
+        "eligible_calls": 4,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": 801,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "new_square_clear",
+        "truth": "square",
+        "calls": 12,
+        "unique_scene_calls": 11,
+        "exact_duplicate_scene_calls": 1,
+        "moving_scene_calls": 10,
+        "eligible_calls": 7,
+        "presence_calls": 8,
+        "matched_presence_calls": 7,
+        "matched_precise_calls": 4,
+        "correct_calls": 4,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 1137,
+        "first_cue_match_frame": 1131,
+        "cue_to_presence_saved_seconds": 0.6000000000000085,
+        "onset_to_presence_saved_seconds": 1.2
+      },
+      "current": {
+        "sequence": "new_square_clear",
+        "truth": "square",
+        "calls": 12,
+        "unique_scene_calls": 11,
+        "exact_duplicate_scene_calls": 1,
+        "moving_scene_calls": 10,
+        "eligible_calls": 7,
+        "presence_calls": 8,
+        "matched_presence_calls": 8,
+        "matched_precise_calls": 4,
+        "correct_calls": 4,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 1137,
+        "first_cue_match_frame": 1131,
+        "cue_to_presence_saved_seconds": 0.6000000000000085,
+        "onset_to_presence_saved_seconds": 1.2
+      },
+      "new_localized_presence_frames": [
+        1143
+      ],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "new_empty_reflection",
+        "truth": "negative",
+        "calls": 31,
+        "unique_scene_calls": 31,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 30,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "current": {
+        "sequence": "new_empty_reflection",
+        "truth": "negative",
+        "calls": 31,
+        "unique_scene_calls": 31,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 30,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "new_empty_floor",
+        "truth": "negative",
+        "calls": 44,
+        "unique_scene_calls": 44,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 23,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "current": {
+        "sequence": "new_empty_floor",
+        "truth": "negative",
+        "calls": 44,
+        "unique_scene_calls": 44,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 23,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "new_cable_powerstrip",
+        "truth": "negative",
+        "calls": 39,
+        "unique_scene_calls": 39,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 38,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "current": {
+        "sequence": "new_cable_powerstrip",
+        "truth": "negative",
+        "calls": 39,
+        "unique_scene_calls": 39,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 38,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "old_triangle",
+        "truth": "triangle",
+        "calls": 11,
+        "unique_scene_calls": 11,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 10,
+        "eligible_calls": 10,
+        "presence_calls": 8,
+        "matched_presence_calls": 7,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 49,
+        "first_cue_match_frame": 43,
+        "cue_to_presence_saved_seconds": 0.29952076677316297,
+        "onset_to_presence_saved_seconds": 0.4492811501597444
+      },
+      "current": {
+        "sequence": "old_triangle",
+        "truth": "triangle",
+        "calls": 11,
+        "unique_scene_calls": 11,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 10,
+        "eligible_calls": 10,
+        "presence_calls": 8,
+        "matched_presence_calls": 7,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 49,
+        "first_cue_match_frame": 43,
+        "cue_to_presence_saved_seconds": 0.29952076677316297,
+        "onset_to_presence_saved_seconds": 0.4492811501597444
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "old_triangle_empty",
+        "truth": "negative",
+        "calls": 12,
+        "unique_scene_calls": 12,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 11,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "current": {
+        "sequence": "old_triangle_empty",
+        "truth": "negative",
+        "calls": 12,
+        "unique_scene_calls": 12,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 11,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "old_square",
+        "truth": "square",
+        "calls": 17,
+        "unique_scene_calls": 17,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 16,
+        "eligible_calls": 12,
+        "presence_calls": 6,
+        "matched_presence_calls": 6,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 83,
+        "first_cue_match_frame": 77,
+        "cue_to_presence_saved_seconds": 0.29979014689717154,
+        "onset_to_presence_saved_seconds": 1.648845807934446
+      },
+      "current": {
+        "sequence": "old_square",
+        "truth": "square",
+        "calls": 17,
+        "unique_scene_calls": 17,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 16,
+        "eligible_calls": 12,
+        "presence_calls": 6,
+        "matched_presence_calls": 6,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 83,
+        "first_cue_match_frame": 77,
+        "cue_to_presence_saved_seconds": 0.29979014689717154,
+        "onset_to_presence_saved_seconds": 1.648845807934446
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "old_square_empty",
+        "truth": "negative",
+        "calls": 8,
+        "unique_scene_calls": 8,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 7,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "current": {
+        "sequence": "old_square_empty",
+        "truth": "negative",
+        "calls": 8,
+        "unique_scene_calls": 8,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 7,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "old_star_long",
+        "truth": "pentagon",
+        "calls": 6,
+        "unique_scene_calls": 6,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 5,
+        "eligible_calls": 5,
+        "presence_calls": 1,
+        "matched_presence_calls": 1,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 100,
+        "first_cue_match_frame": 91,
+        "cue_to_presence_saved_seconds": 0.44955044955044965,
+        "onset_to_presence_saved_seconds": 0.7492507492507493
+      },
+      "current": {
+        "sequence": "old_star_long",
+        "truth": "pentagon",
+        "calls": 6,
+        "unique_scene_calls": 6,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 5,
+        "eligible_calls": 5,
+        "presence_calls": 5,
+        "matched_presence_calls": 5,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 88,
+        "first_cue_match_frame": 85,
+        "cue_to_presence_saved_seconds": 0.14985014985014988,
+        "onset_to_presence_saved_seconds": 0.14985014985014986
+      },
+      "new_localized_presence_frames": [
+        88,
+        91,
+        94,
+        97
+      ],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "old_star_empty",
+        "truth": "negative",
+        "calls": 18,
+        "unique_scene_calls": 18,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 17,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "current": {
+        "sequence": "old_star_empty",
+        "truth": "negative",
+        "calls": 18,
+        "unique_scene_calls": 18,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 17,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "old_star_short",
+        "truth": "pentagon",
+        "calls": 9,
+        "unique_scene_calls": 9,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 8,
+        "eligible_calls": 7,
+        "presence_calls": 3,
+        "matched_presence_calls": 3,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 53,
+        "first_cue_match_frame": 47,
+        "cue_to_presence_saved_seconds": 0.2995805871779509,
+        "onset_to_presence_saved_seconds": 0.8987417615338527
+      },
+      "current": {
+        "sequence": "old_star_short",
+        "truth": "pentagon",
+        "calls": 9,
+        "unique_scene_calls": 9,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 8,
+        "eligible_calls": 7,
+        "presence_calls": 7,
+        "matched_presence_calls": 7,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": 41,
+        "first_cue_match_frame": 38,
+        "cue_to_presence_saved_seconds": 0.14979029358897544,
+        "onset_to_presence_saved_seconds": 0.2995805871779509
+      },
+      "new_localized_presence_frames": [
+        41,
+        44,
+        47,
+        50
+      ],
+      "lost_localized_presence_frames": []
+    },
+    {
+      "baseline": {
+        "sequence": "old_star_short_empty",
+        "truth": "negative",
+        "calls": 15,
+        "unique_scene_calls": 15,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 14,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "current": {
+        "sequence": "old_star_short_empty",
+        "truth": "negative",
+        "calls": 15,
+        "unique_scene_calls": 15,
+        "exact_duplicate_scene_calls": 0,
+        "moving_scene_calls": 14,
+        "eligible_calls": 0,
+        "presence_calls": 0,
+        "matched_presence_calls": 0,
+        "matched_precise_calls": 0,
+        "correct_calls": 0,
+        "wrong_calls": 0,
+        "negative_presence_calls": 0,
+        "negative_cue_gate_calls": 0,
+        "first_match_frame": null,
+        "first_cue_match_frame": null,
+        "cue_to_presence_saved_seconds": null,
+        "onset_to_presence_saved_seconds": null
+      },
+      "new_localized_presence_frames": [],
+      "lost_localized_presence_frames": []
+    }
+  ],
+  "repair_diagnostics": {
+    "cue_broken_accepted": 9,
+    "cue_broken_candidates": 109,
+    "cue_broken_evaluated": 204,
+    "cue_broken_reject_contrast": 7,
+    "cue_broken_reject_core": 0,
+    "cue_broken_reject_edge": 79,
+    "cue_broken_reject_marking": 3,
+    "cue_broken_reject_paper": 9,
+    "cue_broken_reject_score": 0
+  },
+  "status": "Final integrated card-plane plus nested-candidate repair comparison. Current source and config copied into final_reviewed/source_snapshot before import; source hashes identify isolated evaluated version."
+}

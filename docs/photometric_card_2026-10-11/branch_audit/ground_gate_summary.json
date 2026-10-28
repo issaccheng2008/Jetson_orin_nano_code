@@ -1,0 +1,24 @@
+{
+  "input": "31 Robocup/6card/*.jpg plus 背景.png and camera_commands3.avi frames 400, 850, 900, 1000, 1015",
+  "photometric_mode": "match",
+  "preprocess_mode": "selective",
+  "normal": {
+    "positive_boxes": 28,
+    "positive_classes": 27,
+    "positive_wrong_classes": 0,
+    "negative_boxes": 0,
+    "negative_classes": 0,
+    "candidate_quads": 16743,
+    "passed_geometry": 72
+  },
+  "ground_check_bypassed_offline": {
+    "positive_boxes": 29,
+    "positive_classes": 25,
+    "positive_wrong_classes": 1,
+    "negative_boxes": 0,
+    "negative_classes": 0,
+    "candidate_quads": 16743,
+    "passed_geometry": 1619
+  },
+  "note": "Same shared development images, fresh detector per image. Bypass is an offline ablation, not a production change. Six negative images are insufficient to estimate false-positive rate."
+}

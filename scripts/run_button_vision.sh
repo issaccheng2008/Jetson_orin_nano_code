@@ -49,8 +49,12 @@ command=("$VISION_PYTHON" -u "$REPO_DIR/new_vision/jetson/run_policy_vision.py"
     --heading-left-tolerance-deg "$HEADING_LEFT_TOLERANCE_DEG"
     --heading-full-scale-deg "$HEADING_FULL_SCALE_DEG" --heading-left-wz "${left_wz[@]}"
     --card-trigger-dist-cm "$CARD_TRIGGER_DIST_CM" --shape-every "$SHAPE_EVERY"
-    --recording-root "$RECORDS_DIR/tests" "$video_flag"
     --video-source "$VIDEO_SOURCE" --video-fps "$VIDEO_FPS" --video-width "$VIDEO_WIDTH")
+if [[ "$NO_RECORDING" = 1 ]]; then
+    command+=(--no-recording)
+else
+    command+=(--recording-root "$RECORDS_DIR/tests" "$video_flag")
+fi
 for setting in HEADING_REGIONS_CM HEADING_NEAR_CM HEADING_FAR_CM STEERING_ANGLE_WZ_TABLE SEGMENT_REGIONS_CM; do
     if [[ -n "${!setting:-}" ]]; then
         flag="${setting,,}"
@@ -81,7 +85,11 @@ if [[ "${1:-}" = --dry-run ]]; then
 fi
 [[ $# = 0 ]] || { printf 'Usage: bash %s [--dry-run]\n' "$0" >&2; exit 2; }
 # Recheck both environments before opening hardware; no motor process is started here.
+if [[ "$NO_RECORDING" = 1 ]]; then
+    exec >/dev/null 2>&1
+else
+    mkdir -p -- "$RECORDS_DIR"
+fi
 preflight_button_config
-mkdir -p -- "$RECORDS_DIR"
 cd -- "$REPO_DIR"
 exec "${command[@]}"

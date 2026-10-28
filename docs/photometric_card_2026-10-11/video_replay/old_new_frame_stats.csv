@@ -1,0 +1,3 @@
+label,source,frame,card_box_norm,frame_upper_mean,frame_upper_std,card_mean,card_std,card_p10,card_p90,card_p90_minus_p10,card_laplacian_var
+old square f86,/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260919_18_11_50_Pro_flip.mp4,86,"[0.625, 0.6, 0.775, 0.77]",115.98533564814815,46.51019834819976,158.03138281724347,12.196580124271225,143.0,170.0,27.0,25.84849213338927
+dark video square f1149,/mnt/d/用户/Lenovo/桌面/Robocup/camera_commands3.avi,1149,"[0.385, 0.345, 0.51, 0.5]",50.52804012345679,18.972162728783548,49.94732142857143,13.355535932619002,30.0,63.0,33.0,20.936767723293023

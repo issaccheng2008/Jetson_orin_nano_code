@@ -1,0 +1,16 @@
+source,truth,presence,card_found,precise_box_match,precise_box_iou,class_correct,class_wrong,prediction,cue_gate_hit,cue_score
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_32_21_Pro.jpg,triangle,True,True,True,0.39616473048615014,True,False,triangle,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_32_48_Pro.jpg,triangle,True,True,True,0.39892652164153664,True,False,triangle,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_32_50_Pro.jpg,triangle,True,True,True,0.46988966869884885,True,False,triangle,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_20_Pro.jpg,triangle,False,True,True,0.4925963598379701,True,False,triangle,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_21_Pro.jpg,triangle,False,True,True,0.47171832741183367,True,False,triangle,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_43_Pro.jpg,triangle,False,True,True,0.5683541192278333,True,False,triangle,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_45_Pro.jpg,triangle,False,False,False,0.0,False,False,,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_33_52_Pro.jpg,triangle,False,False,False,0.0,False,False,,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_34_06_Pro.jpg,triangle,False,False,False,0.0,False,False,,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_34_08_Pro.jpg,triangle,False,False,False,0.0,False,False,,False,0.0
+/mnt/d/用户/Lenovo/桌面/Robocup/WIN_20260922_20_34_10_Pro.jpg,triangle,False,False,False,0.0,False,False,,False,0.0
+/mnt/d/用户/Lenovo/桌面/Github Repository/Jetson_orin_nano_code/records/shape_dump_3/0001_None_cy0.36574074074074076_g0.jpg,negative,False,False,False,0.0,False,False,,False,0.0
+/mnt/d/用户/Lenovo/桌面/Github Repository/Jetson_orin_nano_code/records/shape_dump_3/0002_None_cyNone_g0.jpg,negative,False,False,False,0.0,False,False,,False,0.0
+/mnt/d/用户/Lenovo/桌面/Github Repository/Jetson_orin_nano_code/records/shape_dump_3/0003_None_cyNone_g0.jpg,negative,False,False,False,0.0,False,False,,False,0.06125770085469977
+/mnt/d/用户/Lenovo/桌面/Robocup/6card/背景.png,negative,False,False,False,0.0,False,False,,False,0.0

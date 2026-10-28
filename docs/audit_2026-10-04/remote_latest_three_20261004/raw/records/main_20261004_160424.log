@@ -1,0 +1,35 @@
+[0;93m2026-10-04 16:04:25.177248411 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card1": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card1/device/vendor"[m
+[0;93m2026-10-04 16:04:25.177361439 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card0": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card0/device/vendor"[m
+ONNX input='obs', output='actions'
+Shape one-foot ONNX input='obs', output='actions'
+Policy command source: new_vision/connector on udp://127.0.0.1:5005; timeout=0.250s; live vx/wz, vy=0; fixed-command timer disabled
+Step: 5.00 cm (--step-cm), independent of vx; the cadence is the policy's own
+Target limits: margin=0.05 rad; slew=3 rad/s (0=off); feedback-window=10 deg (0=off); absolute-lower=[-1.5700000524520874, -1.5700000524520874, -1.5700000524520874, -1.5700000524520874, -0.5, -0.5, -1.5700000524520874, -0.5, -1.5700000524520874, -1.5700000524520874, -0.5, -0.5]; absolute-upper=[1.5700000524520874, 0.5, 1.5700000524520874, 1.5700000524520874, 0.5, 0.5, 1.5700000524520874, 1.5700000524520874, 1.5700000524520874, 1.5700000524520874, 0.5, 0.5]
+Body attitude broadcast: udp://127.0.0.1:5007 at 10 Hz
+Opening /dev/ttyACM0 (line coding 921600; native USB CDC ignores physical baud)
+MOTORS ENABLED
+Walking vx/wz minimum hold: 0.5 s at model input; stops and takeovers preempt
+Motor-position and IMU log: records/motor_positions/motor_positions_20261004_160425_250080.csv
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/serial/serialposix.py", line 322, in open
+    self.fd = os.open(self.portstr, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/dev/ttyACM0'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/isaac/jetson_orin_code/humanoid_jetson_deploy/main.py", line 911, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/home/isaac/jetson_orin_code/humanoid_jetson_deploy/main.py", line 443, in main
+    link = SerialLink(args.port, args.baud)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/isaac/jetson_orin_code/humanoid_jetson_deploy/serial_link.py", line 20, in __init__
+    self.serial = serial.Serial(port=port, baudrate=baudrate, timeout=0.01, write_timeout=0.05)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3/dist-packages/serial/serialutil.py", line 244, in __init__
+    self.open()
+  File "/usr/lib/python3/dist-packages/serial/serialposix.py", line 325, in open
+    raise SerialException(msg.errno, "could not open port {}: {}".format(self._port, msg))
+serial.serialutil.SerialException: [Errno 2] could not open port /dev/ttyACM0: [Errno 2] No such file or directory: '/dev/ttyACM0'

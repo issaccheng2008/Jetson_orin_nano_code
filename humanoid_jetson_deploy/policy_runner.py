@@ -111,7 +111,8 @@ class HumanoidPolicy:
     obs_dim = config.OBS_DIM
     model_description = "current walking/stepping policy; legacy walking-test models are incompatible"
 
-    def __init__(self, model_path: str, step_distance_m: float | None = None) -> None:
+    def __init__(self, model_path: str, step_distance_m: float | None = None,
+                 *, inference_backend: str = "cpu", engine_path: str | None = None) -> None:
         # 步长是一个数，直接给，不随 vx 变（main.py --step-cm）。
         # ⚠️ 但步频**不是** vx/步长：它是策略自己的，会跟着 vx 和 step_distance
         # 动（2026-10-03 实测：vx 从 0.3 降到 0.2 反而让步频变快）。所以这里给的
@@ -120,7 +121,16 @@ class HumanoidPolicy:
             config.STEP_LENGTH_CM / 100.0 if step_distance_m is None
             else float(step_distance_m)
         )
-        self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        if inference_backend == "cpu":
+            if engine_path is not None:
+                raise ValueError("engine_path requires inference_backend='tensorrt'")
+            self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        elif inference_backend == "tensorrt":
+            from tensorrt_backend import TensorRTSession
+            self.session = TensorRTSession(model_path, engine_path, self.obs_dim)
+        else:
+            raise ValueError("inference_backend must be cpu or tensorrt")
+        self.inference_backend = inference_backend
         if len(self.session.get_inputs()) != 1 or len(self.session.get_outputs()) != 1:
             raise RuntimeError("Expected an ONNX policy with one input and one output")
         self.input = self.session.get_inputs()[0]

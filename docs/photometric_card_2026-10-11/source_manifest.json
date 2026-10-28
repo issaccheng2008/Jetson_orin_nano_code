@@ -1,0 +1,16 @@
+{
+  "branch": "policy49flitter-vi",
+  "head": "6545d74",
+  "worktree_note": "tested dirty working tree; original user changes preserved",
+  "files_sha256": {
+    "new_vision/jetson/photometric_thresholds.py": "d74631d94f3e54a6033888c710362086c1acdf5195ddac685775c7c264baecc4",
+    "new_vision/jetson/line_detector_v1_warp.py": "3e484bff6ecc1e5f0763cce28c97b6b4ff8eaf3f9ffe9369903b6be9d4dd2a8e",
+    "new_vision/jetson/line_preprocess.py": "7f20a85108e3b699fee3f873da677b237c6265f7f57863552e5580d80f83735e",
+    "new_vision/jetson/shape_detector.py": "59ed416f703e2ec3bba694c01d0dbbddcea8bb93ac01e892f6433cba4cf91ba1",
+    "new_vision/jetson/card_appearance.py": "52d8574c28ffab198a6c2acd694262d0cb4b5e8069f03055bfd9e04106a7dd16",
+    "new_vision/jetson/card_presence.py": "7d5fd3943350917c527a5c542888ca9dbe39fc189a825016f83e8d91c95ca72b",
+    "new_vision/jetson/local_darkness.py": "727aae1ca60e5615b3c6d711b196027d7686a4e3e8a3be225279c540a6de9c48",
+    "new_vision/jetson/run_policy_vision.py": "0fdf389342052987edd79bcf97f2af0329db2c821e254bb1415650d991d7ec99",
+    "new_vision/config/cameras.json": "56ee1af62c23ec236c5495615a5cec09ee5f508ed36af378b27a1885fb9f5b1c"
+  }
+}

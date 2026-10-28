@@ -9,6 +9,23 @@ records/
 /local_joint_angle_readback/
 /config/button_start.env
 
+# Local camera captures and generated visual comparisons. Already tracked
+# reference images remain tracked; these rules keep new captures out of status.
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.webp
+*.avi
+*.mp4
+/10camera_commands.zip
+
+# Local scratch plans and duplicate source snapshots from offline audits.
+/.planning/
+/tmp.md
+/docs/audit_2026-10-09/card_recognition/**/source_snapshot/
+
 # Generated audit images/videos stay local; keep reports and annotations tracked.
 /docs/audit_*/**/*.jpg
 /docs/audit_*/**/*.jpeg

@@ -1,0 +1,116 @@
+Camera 0: 1280x720; UDP -> 127.0.0.1:5006; vx=0.2 m/s; max_wz=0.5 rad/s (right 0.5); yaw_sign=1; red=on; sl_gain=1.0; line_pitch=off; hold-still=off; gate=off; wz_mode=discrete; center_dead=4.0cm; bias=1.0->3.0(dead 6.0, full 12.0)
+Body attitude: udp://127.0.0.1:5007 tau=1.2s; 安装角 45.0° 会被机身俯仰实时修正
+[wz] 离散模式：wz 只会是 {0, +0.4, +0.5}，err ≥ 5.0cm 打 0.4、≥ 8.0cm 打 0.5，每次 0.15s（约 3 帧）。只在车身偏右（err>0）时才左转，偏左不转；--center-dead-cm / --steer-full-scale-cm / --bias-cm / PID 增益在这个模式下不影响输出。
+[wz] ⚠️ A 那边要用 --max-wz-accel 0，否则脉冲会被它的斜率限制削成三角形（默认 2.0 时 0→0.4 要爬 0.20s）
+[wz] 幅度写死 0.4/0.5（实车量出来的，不跟着 --vx 走）。参考：--vx 0.2 下跟住一个弯要 0.258 rad/s。触发看原始 err=；--bias-cm / --center-dead-cm / --steer-full-scale-cm / --preview-gain 在这个模式下都不参与
+[shape] /home/isaac/shape_dump: cleared 0 files from the last run
+[vision] /home/isaac/loss_dump: cleared 0 files from the last run
+[vision]   25Hz vx=+0.200 wz=+0.000 err=+0.4cm conf=0.47 qr=-1 | steer=+1.20 eff=+1.4 ang=+16.7 curve=0/-5 far=-15 lr=11 lock=0pair=0.00 lost=0 lscale=1.001 pitch=45.0
+[lane-fit] 拟合不出（pts=42, top=53cm）
+[vision]    6Hz vx=+0.200 wz=+0.000 err=+3.1cm conf=0.99 qr=-1 | steer=+3.98 eff=+4.1 ang=+17.9 curve=0/-1 far=-15 lr=11 lock=1pair=1.00 lost=0 lscale=1.003 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    8Hz vx=+0.200 wz=+0.000 err=+4.3cm conf=0.99 qr=-1 | steer=+5.13 eff=+5.3 ang=+18.2 curve=0/-1 far=-15 lr=11 lock=1pair=1.00 lost=0 lscale=1.005 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.7cm conf=0.99 qr=-1 | steer=+5.13 eff=+5.7 ang=+18.4 curve=0/-1 far=-15 lr=11 lock=1pair=1.00 lost=0 lscale=1.007 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.99 qr=-1 | steer=+5.05 eff=+5.8 ang=+18.2 curve=0/-1 far=-15 lr=11 lock=1pair=1.00 lost=0 lscale=1.009 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    8Hz vx=+0.200 wz=+0.000 err=+4.9cm conf=0.99 qr=-1 | steer=+4.99 eff=+5.9 ang=+18.2 curve=0/-1 far=-15 lr=11 lock=1pair=1.00 lost=0 lscale=1.011 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+4.94 eff=+5.8 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.013 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+4.92 eff=+5.8 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.014 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.31 eff=+6.2 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.015 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.63 eff=+6.5 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.017 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.73 eff=+6.6 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.018 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.79 eff=+6.7 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.018 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.82 eff=+6.8 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.019 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.85 eff=+6.8 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.020 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.86 eff=+6.8 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.021 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.88 eff=+6.8 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.021 pitch=45.0
+[lane-fit] pts=44 top=55cm near=-14px far=-75px 远-近=-62px
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.88 eff=+6.8 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.022 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.90 eff=+6.8 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.022 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.92 eff=+6.8 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.023 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.97 qr=-1 | steer=+5.91 eff=+6.8 ang=+20.8 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.023 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.97 qr=-1 | steer=+5.92 eff=+6.8 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.024 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.93 eff=+6.8 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.024 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.93 eff=+6.9 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.025 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.93 eff=+6.9 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.025 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.94 eff=+6.9 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.025 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.94 eff=+6.9 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.026 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.94 eff=+6.9 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.026 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.93 eff=+6.9 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.026 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.97 qr=-1 | steer=+5.93 eff=+6.9 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.026 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    8Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.93 eff=+6.9 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.026 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.94 eff=+6.9 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.027 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.9cm conf=0.97 qr=-1 | steer=+5.93 eff=+6.9 ang=+20.8 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.027 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.9cm conf=0.98 qr=-1 | steer=+5.94 eff=+6.9 ang=+20.9 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.027 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    8Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.92 eff=+6.9 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.027 pitch=45.0
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=+4.8cm conf=0.98 qr=-1 | steer=+5.93 eff=+6.9 ang=+21.0 curve=0/-9 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.027 pitch=52.3
+[lane-fit] 拟合不出（pts=43, top=54cm）
+[vision] lock lost (pair 1.00->0.00, conf 0.98->0.46) -> /home/isaac/loss_dump #1
+[vision]    7Hz vx=+0.200 wz=+0.400 err=+6.0cm conf=0.44 qr=-1 | steer=+7.18 eff=+7.9 ang=+23.3 curve=0/-10 far=+31 lr=11 lock=0pair=0.00 lost=0 lscale=1.027 pitch=45.6
+[lane-fit] pts=51 top=66cm near=+65px far=-8px 远-近=-72px
+[vision]    8Hz vx=+0.200 wz=+0.000 err=+2.2cm conf=0.32 qr=-1 | steer=+2.79 eff=+5.2 ang=+62.5 curve=1/-44 far=+31 lr=11 lock=0pair=0.00 lost=0 lscale=1.040 pitch=41.3
+[lane-fit] pts=35 top=56cm near=+82px far=-6px 远-近=-88px
+[vision]    9Hz vx=+0.200 wz=+0.000 err=-0.0cm conf=0.28 qr=-1 | steer=+0.93 eff=+3.0 ang=+66.3 curve=1/-41 far=-18 lr=11 lock=0pair=0.00 lost=0 lscale=1.055 pitch=48.3
+[lane-fit] pts=28 top=69cm near=+11px far=-29px 远-近=-41px
+[vision]    8Hz vx=+0.061 wz=+0.000 err=-0.3cm conf=0.00 qr=-1 | steer=+0.00 eff=+2.7 ang=+53.8 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.061 pitch=44.9
+[lane-fit] 拟合不出（pts=20, top=36cm）
+[vision]    9Hz vx=+0.200 wz=+0.000 err=-0.3cm conf=0.23 qr=-1 | steer=+1.76 eff=+2.4 ang=+67.1 curve=1/-5 far=-20 lr=11 lock=0pair=0.00 lost=0 lscale=1.059 pitch=39.0
+[lane-fit] 拟合不出（pts=14, top=70cm）
+[vision]    8Hz vx=+0.200 wz=+0.000 err=-0.9cm conf=0.41 qr=-1 | steer=+1.72 eff=+2.1 ang=+57.3 curve=1/+0 far=+27 lr=11 lock=0pair=0.00 lost=0 lscale=1.073 pitch=38.8
+[lane-fit] pts=43 top=70cm near=+30px far=-28px 远-近=-58px
+[vision]    9Hz vx=+0.200 wz=+0.000 err=-3.1cm conf=0.34 qr=-1 | steer=-0.43 eff=-0.1 ang=+54.2 curve=1/-34 far=+18 lr=11 lock=0pair=0.00 lost=0 lscale=1.076 pitch=38.8
+[lane-fit] 拟合不出（pts=21, top=53cm）
+[vision]    8Hz vx=+0.111 wz=+0.000 err=-3.6cm conf=0.00 qr=-1 | steer=+0.00 eff=-0.6 ang=-33.2 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.072 pitch=38.8
+[lane-fit] 拟合不出（pts=7, top=29cm）
+[vision]    8Hz vx=+0.200 wz=+0.000 err=-5.3cm conf=0.60 qr=-1 | steer=-1.89 eff=-2.3 ang=+58.0 curve=1/-17 far=-12 lr=10 lock=0pair=0.00 lost=0 lscale=1.072 pitch=38.8
+[lane-fit] 拟合不出（pts=8, top=39cm）
+[vision] lock lost (pair 0.00->0.00, conf 0.60->0.00) -> /home/isaac/loss_dump #2
+[vision]    7Hz vx=+0.200 wz=+0.000 err=-4.9cm conf=0.34 qr=-1 | steer=-1.62 eff=-1.9 ang=+48.1 curve=1/+0 far=+19 lr=11 lock=0pair=0.00 lost=0 lscale=1.072 pitch=38.8
+[lane-fit] 拟合不出（pts=15, top=52cm）
+[vision]    8Hz vx=+0.019 wz=+0.000 err=-4.8cm conf=0.00 qr=-1 | steer=+0.00 eff=-1.8 ang=+52.6 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.072 pitch=38.8
+[lane-fit] 拟合不出（pts=9, top=38cm）
+[vision]    9Hz vx=+0.000 wz=+0.000 err=-4.7cm conf=0.00 qr=-1 | steer=+0.00 eff=-1.8 ang=+54.8 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=2 lscale=1.072 pitch=38.8
+[lane-fit] 拟合不出（pts=5, top=38cm）
+[vision]    8Hz vx=+0.200 wz=+0.000 err=-3.5cm conf=0.45 qr=-1 | steer=-0.66 eff=-0.8 ang=+83.3 curve=1/-32 far=-79 lr=10 lock=0pair=0.00 lost=0 lscale=1.072 pitch=38.8
+[lane-fit] 拟合不出（pts=3, top=29cm）
+[vision]    9Hz vx=+0.200 wz=+0.000 err=-4.3cm conf=0.36 qr=-1 | steer=-3.86 eff=-3.3 ang=+45.1 curve=1/+0 far=+47 lr=11 lock=0pair=0.00 lost=0 lscale=1.057 pitch=38.8
+[lane-fit] pts=20 top=66cm near=+43px far=+31px 远-近=-12px
+[vision]    8Hz vx=+0.200 wz=+0.000 err=-5.3cm conf=0.40 qr=-1 | steer=-2.07 eff=-2.5 ang=+34.0 curve=0/-16 far=+20 lr=11 lock=0pair=0.00 lost=0 lscale=1.056 pitch=38.8
+[lane-fit] 拟合不出（pts=35, top=47cm）
+[vision]    7Hz vx=+0.200 wz=+0.000 err=-5.8cm conf=0.43 qr=-1 | steer=-2.34 eff=-2.8 ang=+26.8 curve=0/-11 far=+28 lr=11 lock=0pair=0.00 lost=0 lscale=1.068 pitch=38.8
+[lane-fit] pts=52 top=70cm near=+41px far=+20px 远-近=-21px
+[vision] lock lost (pair 1.00->1.00, conf 0.58->0.00) -> /home/isaac/loss_dump #3
+[vision]    7Hz vx=+0.021 wz=+0.000 err=-2.2cm conf=0.00 qr=-1 | steer=+0.00 eff=-5.2 ang=-66.4 curve=0/+0 far=+0 lr=00 lock=1pair=1.00 lost=1 lscale=1.075 pitch=38.8
+[lane-fit] pts=36 top=63cm near=-45px far=+31px 远-近=+76px
+[vision]    6Hz vx=+0.000 wz=+0.000 err=-2.2cm conf=0.00 qr=-1 | steer=+0.00 eff=-5.2 ang=-66.4 curve=0/+0 far=+0 lr=00 lock=0pair=1.00 lost=5 lscale=1.075 pitch=38.8
+[lane-fit] 拟合不出（pts=29, top=70cm）

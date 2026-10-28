@@ -26,7 +26,7 @@ from imu_filter import (
 from policy_runner import HumanoidPolicy
 from one_foot_policy import OneFootCommand, OneFootPolicy
 from shape_actions import ShapeActionController, LEG_CARDS
-from position_monitor import LivePositionPlot, PositionCsvLogger
+from position_monitor import LivePositionPlot, NullPositionLogger, PositionCsvLogger
 from protocol import (
     ACTION_BUSY,
     ACTION_CARD_RESTORE,
@@ -65,6 +65,10 @@ def parse_args() -> argparse.Namespace:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--model", help="Path to policy.onnx")
     source.add_argument("--fixed-policy", help="Path to joint_frames_v1 JSON")
+    parser.add_argument("--inference-backend", choices=("cpu", "tensorrt"), default="cpu",
+                        help="Explicit policy backend; CPU is the default")
+    parser.add_argument("--trt-engine", help="Prebuilt TensorRT engine for --model")
+    parser.add_argument("--one-foot-trt-engine", help="Prebuilt TensorRT engine for --one-foot-model")
     parser.add_argument(
         "--policy", choices=("walking", "one-foot"), default="walking",
         help="Observation/action interface: walking=49 inputs, one-foot=46 inputs",
@@ -187,6 +191,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--enable-motors", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=0.0, help="0 runs until Ctrl+C")
     parser.add_argument("--log-every", type=int, default=25, help="Print every N policy steps")
+    parser.add_argument("--no-recording", action="store_true",
+                        help="Do not create motor/IMU CSV, control diagnostics or plot files")
     parser.add_argument(
         "--position-log-dir",
         default="records/motor_positions",
@@ -215,6 +221,15 @@ def parse_args() -> argparse.Namespace:
     add_target_safety_arguments(parser)
     add_diagnostic_arguments(parser)
     args = parser.parse_args()
+    if args.inference_backend == "tensorrt":
+        if args.fixed_policy or not args.trt_engine:
+            parser.error("--inference-backend tensorrt requires --model and --trt-engine")
+        if args.one_foot_model and not args.one_foot_trt_engine:
+            parser.error("TensorRT --one-foot-model requires --one-foot-trt-engine")
+    elif args.trt_engine or args.one_foot_trt_engine:
+        parser.error("TensorRT engine options require --inference-backend tensorrt")
+    if args.one_foot_trt_engine and not args.one_foot_model:
+        parser.error("--one-foot-trt-engine requires --one-foot-model")
     try:
         TargetSafety.from_args(args)
     except ValueError as exc:
@@ -332,6 +347,9 @@ def send_disable(link: SerialLink, q_motor: np.ndarray, estop: bool = False) -> 
 
 def main() -> int:
     args = parse_args()
+    if args.no_recording:
+        args.no_control_diagnostics = True
+        args.no_plot = True
     try:
         target_safety = TargetSafety.from_args(args)
     except ValueError as exc:
@@ -434,14 +452,16 @@ def main() -> int:
             command_source = OneFootCommand(args.stand_seconds, args.lift_seconds)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
-        policy = OneFootPolicy(args.model, support_foot=args.support_foot)
+        policy = OneFootPolicy(args.model, support_foot=args.support_foot,
+                               inference_backend=args.inference_backend, engine_path=args.trt_engine)
         command_source_description = (
             f"one-foot standing, support={args.support_foot}; "
             f"stand {args.stand_seconds:g}s -> lift {args.lift_seconds:g}s -> lower/stand; "
             "vision disconnected; no velocity, step-distance, or crossing observations"
         )
     else:
-        policy = HumanoidPolicy(args.model, step_distance_m)
+        policy = HumanoidPolicy(args.model, step_distance_m,
+                                inference_backend=args.inference_backend, engine_path=args.trt_engine)
         if args.command_source == "vision":
             shape_controller = ShapeActionController()
             command_source = UdpCommandSource(
@@ -499,7 +519,8 @@ def main() -> int:
         and args.policy == "walking" and args.command_source == "vision"
         else None
     )
-    position_logger = PositionCsvLogger(args.position_log_dir, config.JOINT_NAMES)
+    position_logger = (NullPositionLogger() if args.no_recording
+                       else PositionCsvLogger(args.position_log_dir, config.JOINT_NAMES))
     position_plot = None
     if not args.no_plot:
         try:
@@ -529,7 +550,8 @@ def main() -> int:
     if not args.fixed_policy and args.policy == "walking":
         print(f"Walking command minimum hold: {args.command_min_hold_s:g} s at model input; "
               "stops and takeovers preempt")
-    print(f"Motor-position and IMU log: {position_logger.path}")
+    print("Motor-position and IMU log: "
+          + ("disabled" if args.no_recording else str(position_logger.path)))
     if position_plot is not None:
         print("Motor/IMU window opened (knee motors and IMU data selected by default)")
 

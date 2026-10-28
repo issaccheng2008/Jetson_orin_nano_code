@@ -1,0 +1,8 @@
+variant,calls,precise_matches,correct,wrong,presence_matches,negative_presence
+baseline,247,5,5,0,33,0
+without_ring,247,1,1,0,33,0
+ring_only,247,4,4,0,32,0
+without_corner,247,4,4,0,32,0
+without_hough,247,5,5,0,33,0
+without_lsd,247,5,5,0,33,0
+without_cc,247,5,5,0,33,0

@@ -45,6 +45,33 @@ def read_rows(path):
 
 
 class ControlDiagnosticsTests(unittest.TestCase):
+    def test_main_no_recording_creates_no_motor_or_control_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with patch('sys.argv', ['main.py', '--model', 'fake.onnx',
+                                    '--attitude-port', '0', '--no-recording',
+                                    '--position-log-dir', str(root / 'motors'),
+                                    '--diagnostic-log-dir', str(root / 'diagnostics')]):
+                args = main.parse_args()
+            policy = Mock()
+            policy.step.return_value = (config.Q_DEFAULT.copy(), np.zeros(12), np.zeros(49), 0.)
+            link = Mock()
+            link.wait_for_state.return_value = state()
+            link.get_latest_state.side_effect = [state(), RuntimeError('end test')]
+            link.send_command.return_value = True
+            with (patch.object(main, 'parse_args', return_value=args),
+                  patch.object(main.signal, 'signal'),
+                  patch.object(main, 'HumanoidPolicy', return_value=policy),
+                  patch.object(main, 'SerialLink', return_value=link),
+                  patch.object(main, 'PositionCsvLogger') as csv_logger,
+                  patch.object(main, 'ControlDiagnostics') as control_logger,
+                  redirect_stdout(io.StringIO())):
+                self.assertEqual(main.main(), 1)
+            self.assertGreaterEqual(policy.step.call_count, 1)
+            csv_logger.assert_not_called()
+            control_logger.assert_not_called()
+            self.assertEqual(list(root.iterdir()), [])
+
     def make_logger(self, folder):
         model = Path(folder) / "model.onnx"
         model.write_bytes(b"test-model-identity")

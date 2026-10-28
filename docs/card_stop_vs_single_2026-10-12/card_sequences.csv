@@ -1,0 +1,17 @@
+box_hits,box_matched_hits,calls,confirmed_matched,confirmed_presence,cue_hits,cue_matched_hits,mode,sequence,stop_frame,stop_matched,stop_path,triggered,truth
+1,1,3,2,2,2,1,lut,new_triangle,,,,,triangle
+,,11,4,5,5,4,lut,new_square_approach,531,1,cue,1,square
+,,7,5,6,6,5,lut,new_circle_approach,,,,,circle
+,,4,,,1,,lut,new_circle_restart,,,,,circle
+5,5,12,6,6,4,3,lut,new_square_clear,1143,1,cue,1,square
+,,31,,,,,lut,new_empty_reflection,,,,,negative
+,,44,,,1,,lut,new_empty_floor,,,,,negative
+,,39,,,,,lut,new_cable_powerstrip,,,,,negative
+,,11,6,6,7,6,raw,old_triangle,,,,,triangle
+,,12,,,,,raw,old_triangle_empty,,,,,negative
+,,17,6,6,7,6,raw,old_square,,,,,square
+,,8,,,,,raw,old_square_empty,,,,,negative
+,,6,4,5,5,4,raw,old_star_long,,,,,pentagon
+,,18,,,,,raw,old_star_empty,,,,,negative
+,,9,7,7,8,7,raw,old_star_short,,,,,pentagon
+,,15,,,,,raw,old_star_short_empty,,,,,negative

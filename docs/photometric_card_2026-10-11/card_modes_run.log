@@ -1,0 +1,251 @@
+  [shape] NEW triangle
+三1.jpg raw classified triangle
+  [shape] NEW triangle
+三1.jpg match classified triangle
+  [shape] NEW triangle
+三1.jpg threshold classified triangle
+  [shape] NEW triangle
+三2.jpg raw classified triangle
+  [shape] NEW triangle
+三2.jpg match classified triangle
+  [shape] NEW triangle
+三2.jpg threshold classified triangle
+  [shape] NEW triangle
+三3.jpg raw classified triangle
+  [shape] NEW triangle
+三3.jpg match classified triangle
+  [shape] NEW triangle
+三3.jpg threshold classified triangle
+  [shape] NEW triangle
+三4.jpg raw classified triangle
+  [shape] NEW triangle
+三4.jpg match classified triangle
+  [shape] NEW triangle
+三4.jpg threshold classified triangle
+  [shape] NEW pentagon
+五1.jpg raw classified pentagon
+  [shape] NEW pentagon
+五1.jpg match classified pentagon
+  [shape] NEW pentagon
+五1.jpg threshold classified pentagon
+五2.jpg raw geometry None
+五2.jpg match geometry None
+五2.jpg threshold geometry None
+  [shape] NEW pentagon
+五3.jpg raw classified pentagon
+  [shape] NEW pentagon
+五3.jpg match classified pentagon
+  [shape] NEW pentagon
+五3.jpg threshold classified pentagon
+  [shape] NEW pentagon
+五4.jpg raw classified pentagon
+  [shape] NEW pentagon
+五4.jpg match classified pentagon
+  [shape] NEW pentagon
+五4.jpg threshold classified pentagon
+  [shape] NEW pentagon
+五5.jpg raw classified pentagon
+  [shape] NEW pentagon
+五5.jpg match classified pentagon
+  [shape] NEW pentagon
+五5.jpg threshold classified pentagon
+  [shape] NEW pentagon
+五6.jpg raw classified pentagon
+  [shape] NEW pentagon
+五6.jpg match classified pentagon
+  [shape] NEW pentagon
+五6.jpg threshold classified pentagon
+十1.jpg raw geometry None
+十1.jpg match geometry None
+十1.jpg threshold geometry None
+  [shape] NEW cross
+十2.jpg raw classified cross
+  [shape] NEW cross
+十2.jpg match classified cross
+  [shape] NEW cross
+十2.jpg threshold classified cross
+  [shape] NEW cross
+十3.jpg raw classified cross
+  [shape] NEW cross
+十3.jpg match classified cross
+  [shape] NEW cross
+十3.jpg threshold classified cross
+  [shape] NEW circle
+圆1.jpg raw classified circle
+  [shape] NEW circle
+圆1.jpg match classified circle
+  [shape] NEW circle
+圆1.jpg threshold classified circle
+  [shape] NEW circle
+圆2.jpg raw classified circle
+  [shape] NEW circle
+圆2.jpg match classified circle
+  [shape] NEW circle
+圆2.jpg threshold classified circle
+  [shape] NEW circle
+圆3.jpg raw classified circle
+  [shape] NEW circle
+圆3.jpg match classified circle
+  [shape] NEW circle
+圆3.jpg threshold classified circle
+  [shape] NEW circle
+圆4.jpg raw classified circle
+  [shape] NEW circle
+圆4.jpg match classified circle
+  [shape] NEW circle
+圆4.jpg threshold classified circle
+  [shape] NEW circle
+圆5.jpg raw classified circle
+  [shape] NEW circle
+圆5.jpg match classified circle
+  [shape] NEW circle
+圆5.jpg threshold classified circle
+  [shape] NEW circle
+圆6.jpg raw classified circle
+  [shape] NEW circle
+圆6.jpg match classified circle
+  [shape] NEW circle
+圆6.jpg threshold classified circle
+  [shape] NEW square
+正1.jpg raw classified square
+  [shape] NEW square
+正1.jpg match classified square
+  [shape] NEW square
+正1.jpg threshold classified square
+  [shape] NEW square
+正2.jpg raw classified square
+  [shape] NEW square
+正2.jpg match classified square
+  [shape] NEW square
+正2.jpg threshold classified square
+  [shape] NEW square
+正3.jpg raw classified square
+正3.jpg match classify None
+  [shape] NEW square
+正3.jpg threshold classified square
+  [shape] NEW square
+正4.jpg raw classified square
+  [shape] NEW square
+正4.jpg match classified square
+  [shape] NEW square
+正4.jpg threshold classified square
+  [shape] NEW square
+正5.jpg raw classified square
+  [shape] NEW square
+正5.jpg match classified square
+  [shape] NEW square
+正5.jpg threshold classified square
+  [shape] NEW square
+正6.jpg raw classified square
+  [shape] NEW square
+正6.jpg match classified square
+  [shape] NEW square
+正6.jpg threshold classified square
+  [shape] NEW square
+正7.jpg raw classified square
+  [shape] NEW square
+正7.jpg match classified square
+  [shape] NEW square
+正7.jpg threshold classified square
+  [shape] NEW square
+正8.jpg raw classified square
+  [shape] NEW square
+正8.jpg match classified square
+  [shape] NEW square
+正8.jpg threshold classified square
+  [shape] NEW diamond
+菱1.jpg raw classified diamond
+  [shape] NEW diamond
+菱1.jpg match classified diamond
+  [shape] NEW diamond
+菱1.jpg threshold classified diamond
+  [shape] NEW diamond
+菱2.jpg raw classified diamond
+  [shape] NEW diamond
+菱2.jpg match classified diamond
+  [shape] NEW diamond
+菱2.jpg threshold classified diamond
+菱3.jpg raw verify_or_rank None
+菱3.jpg match verify_or_rank None
+菱3.jpg threshold verify_or_rank None
+  [shape] NEW diamond
+菱4.jpg raw classified diamond
+  [shape] NEW diamond
+菱4.jpg match classified diamond
+  [shape] NEW diamond
+菱4.jpg threshold classified diamond
+  [shape] NEW square
+latest_square_card_capture_20261010.jpg raw classified square
+  [shape] NEW square
+latest_square_card_capture_20261010.jpg match classified square
+  [shape] NEW square
+latest_square_card_capture_20261010.jpg threshold classified square
+{
+  "latest_unverified_dark_capture/raw": {
+    "n": 1,
+    "box": 1,
+    "correct": 1,
+    "wrong_class": 0,
+    "no_class": 0,
+    "stages": {
+      "classified": 1
+    }
+  },
+  "latest_unverified_dark_capture/match": {
+    "n": 1,
+    "box": 1,
+    "correct": 1,
+    "wrong_class": 0,
+    "no_class": 0,
+    "stages": {
+      "classified": 1
+    }
+  },
+  "latest_unverified_dark_capture/threshold": {
+    "n": 1,
+    "box": 1,
+    "correct": 1,
+    "wrong_class": 0,
+    "no_class": 0,
+    "stages": {
+      "classified": 1
+    }
+  },
+  "old_real_bright/raw": {
+    "n": 31,
+    "box": 28,
+    "correct": 28,
+    "wrong_class": 0,
+    "no_class": 3,
+    "stages": {
+      "classified": 28,
+      "geometry": 2,
+      "verify_or_rank": 1
+    }
+  },
+  "old_real_bright/match": {
+    "n": 31,
+    "box": 28,
+    "correct": 27,
+    "wrong_class": 0,
+    "no_class": 4,
+    "stages": {
+      "classified": 27,
+      "classify": 1,
+      "geometry": 2,
+      "verify_or_rank": 1
+    }
+  },
+  "old_real_bright/threshold": {
+    "n": 31,
+    "box": 28,
+    "correct": 28,
+    "wrong_class": 0,
+    "no_class": 3,
+    "stages": {
+      "classified": 28,
+      "geometry": 2,
+      "verify_or_rank": 1
+    }
+  }
+}

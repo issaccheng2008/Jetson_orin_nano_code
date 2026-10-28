@@ -1,0 +1,17 @@
+[0;93m2026-10-03 09:28:11.962485054 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card1": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card1/device/vendor"[m
+[0;93m2026-10-03 09:28:11.962604034 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card0": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card0/device/vendor"[m
+ONNX input='obs', output='actions'
+Shape one-foot ONNX input='obs', output='actions'
+Policy command source: new_vision/connector on udp://127.0.0.1:5005; timeout=0.250s; live vx/wz, vy=0; fixed-command timer disabled
+Body attitude broadcast: udp://127.0.0.1:5007 at 10 Hz
+Opening /dev/ttyACM0 (line coding 921600; native USB CDC ignores physical baud)
+MOTORS ENABLED
+Motor-position and IMU log: logs/motor_positions/motor_positions_20261003_092812_042921.csv
+Received STM32 state packet, sequence=3
+step=     0 state_seq=    3 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] infer=0.336ms |obs|max=0.999 |action|max=1.337 crc_errors=0
+step=    25 state_seq=   87 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] infer=0.285ms |obs|max=1.618 |action|max=1.399 crc_errors=0
+step=    50 state_seq=  171 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.400 rad/s] infer=0.191ms |obs|max=1.503 |action|max=1.577 crc_errors=0
+step=    75 state_seq=  256 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] infer=0.174ms |obs|max=2.733 |action|max=1.433 crc_errors=0
+step=   100 state_seq=  340 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] infer=0.187ms |obs|max=1.598 |action|max=1.428 crc_errors=0
+step=   125 state_seq=  424 policy_target_velocity=[vx=+0.200 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] infer=0.237ms |obs|max=2.581 |action|max=1.458 crc_errors=0
+step=   150 state_seq=  509 policy_target_velocity=[vx=+0.080 m/s, vy=+0.000 m/s, wz=+0.000 rad/s] infer=0.352ms |obs|max=1.406 |action|max=1.460 crc_errors=0

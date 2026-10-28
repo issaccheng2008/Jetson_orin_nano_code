@@ -21,7 +21,9 @@ class PolicyGateLauncher:
                  policy_python: str | None = None,
                  one_foot_model: str = "humanoid_jetson_deploy/policy-one-foot-standing_old.onnx",
                  command_min_hold_s: float = 0.0,
-                 recording_directory: Path | None = None) -> None:
+                 recording_directory: Path | None = None,
+                 no_recording: bool = False) -> None:
+        self.no_recording = bool(no_recording)
         self.recording_directory = Path(recording_directory).resolve() if recording_directory else None
         if not math.isfinite(command_min_hold_s) or command_min_hold_s < 0:
             raise ValueError('command_min_hold_s must be finite and nonnegative')
@@ -68,11 +70,12 @@ class PolicyGateLauncher:
         if not model.is_file():
             raise RuntimeError(f"policy model missing: {model}")
         records = self.recording_directory or REPO_ROOT / "records"
-        records.mkdir(parents=True, exist_ok=True)
-        stamp = time.strftime("%Y%m%d_%H%M%S")
-        self.log_path = records / f"main_{stamp}.log"
-        self.live_log_path = REPO_ROOT / "records" / "main_live.log"
-        self.live_log_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.no_recording:
+            records.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            self.log_path = records / f"main_{stamp}.log"
+            self.live_log_path = REPO_ROOT / "records" / "main_live.log"
+            self.live_log_path.parent.mkdir(parents=True, exist_ok=True)
         self.ready_file = Path(tempfile.gettempdir()) / f"policy_ready_{uuid.uuid4().hex}"
         command = [
             self.policy_python, "-u", "humanoid_jetson_deploy/main.py",
@@ -80,30 +83,36 @@ class PolicyGateLauncher:
             "--port", self.port, "--command-source", "vision",
             "--udp-command-port", "5005",
             "--command-min-hold-s", f"{self.command_min_hold_s:g}",
-            "--diagnostic-log-dir", "records/control_diagnostics",
             "--no-plot", "--max-seconds", f"{self.max_seconds:g}",
             "--enable-motors", "--startup-ready-file", str(self.ready_file),
         ]
-        if self.recording_directory is not None:
-            command[command.index('--diagnostic-log-dir') + 1] = str(records / 'control')
-            command.extend(['--position-log-dir', str(records / 'motor_positions')])
-        self.process = subprocess.Popen(command, cwd=REPO_ROOT, stdout=subprocess.PIPE,
-                                        stderr=subprocess.STDOUT)
-        assert self.process.stdout is not None
-        try:
-            self.tee = subprocess.Popen(["tee", str(self.log_path),
-                                         str(self.live_log_path)], cwd=REPO_ROOT,
-                                        stdin=self.process.stdout)
-        except Exception:
-            self.process.terminate()
-            self.process.wait()
-            raise
-        finally:
-            self.process.stdout.close()
+        if self.no_recording:
+            command.append('--no-recording')
+            self.process = subprocess.Popen(command, cwd=REPO_ROOT)
+        else:
+            command.extend(['--diagnostic-log-dir',
+                            str(records / 'control') if self.recording_directory is not None
+                            else 'records/control_diagnostics'])
+            if self.recording_directory is not None:
+                command.extend(['--position-log-dir', str(records / 'motor_positions')])
+            self.process = subprocess.Popen(command, cwd=REPO_ROOT, stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT)
+            assert self.process.stdout is not None
+            try:
+                self.tee = subprocess.Popen(["tee", str(self.log_path),
+                                             str(self.live_log_path)], cwd=REPO_ROOT,
+                                            stdin=self.process.stdout)
+            except Exception:
+                self.process.terminate()
+                self.process.wait()
+                raise
+            finally:
+                self.process.stdout.close()
         self.started_at = time.monotonic()
         print(f"[start-gate] C started pid={self.process.pid}; python={self.policy_python}; "
-              f"onnxruntime={self.onnxruntime_version}; log={self.log_path}; "
-              f"live={self.live_log_path}", flush=True)
+              f"onnxruntime={self.onnxruntime_version}; "
+              + ("recording=off" if self.no_recording else
+                 f"log={self.log_path}; live={self.live_log_path}"), flush=True)
 
     def exit_report(self, status: int, phase: str = "") -> str:
         """Include C's last output in B's exception even if C's tee races its exit."""
@@ -113,7 +122,8 @@ class PolicyGateLauncher:
             except subprocess.TimeoutExpired:
                 pass
         label = f" {phase}" if phase else ""
-        report = f"policy exited{label} (code {status}); C log: {self.log_path}"
+        report = (f"policy exited{label} (code {status}); "
+                  + ("recording disabled" if self.no_recording else f"C log: {self.log_path}"))
         if self.log_path is None:
             return report
         try:
@@ -136,8 +146,8 @@ class PolicyGateLauncher:
         if self.ready_file is not None and self.ready_file.is_file():
             return True
         if time.monotonic() - self.started_at > self.ready_timeout_s:
-            raise RuntimeError(f"policy did not become ready within {self.ready_timeout_s:g}s; "
-                               f"see {self.log_path}")
+            raise RuntimeError(f"policy did not become ready within {self.ready_timeout_s:g}s"
+                               + ("" if self.no_recording else f"; see {self.log_path}"))
         return False
 
     def close(self) -> None:

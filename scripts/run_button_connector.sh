@@ -10,5 +10,8 @@ if [[ "${1:-}" = --dry-run ]]; then
     exit 0
 fi
 [[ $# = 0 ]] || { printf 'Usage: bash %s [--dry-run]\n' "$0" >&2; exit 2; }
+if [[ "$NO_RECORDING" = 1 ]]; then
+    exec >/dev/null 2>&1
+fi
 cd -- "$REPO_DIR"
 exec "${command[@]}"

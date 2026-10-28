@@ -1,0 +1,103 @@
+Camera 0: 1280x720; UDP -> 127.0.0.1:5006; vx=0.2 m/s; max_wz=0.5 rad/s (right 0.5); yaw_sign=1; red=on; sl_gain=1.0; line_pitch=off; hold-still=off; gate=off; wz_mode=heading; center_dead=4.0cm; bias=1.0->3.0(dead 6.0, full 12.0)
+Body attitude: udp://127.0.0.1:5007 tau=1.2s; 安装角 45.0° 会被机身俯仰实时修正
+[wz] 方向模式：vx/wz 每段至少保持 0.5s（固定）；前视 50cm，目标方位容忍区 [-4, +12]°，横向走廊 ±8cm；左档 (0.4, 0.5)，右档 (0.1, 0.4, 0.5)，另有直行0。观测趋势仅用于提前减小正在执行的转向。旧 PID/bias/fire/stop/turn/gap 参数不参与本模式。需配套新 connector 和 C；停车/失联可立即打断。
+[vision] P1 geometry: quality-gated near/preview; elapsed-time EMA; legacy --anticipation-clip has no effect
+[vision] per-frame log: records/line_telemetry/run_20261004_160525_28519_1791101125961989715/line_frames.jsonl
+[shape] run dump: records/shape_20261004_160524/run_20261004_160525_28519_1791101125961989715
+[vision] run dump: records/loss_20261004_160524/run_20261004_160525_28519_1791101125961989715
+[vision]   30Hz vx=+0.200 wz=+0.000 err=+3.9cm near=-3.9cm preview=+0.0cm valid=1 reason=new_block age=0.000s lock_w=0.72 conf=0.97 qr=-1 | steer=+0.00 eff=+5.6deg ground_ang=+2.3 single=- predict_ang=+2.3 ang=+0.8 curve=0/+0 far=-17 lr=11 lock=1pair=1.00 lost=0 lscale=1.002 pitch=45.0
+[vision]   11Hz vx=+0.200 wz=+0.000 err=+4.0cm near=-4.0cm preview=+0.0cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.99 qr=-1 | steer=+0.00 eff=+5.7deg ground_ang=+1.7 single=- predict_ang=+2.1 ang=+0.1 curve=0/+0 far=-17 lr=11 lock=1pair=1.00 lost=0 lscale=1.012 pitch=45.0
+[vision]   13Hz vx=+0.200 wz=+0.000 err=+4.0cm near=-4.0cm preview=+0.0cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.97 qr=-1 | steer=+0.00 eff=+6.2deg ground_ang=+3.3 single=- predict_ang=+4.7 ang=+1.8 curve=0/-0 far=-18 lr=11 lock=1pair=1.00 lost=0 lscale=1.022 pitch=45.0
+[vision]   11Hz vx=+0.200 wz=+0.000 err=+4.0cm near=-4.1cm preview=+0.0cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.97 qr=-1 | steer=+0.00 eff=+5.8deg ground_ang=+2.4 single=- predict_ang=+2.8 ang=+0.8 curve=0/+0 far=-17 lr=11 lock=1pair=1.00 lost=0 lscale=1.031 pitch=45.0
+[vision]   13Hz vx=+0.200 wz=+0.000 err=+4.2cm near=-4.1cm preview=-0.1cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.96 qr=-1 | steer=+0.00 eff=+5.9deg ground_ang=+2.4 single=- predict_ang=+3.3 ang=+0.8 curve=0/-0 far=-18 lr=11 lock=1pair=1.00 lost=0 lscale=1.039 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.000 err=+4.2cm near=-4.1cm preview=-0.1cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.96 qr=-1 | steer=+0.00 eff=+5.9deg ground_ang=+2.4 single=- predict_ang=+2.6 ang=+0.8 curve=0/-0 far=-18 lr=11 lock=1pair=1.00 lost=0 lscale=1.045 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.000 err=+4.3cm near=-4.1cm preview=-0.1cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.96 qr=-1 | steer=+0.00 eff=+5.9deg ground_ang=+2.4 single=- predict_ang=+2.3 ang=+0.7 curve=0/-0 far=-18 lr=11 lock=1pair=1.00 lost=0 lscale=1.050 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.000 err=+4.3cm near=-4.1cm preview=-0.1cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.97 qr=-1 | steer=+0.00 eff=+5.9deg ground_ang=+2.3 single=- predict_ang=+2.0 ang=+0.6 curve=0/-0 far=-18 lr=11 lock=1pair=1.00 lost=0 lscale=1.055 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.000 err=+4.3cm near=-4.2cm preview=-0.1cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.97 qr=-1 | steer=+0.00 eff=+5.9deg ground_ang=+2.4 single=- predict_ang=+2.4 ang=+0.7 curve=0/-0 far=-18 lr=11 lock=1pair=1.00 lost=0 lscale=1.059 pitch=45.0
+[vision]   11Hz vx=+0.200 wz=+0.000 err=+4.3cm near=-4.2cm preview=-0.1cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.97 qr=-1 | steer=+0.00 eff=+5.9deg ground_ang=+2.3 single=- predict_ang=+2.3 ang=+0.7 curve=0/-0 far=-18 lr=11 lock=1pair=1.00 lost=0 lscale=1.062 pitch=46.7
+[vision]   12Hz vx=+0.200 wz=+0.400 err=+8.1cm near=-8.1cm preview=-0.5cm valid=1 reason=minimum_hold age=0.000s lock_w=0.95 conf=0.97 qr=-1 | steer=+0.40 eff=+15.0deg ground_ang=+8.8 single=- predict_ang=+8.8 ang=+6.0 curve=1/-2 far=-36 lr=11 lock=1pair=1.00 lost=0 lscale=1.063 pitch=48.6
+[vision] lock lost (pair 1.00->0.00, conf 0.96->0.00) -> records/loss_20261004_160524/run_20261004_160525_28519_1791101125961989715 #1
+[vision]   13Hz vx=+0.200 wz=+0.400 err=+11.8cm near=-6.3cm preview=-0.4cm valid=1 reason=continue_block age=0.000s lock_w=0.00 conf=0.81 qr=-1 | steer=+0.40 eff=+16.6deg ground_ang=+6.8 single=- predict_ang=+6.8 ang=+4.6 curve=1/-2 far=-28 lr=11 lock=0pair=0.00 lost=0 lscale=1.059 pitch=48.5
+[vision]   13Hz vx=+0.200 wz=+0.000 err=+3.9cm near=-2.5cm preview=+0.1cm valid=1 reason=minimum_hold age=0.000s lock_w=0.00 conf=0.77 qr=-1 | steer=+0.00 eff=+8.4deg ground_ang=-0.6 single=- predict_ang=+6.9 ang=-1.8 curve=0/+1 far=-9 lr=11 lock=0pair=0.00 lost=0 lscale=1.073 pitch=47.4
+[vision]   14Hz vx=+0.200 wz=-0.100 err=-2.4cm near=+2.3cm preview=+0.6cm valid=1 reason=minimum_hold age=0.000s lock_w=0.00 conf=0.74 qr=-1 | steer=-0.10 eff=-8.0deg ground_ang=-11.5 single=- predict_ang=-17.5 ang=-11.4 curve=0/+5 far=+14 lr=11 lock=0pair=0.00 lost=0 lscale=1.086 pitch=39.5
+[shape] cy=0.41 cue=3.66 found=0 shape=- quad=464g0v0 rej=ground:212 area_max:155 armed=1 cand=Nonex0
+[vision]   11Hz vx=+0.200 wz=-0.400 err=-12.6cm near=+14.4cm preview=+1.4cm valid=1 reason=minimum_hold age=0.000s lock_w=0.95 conf=0.93 qr=-1 | steer=-0.40 eff=-24.4deg ground_ang=-22.5 single=- predict_ang=-22.5 ang=-18.2 curve=1/+8 far=+66 lr=11 lock=1pair=1.00 lost=0 lscale=1.099 pitch=41.7
+[shape] cy=0.52 cue=3.58 found=0 shape=- quad=368g0v0 rej=angle:244 area_max:92 armed=1 cand=Nonex0
+
+====================================================================
+  ●●●  停车读卡 —— stand still 3000ms    没框，退回 cy 0.64 / 阈值 0.56    cy=0.64
+        等 STM32 重摆完成后静置 300ms 再投票
+====================================================================
+
+[vision]   15Hz vx=+0.000 wz=+0.000 err=-22.7cm near=+20.9cm preview=+1.8cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.99 qr=-1 | steer=-0.40 eff=-24.7deg ground_ang=-28.1 single=- predict_ang=- ang=-22.0 curve=1/+10 far=+93 lr=11 lock=1pair=1.00 lost=0 lscale=1.105 pitch=45.0(body 43.0)
+[vision]   23Hz vx=+0.000 wz=+0.000 err=-14.7cm near=+14.5cm preview=+0.3cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.96 qr=-1 | steer=-0.40 eff=-24.7deg ground_ang=-6.2 single=- predict_ang=- ang=-0.3 curve=1/-0 far=+57 lr=11 lock=1pair=1.00 lost=0 lscale=1.105 pitch=45.0(body 39.9)
+[shape] STM32 re-pose DONE event=1; wait 300ms before voting
+[vision]   20Hz vx=+0.000 wz=+0.000 err=-14.0cm near=+12.8cm preview=+1.1cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.88 qr=-1 | steer=-0.40 eff=-24.7deg ground_ang=-19.4 single=- predict_ang=- ang=-15.3 curve=1/+6 far=+58 lr=11 lock=1pair=1.00 lost=0 lscale=1.105 pitch=45.0(body 36.5)
+[shape] cy=0.49 cue=0.00 found=1 shape=circle quad=515g3v3 rej=area_max:227 ground:174 armed=1 cand=circlex1
+[vision]   10Hz vx=+0.000 wz=+0.000 err=-13.8cm near=+12.5cm preview=+1.3cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.89 qr=-1 | steer=-0.40 eff=-24.7deg ground_ang=-19.8 single=- predict_ang=- ang=-15.8 curve=1/+7 far=+58 lr=11 lock=1pair=0.90 lost=0 lscale=1.105 pitch=45.0(body 30.0)
+[shape] cy=0.49 cue=0.00 found=1 shape=circle quad=485g3v3 rej=area_max:418 ground:34 armed=0 cand=circlex1
+[shape] cy=0.49 cue=0.00 found=1 shape=circle quad=505g3v3 rej=area_max:348 angle:125 armed=0 cand=circlex3
+[vision]    9Hz vx=+0.000 wz=+0.000 err=-13.9cm near=+12.7cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.84 qr=-1 | steer=-0.40 eff=-24.7deg ground_ang=-19.3 single=- predict_ang=- ang=-15.3 curve=1/+7 far=+57 lr=11 lock=1pair=1.00 lost=0 lscale=1.105 pitch=45.0(body 30.0)
+[shape] cy=0.49 cue=0.00 found=1 shape=circle quad=502g2v2 rej=area_max:489 ground:9 armed=0 cand=circlex5
+[vision] card window closed; resuming frozen (hold=+0.00,+0.00 lost_s=0.00)
+
+====================================================================
+  ★★★  识别到图卡（投票）：圆形（circle）  qr=1
+        票 7 张 / 要求 20    circle:7    保持 5000 ms
+====================================================================
+
+[vision]   10Hz vx=+0.000 wz=+0.000 err=-13.8cm near=+12.6cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.83 qr=-1/ev1#99774473 | steer=+0.00 eff=-24.7deg ground_ang=-19.4 single=- predict_ang=- ang=-15.3 curve=1/+7 far=+57 lr=11 lock=1pair=0.90 lost=0 lscale=1.107 pitch=30.0
+[shape] cy=- cue=1.24 found=0 shape=- quad=521g0v0 rej=area_max:357 ground:121 armed=0 cand=circlex5
+[shape] cy=- cue=0.00 found=0 shape=- quad=452g0v0 rej=area_max:426 angle:22 armed=1 cand=Nonex0
+[vision]   10Hz vx=+0.000 wz=+0.000 err=-13.9cm near=+12.7cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.92 qr=-1/ev1#99774473 | steer=+0.00 eff=-24.7deg ground_ang=-20.3 single=- predict_ang=- ang=-16.3 curve=1/+7 far=+57 lr=11 lock=1pair=0.90 lost=0 lscale=1.107 pitch=30.0
+[vision]   10Hz vx=+0.000 wz=+0.000 err=-13.5cm near=+12.3cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.94 qr=-1/ev1#99774473 | steer=+0.00 eff=-24.7deg ground_ang=-20.1 single=- predict_ang=- ang=-16.3 curve=1/+7 far=+56 lr=11 lock=1pair=1.00 lost=0 lscale=1.107 pitch=30.0
+[vision]   11Hz vx=+0.000 wz=+0.000 err=-12.6cm near=+11.5cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.92 qr=-1/ev1#99774473 | steer=+0.00 eff=-24.7deg ground_ang=-19.7 single=- predict_ang=- ang=-16.2 curve=1/+7 far=+53 lr=11 lock=1pair=1.00 lost=0 lscale=1.107 pitch=30.0
+[vision]   11Hz vx=+0.000 wz=+0.000 err=-12.6cm near=+11.5cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.92 qr=-1/ev1#99774473 | steer=+0.00 eff=-24.7deg ground_ang=-19.6 single=- predict_ang=- ang=-16.0 curve=1/+7 far=+53 lr=11 lock=1pair=1.00 lost=0 lscale=1.107 pitch=30.0
+[vision]   11Hz vx=+0.000 wz=+0.000 err=-12.6cm near=+11.5cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.92 qr=-1/ev1#99774473 | steer=+0.00 eff=-24.7deg ground_ang=-19.4 single=- predict_ang=- ang=-15.9 curve=1/+7 far=+52 lr=11 lock=1pair=1.00 lost=0 lscale=1.107 pitch=30.0
+[vision]   11Hz vx=+0.000 wz=+0.000 err=-12.6cm near=+11.5cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.92 qr=-1/ev1#99774473 | steer=+0.00 eff=-24.7deg ground_ang=-19.4 single=- predict_ang=- ang=-15.9 curve=1/+7 far=+52 lr=11 lock=1pair=1.00 lost=0 lscale=1.107 pitch=30.0
+[vision]   11Hz vx=+0.000 wz=+0.000 err=-12.6cm near=+11.5cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.92 qr=-1/ev1#99774473 | steer=+0.00 eff=-24.7deg ground_ang=-19.4 single=- predict_ang=- ang=-15.9 curve=1/+7 far=+52 lr=11 lock=1pair=1.00 lost=0 lscale=1.107 pitch=30.0
+[vision]   11Hz vx=+0.000 wz=+0.000 err=-12.6cm near=+11.4cm preview=+1.2cm valid=1 reason=external_stop age=0.000s lock_w=0.95 conf=0.92 qr=-1/ev1#99774473 | steer=+0.00 eff=-24.7deg ground_ang=-19.7 single=- predict_ang=- ang=-16.1 curve=1/+7 far=+53 lr=11 lock=1pair=1.00 lost=0 lscale=1.107 pitch=30.0
+[vision] card window closed; resuming frozen (hold=+0.00,+0.00 lost_s=0.00)
+[vision]   11Hz vx=+0.200 wz=-0.500 err=-12.7cm near=+11.6cm preview=+1.2cm valid=1 reason=minimum_hold age=0.000s lock_w=0.95 conf=0.91 qr=-1 | steer=-0.50 eff=-22.2deg ground_ang=-19.6 single=- predict_ang=-19.6 ang=-16.0 curve=1/+7 far=+53 lr=11 lock=1pair=1.00 lost=0 lscale=1.109 pitch=30.0
+[vision]   11Hz vx=+0.200 wz=-0.500 err=-14.0cm near=+13.2cm preview=+1.1cm valid=1 reason=continue_block age=0.000s lock_w=0.65 conf=0.93 qr=-1 | steer=-0.50 eff=-23.4deg ground_ang=-18.8 single=- predict_ang=-18.7 ang=-14.4 curve=1/+6 far=+58 lr=11 lock=1pair=0.90 lost=0 lscale=1.119 pitch=30.0
+
+====================================================================
+  ●●●  停车读卡 —— stand still 3000ms    没框，退回 cy 0.57 / 阈值 0.56    cy=0.57
+        等 STM32 重摆完成后静置 300ms 再投票
+====================================================================
+
+[shape] cy=0.57 cue=4.79 found=0 shape=- quad=285g0v0 rej=area_max:192 ground:48 armed=1 cand=Nonex0
+[vision]   15Hz vx=+0.000 wz=+0.000 err=-16.0cm near=+13.8cm preview=+2.2cm valid=1 reason=external_stop age=0.000s lock_w=0.72 conf=0.95 qr=-1 | steer=-0.50 eff=-23.4deg ground_ang=-34.1 single=- predict_ang=- ang=-31.0 curve=1/+14 far=+68 lr=11 lock=1pair=1.00 lost=0 lscale=1.124 pitch=45.0(body 30.0)
+[vision] lock lost (pair 1.00->0.00, conf 0.93->0.77) -> records/loss_20261004_160524/run_20261004_160525_28519_1791101125961989715 #2
+[vision]   19Hz vx=+0.000 wz=+0.000 err=-3.6cm near=+3.6cm preview=+0.0cm valid=1 reason=external_stop age=0.000s lock_w=0.00 conf=0.76 qr=-1 | steer=-0.50 eff=-23.4deg ground_ang=-33.6 single=- predict_ang=- ang=-33.6 curve=1/+0 far=+14 lr=11 lock=0pair=0.00 lost=0 lscale=1.124 pitch=45.0(body 30.0)
+[vision]   21Hz vx=+0.000 wz=+0.000 err=-14.8cm near=+0.0cm preview=+0.0cm valid=0 reason=external_stop age=1.372s lock_w=0.00 conf=0.00 qr=-1 | steer=-0.50 eff=-23.4deg ground_ang=+0.0 single=- predict_ang=- ang=+0.0 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.122 pitch=45.0(body 30.0)
+[vision]   23Hz vx=+0.000 wz=+0.000 err=-14.8cm near=+0.0cm preview=+0.0cm valid=0 reason=external_stop age=1.905s lock_w=0.00 conf=0.00 qr=-1 | steer=-0.50 eff=-23.4deg ground_ang=+0.0 single=- predict_ang=- ang=+0.0 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.122 pitch=45.0(body 30.0)
+[vision]   20Hz vx=+0.000 wz=+0.000 err=-14.8cm near=+0.0cm preview=+0.0cm valid=0 reason=external_stop age=2.449s lock_w=0.00 conf=0.00 qr=-1 | steer=-0.50 eff=-23.4deg ground_ang=+0.0 single=- predict_ang=- ang=+0.0 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.122 pitch=45.0(body 30.0)
+[vision]   20Hz vx=+0.000 wz=+0.000 err=-17.9cm near=+17.6cm preview=+0.3cm valid=1 reason=external_stop age=0.000s lock_w=0.00 conf=0.72 qr=-1 | steer=-0.50 eff=-23.4deg ground_ang=-4.5 single=- predict_ang=- ang=+3.0 curve=1/-1 far=+68 lr=11 lock=0pair=0.00 lost=0 lscale=1.124 pitch=45.0(body 30.0)
+[vision] card window closed; resuming frozen (hold=+0.00,+0.00 lost_s=0.00)
+[shape] cy=- cue=0.00 found=0 shape=- quad=0g0v0 rej=- armed=1 cand=Nonex0
+[shape] cy=- cue=0.00 found=0 shape=- quad=0g0v0 rej=- armed=1 cand=Nonex0
+[vision]   15Hz vx=+0.200 wz=+0.000 err=+6.2cm near=+0.0cm preview=+0.0cm valid=0 reason=geometry_lost_yaw_zero age=0.222s lock_w=0.00 conf=0.00 qr=-1 | steer=+0.00 eff=+12.9deg ground_ang=+0.0 single=- predict_ang=- ang=+0.0 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=3 lscale=1.126 pitch=30.0
+[vision]   17Hz vx=+0.200 wz=+0.400 err=-0.6cm near=+1.8cm preview=+0.0cm valid=1 reason=minimum_hold age=0.000s lock_w=0.00 conf=0.37 qr=-1 | steer=+0.40 eff=-14.7deg ground_ang=-65.4 single=- predict_ang=-65.4 ang=-67.1 curve=1/+0 far=+7 lr=11 lock=0pair=0.00 lost=0 lscale=1.122 pitch=30.0
+[vision]   16Hz vx=+0.200 wz=+0.400 err=+5.6cm near=+0.0cm preview=+0.0cm valid=0 reason=brief_loss_hold age=0.130s lock_w=0.00 conf=0.00 qr=-1 | steer=+0.40 eff=+15.5deg ground_ang=+0.0 single=- predict_ang=- ang=+0.0 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=2 lscale=1.106 pitch=30.0
+[vision]   13Hz vx=+0.200 wz=-0.500 err=-10.7cm near=+11.7cm preview=+0.7cm valid=1 reason=minimum_hold age=0.000s lock_w=0.95 conf=0.91 qr=-1 | steer=-0.50 eff=-27.1deg ground_ang=-11.5 single=- predict_ang=+17.0 ang=-7.0 curve=1/+3 far=+49 lr=11 lock=1pair=1.00 lost=0 lscale=1.115 pitch=30.0
+[vision]   10Hz vx=+0.200 wz=+0.000 err=-0.3cm near=-4.3cm preview=-0.3cm valid=1 reason=minimum_hold age=0.000s lock_w=0.95 conf=0.97 qr=-1 | steer=+0.00 eff=+0.4deg ground_ang=+5.5 single=- predict_ang=+13.2 ang=+3.8 curve=0/-2 far=-18 lr=11 lock=1pair=1.00 lost=0 lscale=1.125 pitch=30.0
+[vision] lock lost (pair 1.00->0.00, conf 0.96->0.80) -> records/loss_20261004_160524/run_20261004_160525_28519_1791101125961989715 #3
+[vision]   10Hz vx=+0.200 wz=+0.400 err=+11.2cm near=-12.4cm preview=-0.9cm valid=1 reason=minimum_hold age=0.000s lock_w=0.95 conf=0.91 qr=-1 | steer=+0.40 eff=+21.0deg ground_ang=+15.8 single=- predict_ang=+23.2 ang=+11.3 curve=1/-5 far=-53 lr=11 lock=1pair=1.00 lost=0 lscale=1.133 pitch=30.0
+[vision]   11Hz vx=+0.200 wz=+0.000 err=+8.1cm near=-5.3cm preview=-0.5cm valid=1 reason=minimum_hold age=0.000s lock_w=0.95 conf=0.96 qr=-1 | steer=+0.00 eff=+13.1deg ground_ang=+9.0 single=- predict_ang=+9.0 ang=+7.1 curve=0/-3 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.141 pitch=30.0
+[vision]   12Hz vx=+0.200 wz=+0.000 err=-0.9cm near=+3.8cm preview=+0.1cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.96 qr=-1 | steer=+0.00 eff=-0.4deg ground_ang=-1.7 single=- predict_ang=-13.8 ang=-0.1 curve=0/+0 far=+15 lr=11 lock=1pair=1.00 lost=0 lscale=1.148 pitch=30.0
+[vision]   10Hz vx=+0.200 wz=-0.500 err=-16.2cm near=+20.2cm preview=+2.1cm valid=1 reason=new_block age=0.000s lock_w=0.95 conf=0.93 qr=-1 | steer=-0.50 eff=-26.0deg ground_ang=-32.3 single=- predict_ang=-60.3 ang=-26.1 curve=1/+12 far=+89 lr=11 lock=1pair=1.00 lost=0 lscale=1.154 pitch=30.0
+[shape] cy=0.46 cue=2.51 found=0 shape=- quad=385g0v0 rej=area_max:273 angle:72 armed=1 cand=Nonex0
+[shape] cy=- cue=0.00 found=0 shape=- quad=24g0v0 rej=angle:22 area_max:2 armed=1 cand=Nonex0
+[vision]   14Hz vx=+0.200 wz=-0.500 err=-9.6cm near=+0.0cm preview=+0.0cm valid=0 reason=brief_loss_hold age=0.136s lock_w=0.00 conf=0.00 qr=-1 | steer=-0.50 eff=-31.8deg ground_ang=+0.0 single=- predict_ang=- ang=+0.0 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=2 lscale=1.158 pitch=30.0
+[shape] cy=- cue=0.00 found=0 shape=- quad=0g0v0 rej=- armed=1 cand=Nonex0
+[vision]   15Hz vx=+0.200 wz=+0.500 err=-1.7cm near=+6.3cm preview=+0.0cm valid=1 reason=minimum_hold age=0.000s lock_w=0.00 conf=0.72 qr=-1 | steer=+0.50 eff=-6.2deg ground_ang=-23.3 single=- predict_ang=-80.9 ang=-21.1 curve=1/+0 far=+24 lr=11 lock=0pair=0.00 lost=0 lscale=1.164 pitch=30.0
+[vision] lock lost (pair 0.00->0.00, conf 0.82->0.00) -> records/loss_20261004_160524/run_20261004_160525_28519_1791101125961989715 #4
+[vision]   12Hz vx=+0.200 wz=+0.000 err=-5.3cm near=+0.0cm preview=+0.0cm valid=0 reason=geometry_lost_yaw_zero age=0.437s lock_w=0.00 conf=0.00 qr=-1 | steer=+0.00 eff=-37.6deg ground_ang=+0.0 single=- predict_ang=- ang=+0.0 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=5 lscale=1.166 pitch=30.0
+[vision]   14Hz vx=+0.200 wz=+0.000 err=-8.5cm near=+0.0cm preview=+0.0cm valid=0 reason=geometry_lost_yaw_zero age=0.283s lock_w=0.00 conf=0.00 qr=-1 | steer=+0.00 eff=+22.4deg ground_ang=+0.0 single=- predict_ang=- ang=+0.0 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=4 lscale=1.167 pitch=30.0
+[vision]   14Hz vx=+0.200 wz=+0.000 err=-14.3cm near=+0.0cm preview=+0.0cm valid=0 reason=geometry_lost_yaw_zero age=0.415s lock_w=0.00 conf=0.00 qr=-1 | steer=+0.00 eff=+8.3deg ground_ang=+0.0 single=- predict_ang=- ang=+0.0 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=5 lscale=1.168 pitch=30.0
+[vision]   11Hz vx=+0.200 wz=+0.400 err=+4.9cm near=-5.0cm preview=-1.9cm valid=1 reason=minimum_hold age=0.000s lock_w=0.95 conf=0.97 qr=-1 | steer=+0.40 eff=+16.0deg ground_ang=+28.5 single=- predict_ang=+35.3 ang=+26.9 curve=0/-12 far=-31 lr=11 lock=1pair=1.00 lost=0 lscale=1.167 pitch=30.0
+[vision]   10Hz vx=+0.200 wz=+0.400 err=+7.7cm near=-6.4cm preview=-1.8cm valid=1 reason=continue_block age=0.000s lock_w=0.95 conf=0.98 qr=-1 | steer=+0.40 eff=+21.2deg ground_ang=+28.9 single=- predict_ang=+30.4 ang=+27.0 curve=1/-12 far=-36 lr=11 lock=1pair=1.00 lost=0 lscale=1.160 pitch=30.0
+[vision]   11Hz vx=+0.200 wz=+0.400 err=+6.5cm near=-4.8cm preview=-1.5cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.98 qr=-1 | steer=+0.40 eff=+18.4deg ground_ang=+24.9 single=- predict_ang=+22.8 ang=+23.6 curve=0/-10 far=-29 lr=11 lock=1pair=1.00 lost=0 lscale=1.148 pitch=30.0
+[vision]   11Hz vx=+0.200 wz=+0.400 err=+6.1cm near=-4.6cm preview=-1.5cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.98 qr=-1 | steer=+0.40 eff=+17.5deg ground_ang=+24.1 single=- predict_ang=+23.9 ang=+23.1 curve=0/-10 far=-28 lr=11 lock=1pair=1.00 lost=0 lscale=1.136 pitch=30.0
+[vision]   11Hz vx=+0.200 wz=+0.400 err=+6.0cm near=-4.5cm preview=-1.4cm valid=1 reason=continue_block age=0.000s lock_w=0.72 conf=0.98 qr=-1 | steer=+0.40 eff=+17.3deg ground_ang=+23.9 single=- predict_ang=+23.7 ang=+23.1 curve=0/-10 far=-28 lr=11 lock=1pair=1.00 lost=0 lscale=1.124 pitch=30.0

@@ -16,6 +16,91 @@ BASH = os.environ.get('BUTTON_TEST_BASH') or (shutil.which('bash') if os.name !=
 
 @unittest.skipUnless(BASH, 'Bash required; set BUTTON_TEST_BASH on Windows')
 class ButtonAutostartTests(unittest.TestCase):
+    def test_single_boundary_config_restores_paired_only_control(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            template = (REPO / 'config/button_start.env.example').read_text()
+            config = checkout / 'config/button_start.env'
+            for value, expected in (('0', False), ('1', True)):
+                config.write_text(template + f'\nSINGLE_BOUNDARY_TRACKING={value}\n')
+                command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                    '--dry-run', cwd=checkout))
+                with patch('sys.argv', command[2:]):
+                    self.assertIs(run_policy_vision.parse_args().single_boundary_tracking,
+                                  expected)
+            config.write_text(template + '\nSINGLE_BOUNDARY_TRACKING=invalid\n')
+            result = subprocess.run([BASH, 'scripts/run_button_vision.sh', '--dry-run'],
+                                    cwd=checkout, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('SINGLE_BOUNDARY_TRACKING', result.stderr)
+
+    def test_no_recording_config_disables_every_vision_output(self):
+        sys.path.insert(0, str(REPO / 'new_vision/jetson'))
+        import run_policy_vision
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            template = (REPO / 'config/button_start.env.example').read_text()
+            config = checkout / 'config/button_start.env'
+            config.write_text(template + '\nNO_RECORDING=1\n')
+            command = shlex.split(self.run_bash('scripts/run_button_vision.sh',
+                                                '--dry-run', cwd=checkout))
+            self.assertIn('--no-recording', command)
+            self.assertNotIn('--recording-root', command)
+            self.assertNotIn('--record-video', command)
+            with patch('sys.argv', [*command[2:],
+                                    '--line-log-dir', '/tmp/line',
+                                    '--dump-on-loss', '/tmp/loss',
+                                    '--shape-dump', '/tmp/shape',
+                                    '--recording-root', '/tmp/session',
+                                    '--record-video']):
+                args = run_policy_vision.parse_args()
+            self.assertTrue(args.no_recording)
+            self.assertEqual((args.recording_root, args.line_log_dir,
+                              args.dump_on_loss, args.shape_dump), ('', '', '', ''))
+            self.assertFalse(args.record_video)
+            config.write_text(template + '\nNO_RECORDING=bad\n')
+            invalid = subprocess.run([BASH, 'scripts/run_button_vision.sh', '--dry-run'],
+                                     cwd=checkout, text=True, capture_output=True)
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertIn('NO_RECORDING', invalid.stderr)
+
+    def test_no_recording_wrappers_emit_no_output_or_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / 'robot'
+            shutil.copytree(REPO / 'scripts', checkout / 'scripts')
+            shutil.copytree(REPO / 'config', checkout / 'config',
+                            ignore=shutil.ignore_patterns('button_start.env'))
+            fake_python = checkout / 'fake_python.sh'
+            fake_python.write_text('#!/usr/bin/env bash\nprintf "simulated output\\n"\n'
+                                   'printf "simulated error\\n" >&2\n')
+            fake_python.chmod(0o755)
+            (checkout / 'config/button_start.env').write_text(
+                'source "$BUTTON_REPO_DIR/config/button_start.env.example"\n'
+                'VISION_PYTHON="$BUTTON_REPO_DIR/fake_python.sh"\n'
+                'POLICY_PYTHON="$VISION_PYTHON"\n'
+                'NO_RECORDING=1\n')
+            for relative in ('connector.py', 'new_vision/jetson/run_policy_vision.py',
+                             'humanoid_jetson_deploy/main.py',
+                             'humanoid_jetson_deploy/policy_49_max.onnx',
+                             'humanoid_jetson_deploy/policy-one-foot-standing_old.onnx'):
+                file = checkout / relative
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.touch()
+            for wrapper in ('connector', 'vision'):
+                result = subprocess.run([BASH, f'scripts/run_button_{wrapper}.sh'],
+                                        cwd=checkout, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, wrapper)
+                self.assertEqual((result.stdout, result.stderr), ('', ''))
+            self.assertFalse((checkout / 'records').exists())
+
     def test_array_and_near_distance_config_reaches_real_parser(self):
         sys.path.insert(0, str(REPO / 'new_vision/jetson'))
         import run_policy_vision

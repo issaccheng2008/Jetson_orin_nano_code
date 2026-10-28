@@ -74,10 +74,15 @@ def parse_args():
     add_camera_arguments(parser)
     parser.add_argument('--recording-root', default='',
                         help='Group all test recordings under ROOT/local-date/test-id. Overrides individual dump paths.')
+    parser.add_argument('--no-recording', action='store_true',
+                        help='Disable all vision files and recordings in an auto-launched policy, even if dump paths are set.')
     parser.add_argument('--record-video', action=argparse.BooleanOptionalAction, default=True,
                         help='Record selected video-source with command arrows inside recording-root; red on line loss.')
-    parser.add_argument('--video-source', choices=('bird_pair', 'binary', 'camera'), default='bird_pair',
-                        help='Recorded image: paired BGR birdseye + final binary mask (default), binary only, or original camera')
+    parser.add_argument('--video-source', choices=('bird_luma_pair', 'bird_pair', 'binary', 'camera'),
+                        default='bird_luma_pair',
+                        help='Recorded image: photometry-processed birdseye lane luminance + final mask '
+                             '(default; LUT-visible when --photometric-mode lut), original BGR birdseye '
+                             '+ mask, binary only, or original camera')
     parser.add_argument('--video-fps', type=float, default=10.,
                         help='Recorded playback FPS, 1..30; repeats samples by timestamp, not camera processing rate.')
     parser.add_argument('--video-width', type=int, default=960,
@@ -484,10 +489,14 @@ def parse_args():
                         help="Legacy option retained for command compatibility. "
                              "P1 uses a quality-gated geometric preview and no "
                              "longer clips preview by the near-error magnitude.")
+    parser.add_argument("--vision-device", choices=("cpu", "cuda"), default="cpu",
+                        help="Image operators backend; CUDA requires a successful real-device probe")
+    parser.add_argument("--vision-cuda-fallback", action="store_true",
+                        help="Explicitly allow a reported CPU fallback if CUDA startup/runtime fails")
     parser.add_argument("--line-preprocess", choices=("contrast", "legacy", "canny"),
                         default=os.getenv("LINE_PREPROCESS", "legacy"),
                         help="Lane candidate extraction: contrast uses limited local "
-                             "equalization and preserves thin/oblique fragments; "
+                             "equalization and a 5 px final stroke-width floor; "
                              "legacy restores the previous binary preprocessing; "
                              "canny selects experimental filled dark-stroke evidence")
     parser.add_argument("--initial-boundary-side", choices=("unknown", "left", "right"),
@@ -503,7 +512,7 @@ def parse_args():
                              "threshold mode adapts it by ground std/reference std")
     parser.add_argument("--shape-preprocess", choices=("selective", "canny", "local_dark"),
                         default=os.getenv("SHAPE_PREPROCESS", "selective"),
-                        help="Card ink candidates; canny is an explicit experimental alternative")
+                        help="Card frame candidates; local_dark is an opt-in relative-darkness experiment")
     parser.add_argument("--photometric-mode", choices=("raw", "threshold", "match", "normalize", "legacy", "lut"),
                         default=os.getenv("PHOTOMETRIC_MODE", "lut"),
                         help="Mutually exclusive image mapping: raw passthrough, threshold-only, "
@@ -551,6 +560,12 @@ def parse_args():
     from steering_command_window import add_arguments as add_window_arguments
     add_window_arguments(parser)
     args = parser.parse_args()
+    if args.no_recording:
+        args.recording_root = ''
+        args.line_log_dir = ''
+        args.dump_on_loss = ''
+        args.shape_dump = ''
+        args.record_video = False
     if not math.isfinite(args.line_adaptive_c):
         parser.error("--line-adaptive-c must be finite")
     try:
@@ -818,6 +833,13 @@ def main():
     import cv2
     from line_detector_v1_warp import LineDetector
     from utils import open_camera, show_debug_windows
+    from cuda_vision import create_vision_backend
+    # Probe before opening the camera or creating the connector client.
+    vision_backend = create_vision_backend(
+        getattr(args, "vision_device", "cpu"),
+        allow_fallback=getattr(args, "vision_cuda_fallback", False))
+    print("[vision-device] " + json.dumps(vision_backend.diagnostics(),
+                                         ensure_ascii=False), flush=True)
 
     from shape_detector import trigger_frac_at_dist, trigger_width_at_dist
     # 两个阈值同源：同一个 --card-trigger-dist-cm，一个换成 cy、一个换成框宽。
@@ -841,6 +863,7 @@ def main():
         # run_robot.py's cooldown, so a card cannot re-fire while it is still in view.
         shape = ShapeDetector(stable_frames=args.card_stable_frames,
                               cooldown_ms=3200, debug=False)
+        shape.vision_backend = vision_backend
         shape.preprocess_mode = args.shape_preprocess
         shape.photometric_mode = args.photometric_mode
         print(f"[shape-preprocess] {args.shape_preprocess}; photometric={args.photometric_mode} "
@@ -874,6 +897,7 @@ def main():
                                              policy_python=args.start_policy_python,
                                              one_foot_model=args.start_policy_one_foot_model,
                                              command_min_hold_s=effective_policy_hold(args),
+                                             **({'no_recording': True} if args.no_recording else {}),
                                              **({'recording_directory': recording_directory}
                                                 if recording_directory is not None else {}))
     if args.start_gate == "button":
@@ -927,6 +951,7 @@ def main():
                 detector.set_heading_regions_cm(args.heading_regions_cm)
             else:
                 detector.set_heading_distances(args.heading_near_cm, args.heading_far_cm)
+        detector.vision_backend = vision_backend
         detector.preprocess_mode = args.line_preprocess
         detector.initial_boundary_side = (None if args.initial_boundary_side == "unknown"
                                           else args.initial_boundary_side)
@@ -1129,6 +1154,7 @@ def main():
             "arguments": vars(args).copy(),
             "camera_width": width, "camera_height": height,
             "camera_controls": camera_control_report,
+            "vision_backend": vision_backend.diagnostics(),
         }
         dump_metadata["measurement_parameters"] = {
             name: getattr(detector, name) for name in (
@@ -1148,7 +1174,9 @@ def main():
                                 "discrete_steering.py", "heading_steering.py", "camera_config.py",
                                 "line_telemetry.py", "lane_segments.py", "segment_steering.py", "steering_config.py",
                                 "steering_filter.py", "steering_recovery.py", "steering_command_window.py", "startup_sequence.py", "camera_controls.py",
-                                "line_preprocess.py", "masked_ground.py", "latest_camera.py", "photometric_thresholds.py", "canny_candidates.py"):
+                                "line_preprocess.py", "masked_ground.py", "latest_camera.py", "photometric_thresholds.py", "canny_candidates.py",
+                                "card_appearance.py", "card_presence.py", "cuda_vision.py",
+                                "local_darkness.py"):
                 with open(os.path.join(os.path.dirname(__file__), source_name), "rb") as source:
                     dump_metadata["source_sha256"][source_name] = hashlib.sha256(source.read()).hexdigest()
         if args.line_log_dir:
@@ -1900,6 +1928,7 @@ def main():
                     # Reuse this frame's detector output. Missing binary evidence
                     # disables auxiliary recording rather than substituting raw video.
                     video_frame = ((debug['bird_color'], debug['binary']) if args.video_source == 'bird_pair'
+                                   else (debug['bird'], debug['binary']) if args.video_source == 'bird_luma_pair'
                                    else debug['binary'] if args.video_source == 'binary' else frame)
                     command_video.submit(video_frame, frame_id=frames, host_time_ns=command_host_time_ns,
                         monotonic_s=time.monotonic(), vx=vx, wz=wz, lost=line_lost(debug, confidence),

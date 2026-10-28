@@ -26,6 +26,18 @@ IMU_ORIENTATION_TOGGLE = "IMU orientation"
 IMU_GYRO_FIELDS = tuple(f"imu_gyro_{axis}_rad_s" for axis in "xyz")
 
 
+class NullPositionLogger:
+    """Keep the control loop call site without opening a motor or IMU log."""
+
+    path = None
+
+    def write(self, *_values, **_named_values) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
 class PositionCsvLogger:
     """Write motor positions and requested IMU measurements to one CSV per run."""
 

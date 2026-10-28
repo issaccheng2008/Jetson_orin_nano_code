@@ -1,0 +1,13 @@
+Camera 0: 1280x720; UDP -> 127.0.0.1:5006; vx=0.2 m/s; max_wz=0.5 rad/s (right 0.5); yaw_sign=1; red=on; sl_gain=1.0; line_pitch=off; hold-still=off; gate=off; wz_mode=discrete; center_dead=4.0cm; bias=1.0->3.0(dead 6.0, full 12.0)
+Body attitude: udp://127.0.0.1:5007 tau=1.2s; 安装角 45.0° 会被机身俯仰实时修正
+[wz] 离散模式：wz 只会是 {0, +0.4, +0.5}，err ≥ 5.0cm 打 0.4、≥ 8.0cm 打 0.5，每次 0.15s（约 3 帧）。只在车身偏右（err>0）时才左转，偏左不转；--center-dead-cm / --steer-full-scale-cm / --bias-cm / PID 增益在这个模式下不影响输出。
+[wz] ⚠️ A 那边要用 --max-wz-accel 0，否则脉冲会被它的斜率限制削成三角形（默认 2.0 时 0→0.4 要爬 0.20s）
+[wz] 幅度写死 0.4/0.5（实车量出来的，不跟着 --vx 走）。参考：--vx 0.2 下跟住一个弯要 0.258 rad/s。触发看原始 err=；--bias-cm / --center-dead-cm / --steer-full-scale-cm / --preview-gain 在这个模式下都不参与
+[shape] /home/isaac/shape_dump: cleared 0 files from the last run
+[vision] /home/isaac/loss_dump: cleared 54 files from the last run
+[vision]   29Hz vx=+0.200 wz=+0.000 err=+1.8cm conf=0.98 qr=-1 | steer=+2.34 eff=+2.8 ang=+21.3 curve=0/-3 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.001 pitch=45.0
+[lane-fit] pts=77 top=70cm near=-21px far=-38px 远-近=-18px
+[vision]    6Hz vx=+0.200 wz=+0.400 err=+5.6cm conf=0.98 qr=-1 | steer=+6.15 eff=+6.6 ang=+21.3 curve=0/-1 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.002 pitch=45.0
+[lane-fit] pts=77 top=70cm near=-21px far=-38px 远-近=-18px
+[vision]    6Hz vx=+0.200 wz=+0.400 err=+6.7cm conf=0.98 qr=-1 | steer=+7.05 eff=+7.7 ang=+21.3 curve=0/-1 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.004 pitch=45.0
+[lane-fit] pts=77 top=70cm near=-21px far=-38px 远-近=-18px

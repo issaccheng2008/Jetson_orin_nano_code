@@ -20,6 +20,31 @@ from protocol import STATE_COMMAND_FRESH, STATE_MOTORS_ENABLED
 
 
 class PolicyGateLauncherTests(unittest.TestCase):
+    def test_no_recording_starts_policy_without_tee_or_log_directories(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'walk.onnx').touch()
+            (root / 'foot.onnx').touch()
+            policy = Mock(pid=1234)
+            policy.poll.return_value = None
+            with (patch.object(policy_gate_launcher, 'REPO_ROOT', root),
+                  patch.object(policy_gate_launcher.subprocess, 'Popen', return_value=policy) as popen):
+                launcher = policy_gate_launcher.PolicyGateLauncher(
+                    'walk.onnx', '/dev/ttyACM0', 1200,
+                    one_foot_model='foot.onnx',
+                    recording_directory=root / 'session', no_recording=True)
+                launcher.start()
+                self.assertEqual(popen.call_count, 1)
+                command = popen.call_args.args[0]
+                self.assertIn('--no-recording', command)
+                self.assertNotIn('--diagnostic-log-dir', command)
+                self.assertNotIn('--position-log-dir', command)
+                self.assertIsNone(launcher.log_path)
+                self.assertIsNone(launcher.live_log_path)
+                self.assertFalse((root / 'session').exists())
+                self.assertFalse((root / 'records').exists())
+                launcher.close()
+
     def test_configurable_hold_reaches_child_command(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

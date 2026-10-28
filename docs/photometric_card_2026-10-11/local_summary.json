@@ -1,0 +1,30 @@
+{
+  "old_bright/raw": {
+    "n": 31,
+    "box": 29,
+    "correct": 29,
+    "wrong": 0,
+    "no_class": 2
+  },
+  "old_bright/match": {
+    "n": 31,
+    "box": 29,
+    "correct": 29,
+    "wrong": 0,
+    "no_class": 2
+  },
+  "dark_unverified/raw": {
+    "n": 1,
+    "box": 1,
+    "correct": 1,
+    "wrong": 0,
+    "no_class": 0
+  },
+  "dark_unverified/match": {
+    "n": 1,
+    "box": 1,
+    "correct": 1,
+    "wrong": 0,
+    "no_class": 0
+  }
+}

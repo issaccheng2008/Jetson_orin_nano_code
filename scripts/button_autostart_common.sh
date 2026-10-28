@@ -26,6 +26,7 @@ load_button_config() {
     STARTUP_FIRST_WALK_S=0.5
     STARTUP_SEQUENCE=''
     RECORD_VIDEO=1
+    NO_RECORDING=0
     VIDEO_SOURCE=bird_pair
     VIDEO_FPS=10
     VIDEO_WIDTH=960
@@ -63,6 +64,10 @@ load_button_config() {
     POSITION_RECOVERY_FULL_SCALE_CM=12
     POSITION_CONFIRM_FRAMES=2
     source "$BUTTON_CONFIG"
+    case "$NO_RECORDING" in
+        0|1) ;;
+        *) printf 'NO_RECORDING must be 0 or 1\n' >&2; return 1 ;;
+    esac
     case "$SINGLE_BOUNDARY_TRACKING" in
         0|1) ;;
         *) printf 'SINGLE_BOUNDARY_TRACKING must be 0 or 1\n' >&2; return 1 ;;

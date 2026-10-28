@@ -40,7 +40,7 @@ def sampled_otsu_threshold(gray, valid_mask=None):
 
 
 def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_max=80,
-                            photometry=None, adaptive_c=-12, valid_mask=None):
+                            photometry=None, adaptive_c=-12, backend=None, valid_mask=None):
     """Return masked black-hat response, mask, threshold and scalar diagnostics.
 
     All geometric sampling continues in the original coordinates. Equalization
@@ -76,8 +76,9 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
     else:
         source = (cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
                   if mode == "contrast" else gray)
-        response = cv2.morphologyEx(source, cv2.MORPH_BLACKHAT,
-                                   cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31)))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
+        response = (backend.morphology(source, [(cv2.MORPH_BLACKHAT, kernel)])
+                    if backend is not None else cv2.morphologyEx(source, cv2.MORPH_BLACKHAT, kernel))
     # For I' = a*I+b, blackhat and (I-local_mean) both scale by a;
     # b cancels. Reference z-score normalization therefore maps C to C*a,
     # where a = std_current/std_reference (not the variance ratio).
@@ -105,9 +106,14 @@ def extract_lane_candidates(gray, mode="legacy", th_offset=-12, th_min=25, th_ma
     if mode == "legacy":
         operations.append((cv2.MORPH_OPEN,
                            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))))
-    for operation, kernel in operations:
-        mask = (masked_morphology(mask, operation, kernel, valid) if masked
-                else cv2.morphologyEx(mask, operation, kernel))
+    if masked:
+        for operation, kernel in operations:
+            mask = masked_morphology(mask, operation, kernel, valid)
+    elif backend is not None:
+        mask = backend.morphology(mask, operations)
+    else:
+        for operation, kernel in operations:
+            mask = cv2.morphologyEx(mask, operation, kernel)
     # The contrast branch deliberately avoids the old large-component/vertical
     # gate, but a long one-pixel field border can pass that gate by area alone.
     # Require a local stroke at least about 5 px wide in both orientations.

@@ -1,0 +1,37 @@
+Camera 0: 1280x720; UDP -> 127.0.0.1:5006; vx=0.2 m/s; max_wz=0.5 rad/s (right 0.5); yaw_sign=1; red=off; sl_gain=1.0; line_pitch=off; hold-still=off; gate=off; wz_mode=discrete; center_dead=4.0cm; bias=0.0->3.0(dead 6.0, full 12.0)
+Body attitude: udp://127.0.0.1:5007 tau=1.2s; 安装角 45.0° 会被机身俯仰实时修正
+[wz] 离散模式：wz 只有 {0, +0.5} 两个状态。err ≥ 3.5cm 就开一段转向，err 回到 0.1cm 以内就提前收手，最多 2.50s（--wz-turn-s 是上限，不是定长）；转完强制空 0.50s 才允许下一段。五个数都自由可调。只在车身偏右（err>0）时才左转，偏左不转；--center-dead-cm / --steer-full-scale-cm / --bias-cm / PID 增益在这个模式下不影响输出。
+[wz] ⚠️ A 那边要用 --max-wz-accel 0，否则一段转向会被它的斜率限制削成三角形（默认 2.0 时 0→0.5 要爬 0.25s）
+[wz] 幅度 0.5 挑的是「大且稳」那一端：关节在小角度下比大角度还不稳，所以不拿小量加精确时长去凑。参考：--vx 0.2 下跟住一个弯要 0.258 rad/s（只是参考，幅度不跟着它走）。触发看原始 err=
+[shape] records/shape_dump: cleared 10 files from the last run
+[vision] records/loss_dump: cleared 18 files from the last run
+[vision]   28Hz vx=+0.200 wz=+0.000 err=+2.7cm conf=0.86 qr=-1 | steer=+2.21 eff=+2.7 ang=+23.8 curve=1/-5 far=-39 lr=11 lock=0pair=1.00 lost=0 lscale=1.000 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.500 err=+5.1cm conf=0.98 qr=-1 | steer=+4.00 eff=+5.1 ang=+20.1 curve=0/-1 far=-22 lr=11 lock=1pair=1.00 lost=0 lscale=1.005 pitch=45.0
+[vision]   14Hz vx=+0.200 wz=+0.500 err=+9.1cm conf=0.89 qr=-1 | steer=+9.07 eff=+9.1 ang=+22.3 curve=1/-0 far=-30 lr=11 lock=0pair=1.00 lost=0 lscale=1.010 pitch=45.0
+[vision]   12Hz vx=+0.200 wz=+0.500 err=+8.2cm conf=0.91 qr=-1 | steer=+6.76 eff=+8.2 ang=+21.6 curve=1/-1 far=-26 lr=11 lock=0pair=1.00 lost=0 lscale=1.015 pitch=45.0
+[shape] cy=0.49 cue=0.33 found=0 shape=- quad=513g0v0 rej=area_max:284 ground:229 armed=1 cand=Nonex0
+[vision]   14Hz vx=+0.200 wz=+0.500 err=+8.4cm conf=0.91 qr=-1 | steer=+7.16 eff=+8.4 ang=+23.7 curve=1/-10 far=-35 lr=11 lock=0pair=1.00 lost=0 lscale=1.018 pitch=45.0
+[shape] cy=0.50 cue=0.12 found=0 shape=- quad=513g0v0 rej=area_max:328 ground:185 armed=1 cand=Nonex0
+[vision]   10Hz vx=+0.200 wz=+0.000 err=+8.5cm conf=0.90 qr=-1 | steer=+8.60 eff=+9.6 ang=+23.7 curve=1/-10 far=-35 lr=11 lock=0pair=1.00 lost=0 lscale=1.020 pitch=45.0
+[shape] cy=- cue=0.00 found=0 shape=- quad=498g0v0 rej=area_max:496 area_min:1 armed=1 cand=Nonex0
+[shape] cy=0.49 cue=0.13 found=0 shape=- quad=516g0v0 rej=area_max:464 ground:49 armed=1 cand=Nonex0
+[vision]   14Hz vx=+0.200 wz=+0.000 err=+8.5cm conf=0.90 qr=-1 | steer=+9.08 eff=+10.3 ang=+23.6 curve=1/-10 far=-35 lr=11 lock=0pair=1.00 lost=0 lscale=1.023 pitch=45.0
+[shape] cy=- cue=0.00 found=0 shape=- quad=512g0v0 rej=area_max:307 angle:105 armed=1 cand=Nonex0
+[vision]   12Hz vx=+0.200 wz=+0.500 err=+6.2cm conf=0.98 qr=-1 | steer=+5.87 eff=+8.2 ang=+22.7 curve=0/-10 far=-34 lr=11 lock=1pair=1.00 lost=0 lscale=1.024 pitch=45.0
+[shape] cy=- cue=0.00 found=0 shape=- quad=481g0v0 rej=area_max:416 ground:55 armed=1 cand=Nonex0
+[shape] cy=- cue=0.00 found=0 shape=- quad=513g0v0 rej=ground:330 area_max:176 armed=1 cand=Nonex0
+[vision]   12Hz vx=+0.200 wz=+0.500 err=+5.3cm conf=0.98 qr=-1 | steer=+5.33 eff=+7.3 ang=+23.3 curve=0/-10 far=-34 lr=11 lock=1pair=1.00 lost=0 lscale=1.025 pitch=45.0
+
+====================================================================
+  ●●●  停车读卡 —— stand still 3000ms    没框，退回 cy 0.87 / 阈值 0.56    cy=0.87
+        兼容模式：盲等 2100ms 再投票
+====================================================================
+
+[shape] cy=0.87 cue=0.06 found=0 shape=- quad=512g0v0 rej=area_max:448 angle:64 armed=1 cand=Nonex0
+[vision]   10Hz vx=+0.000 wz=+0.000 err=+4.2cm conf=0.98 qr=-1 | steer=+7.92 eff=+9.2 ang=+22.7 curve=0/-10 far=-34 lr=11 lock=1pair=1.00 lost=0 lscale=1.026 pitch=45.0
+[vision]   24Hz vx=+0.000 wz=+0.000 err=+8.3cm conf=0.89 qr=-1 | steer=+7.92 eff=+9.2 ang=+23.0 curve=1/-10 far=-34 lr=11 lock=0pair=1.00 lost=0 lscale=1.028 pitch=45.0
+[vision]   20Hz vx=+0.000 wz=+0.000 err=+8.4cm conf=0.91 qr=-1 | steer=+7.92 eff=+9.2 ang=+23.1 curve=1/-10 far=-34 lr=11 lock=0pair=1.00 lost=0 lscale=1.029 pitch=45.0
+[vision]   20Hz vx=+0.000 wz=+0.000 err=+8.4cm conf=0.89 qr=-1 | steer=+7.92 eff=+9.2 ang=+22.8 curve=1/-10 far=-34 lr=11 lock=0pair=1.00 lost=0 lscale=1.029 pitch=45.0
+[shape] cy=0.48 cue=0.26 found=0 shape=- quad=513g0v0 rej=area_max:512 ground:1 armed=1 cand=Nonex0
+[vision]   17Hz vx=+0.000 wz=+0.000 err=+8.4cm conf=0.89 qr=-1 | steer=+7.92 eff=+9.2 ang=+22.8 curve=1/-10 far=-34 lr=11 lock=0pair=1.00 lost=0 lscale=1.030 pitch=45.0
+[shape] cy=- cue=0.00 found=0 shape=- quad=513g0v0 rej=area_max:512 ground:1 armed=1 cand=Nonex0

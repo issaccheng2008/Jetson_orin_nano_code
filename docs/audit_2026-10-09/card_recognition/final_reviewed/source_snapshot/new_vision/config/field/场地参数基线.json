@@ -1,0 +1,304 @@
+{
+  "version": "v0.3",
+  "units": "mm",
+  "rules": {
+    "year": 2026,
+    "source": "docs/新赛事规则2026.md",
+    "changes": [
+      "二维码识别 → 平面几何形状识别（圆形/五角星/正方形/菱形/十字形/三角形）",
+      "行进竞速最高分 60 → 200（公式改为 200×(1-(t-tmin)/(tmax-tmin))×s/614）",
+      "图卡尺寸 5cm×5cm → 10cm×10cm，线粗0.5cm，白底带矩形外边框",
+      "识别图卡后需完全停止步行并做动作维持3秒以上",
+      "场地/赛道/限宽门尺寸不变"
+    ]
+  },
+  "source": {
+    "primary": "dxf_out/2025人形竞技全能场地图纸.dxf",
+    "secondary": [
+      "docs/新赛事规则2026.md",
+      "competition_screenshot_and_repo_notes"
+    ]
+  },
+  "dxf_metadata": {
+    "acadver": "AC1024",
+    "insunits_code": 4,
+    "insunits_name": "millimeter",
+    "extmin": [
+      1772.740453534907,
+      2419.102179691128,
+      -0.0000000000112498
+    ],
+    "extmax": [
+      5432.960737396454,
+      4859.486331262076,
+      0.0000000000002956
+    ]
+  },
+  "field": {
+    "width": 3660,
+    "height": 2440,
+    "border_rect": {
+      "min": [
+        1772.877810431,
+        2419.412157625529
+      ],
+      "max": [
+        5432.877810430999,
+        4859.412157625528
+      ],
+      "vertices": [
+        [
+          1772.877810431,
+          2419.412157625529
+        ],
+        [
+          5432.877810430999,
+          2419.412157625529
+        ],
+        [
+          5432.877810430999,
+          4859.412157625528
+        ],
+        [
+          1772.877810431,
+          4859.412157625528
+        ]
+      ]
+    }
+  },
+  "track": {
+    "length": 6140,
+    "width": 350,
+    "direction": "counter_clockwise",
+    "width_verified_from_dxf": true,
+    "inner_boundary_lwpolyline": {
+      "closed": true,
+      "vertices": [
+        [
+          3612.599714233508,
+          3044.412157625529
+        ],
+        [
+          4192.877810430958,
+          3044.412157625529
+        ],
+        [
+          4192.877810430981,
+          4234.412157625529
+        ],
+        [
+          2992.877810431,
+          4234.412157625529
+        ],
+        [
+          2992.877810431001,
+          3044.412157625529
+        ],
+        [
+          3151.436112556846,
+          3044.412157625529
+        ]
+      ],
+      "bulges": [
+        1.0,
+        1.0,
+        0.2385270641482699
+      ]
+    },
+    "outer_boundary_lwpolyline": {
+      "closed": true,
+      "vertices": [
+        [
+          4192.877810431002,
+          4584.412157625528
+        ],
+        [
+          4192.877810431002,
+          2694.412157625529
+        ],
+        [
+          3641.228665825302,
+          2694.412157625529
+        ],
+        [
+          3165.753296394267,
+          2694.412157625529
+        ],
+        [
+          2992.877810431001,
+          2694.412157625529
+        ],
+        [
+          2992.877810431001,
+          4584.412157625528
+        ]
+      ],
+      "bulges": [
+        -1.0,
+        0.2331521658419853,
+        -1.0
+      ]
+    },
+    "distance_markers": [
+      0,
+      5,
+      10,
+      15,
+      20,
+      25,
+      30,
+      35,
+      40,
+      45,
+      50,
+      55,
+      60
+    ]
+  },
+  "constraints": {
+    "narrow_gate_min_width": 240,
+    "narrow_gate_min_width_note": "规则值240mm含边缘线宽度，实际可走黑色区域约200mm，检测阈值(0.85)已据此调优"
+  },
+  "elements": {
+    "start_line": {
+      "status": "confirmed",
+      "line_segment": [
+        [
+          4120.0,
+          2694.412157625529
+        ],
+        [
+          4120.0,
+          3044.412157625529
+        ]
+      ],
+      "color": "black",
+      "dash": "solid",
+      "width": 350,
+      "note": "起跑线横跨赛道宽度，x=4120mm"
+    },
+    "obstacle": {
+      "type": "wood_strip",
+      "cross_section_mm": [
+        10,
+        20
+      ],
+      "orientation_options": [
+        "flat_10mm",
+        "upright_20mm"
+      ],
+      "length": 350,
+      "color": "red",
+      "material": "light_wood_wrapped_red_tape",
+      "line_segment": [
+        [
+          3940.0,
+          2694.412157625529
+        ],
+        [
+          3940.0,
+          3044.412157625529
+        ]
+      ],
+      "dash": "dash",
+      "note": "木条障碍，x=3940mm，距起跑线180mm。跨越且不移位=60分",
+      "score": 60
+    },
+    "shape_slots": [
+      {
+        "id": 1,
+        "location": "起跑线前方约300mm处，右侧直道段",
+        "approx_xy_mm": "x≈4120, y≈3100-3300",
+        "status": "approximate",
+        "note": "需弧长参数化精确定位"
+      },
+      {
+        "id": 2,
+        "location": "直道中间（左侧直道段中点）",
+        "approx_xy_mm": "x≈2993, y≈3600-3900",
+        "status": "approximate"
+      },
+      {
+        "id": 3,
+        "location": "弯道中间（顶部弯道段中点）",
+        "approx_xy_mm": "x≈3400-3800, y≈4234-4584",
+        "status": "approximate"
+      }
+    ],
+    "shape_spec": {
+      "size_mm": [
+        100,
+        100
+      ],
+      "line_width_mm": 5,
+      "style": "白色底纸，黑色线框，图形带矩形外边框",
+      "count": 3,
+      "content": "圆形/五角星/正方形/菱形/十字形/三角形，赛前随机抽3种",
+      "score_per_card": 20,
+      "action_map": {
+        "circle": "举左手≥3秒",
+        "pentagon": "举右手≥3秒",
+        "square": "抬左腿≥3秒",
+        "diamond": "抬右腿≥3秒",
+        "cross": "举双手≥3秒",
+        "triangle": "左右摇头≥3秒"
+      }
+    }
+  },
+  "scoring": {
+    "total_formula": "行进竞速(0-200) + 几何图卡(20×3=60) + 越障(60) - 扣分 + 附加分(0-20)",
+    "speed_complete": "200 × (1 - (t - tmin) / (tmax - tmin)) × s/614",
+    "speed_partial": "按实际路程折算",
+    "speed_max": 200,
+    "card_score_per": 20,
+    "obstacle_score": 60,
+    "bonus_total": 20,
+    "penalty_per_intervention": 5,
+    "interventions": [
+      "出界(单足踏出边线)",
+      "倒地(不能自主爬起)"
+    ],
+    "terminate_conditions": [
+      "超时(>4分钟)",
+      "原地不动10秒",
+      "发令后10秒未启动",
+      "裁判认定"
+    ],
+    "invalid_conditions": [
+      "非双足直立速行(蹲姿)",
+      "无线遥控",
+      "非本队机器人/中途更换",
+      "裁判认定违规"
+    ]
+  },
+  "robot_constraints": {
+    "dof_min": 13,
+    "head_dof_min": 1,
+    "arm_dof_min": 1,
+    "leg_dof_min": 3,
+    "height_max_mm": 450,
+    "width_max_mm": 300,
+    "depth_max_mm": 150,
+    "knee_ratio": "≈1:1",
+    "foot_type": "类人形状，近似矩形平底脚板",
+    "control": "本体自主，禁止有/无线遥控",
+    "program": "赛前一次性写入，不可比赛中修改",
+    "power": "本体电池供电，禁止外部电源"
+  },
+  "competition_flow": {
+    "prep_time_max_min": 1,
+    "match_time_max_min": 4,
+    "attempts": 2,
+    "best_of": true,
+    "shape_draw": "赛前从6种几何图卡中随机抽取3张"
+  },
+  "validation": {
+    "status": "partial",
+    "missing": [
+      "shape_slot_exact_poses (需弧长参数化)",
+      "track_centerline_geometry (需从内外边界中点+弧长采样)",
+      "start_line_pose_normal_vector",
+      "obstacle_cross_section_verified"
+    ]
+  }
+}

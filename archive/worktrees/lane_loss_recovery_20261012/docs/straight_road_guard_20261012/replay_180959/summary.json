@@ -1,0 +1,26 @@
+{
+  "source": "records/straight_guard_sources/test_180959/camera_commands.avi",
+  "source_sha256": "d058baabcd284bdf8a34dc22402cad50f96ba974b99e3a0dd92829b41f8facfb",
+  "video_frames": 1008,
+  "unique_source_frames": 592,
+  "evidence": {
+    "CURVE": 382,
+    "UNKNOWN": 184,
+    "STRAIGHT": 26
+  },
+  "states": {
+    "UNKNOWN": 125,
+    "CURVE": 467
+  },
+  "rejects": {
+    "observed_curvature": 382,
+    "width_inconsistent": 54,
+    "insufficient_edges": 67,
+    "curvature_not_straight": 3,
+    "need_two_unambiguous_edges": 39,
+    "directions_disagree": 21,
+    "accepted": 26
+  },
+  "changed_recorded_commands": 0,
+  "limitation": "Compressed original BGR birdseye crop, resized; one LUT and contrast extraction, no second IPM. Counterfactual restriction of recorded WZ only, not driving validation. Single-camera pose and geometry remain replay estimates; no road-shape ground-truth labels."
+}

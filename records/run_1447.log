@@ -1,0 +1,119 @@
+Camera 0: 1280x720; UDP -> 127.0.0.1:5006; vx=0.3 m/s; max_wz=0.5 rad/s (right 0.5); yaw_sign=1; red=off; sl_gain=1.0; line_pitch=on; hold-still=off; center_dead=4.0cm; bias=0.0->2.0(dead 6.0, full 12.0)
+Body attitude: udp://127.0.0.1:5007 tau=1.2s; 安装角 45.0° 会被机身俯仰实时修正
+[shape] /home/isaac/shape_dump_3: cleared 0 files from the last run
+[vision] /home/isaac/loss_dump_3: cleared 18 files from the last run
+[vision]   29Hz vx=+0.300 wz=+0.008 err=+0.9cm conf=0.85 qr=-1 | steer=+0.72 eff=+0.9 ang=+21.8 curve=0/-2 far=-11 lr=11 lock=1pair=0.70 lost=0 lscale=1.000 pitch=45.0
+[vision]   10Hz vx=+0.300 wz=+0.115 err=+3.1cm conf=0.86 qr=-1 | steer=+2.96 eff=+3.1 ang=+16.4 curve=0/-1 far=-11 lr=11 lock=1pair=0.70 lost=0 lscale=1.003 pitch=45.0
+[vision]   11Hz vx=+0.300 wz=+0.149 err=+3.7cm conf=0.85 qr=-1 | steer=+3.27 eff=+3.7 ang=+21.8 curve=0/-1 far=-11 lr=11 lock=1pair=0.70 lost=0 lscale=1.005 pitch=45.0
+[vision]   11Hz vx=+0.300 wz=+0.147 err=+3.7cm conf=0.86 qr=-1 | steer=+3.17 eff=+3.7 ang=+17.4 curve=0/-1 far=-11 lr=11 lock=1pair=0.70 lost=0 lscale=1.007 pitch=45.0
+[vision]   11Hz vx=+0.300 wz=+0.161 err=+3.9cm conf=0.93 qr=-1 | steer=+3.30 eff=+3.9 ang=+18.0 curve=0/-8 far=-18 lr=11 lock=1pair=0.70 lost=0 lscale=1.009 pitch=45.0
+[vision]   11Hz vx=+0.300 wz=+0.171 err=+4.0cm conf=0.95 qr=-1 | steer=+3.42 eff=+4.0 ang=+18.2 curve=0/-8 far=-18 lr=11 lock=1pair=0.70 lost=0 lscale=1.011 pitch=45.0
+[vision]   11Hz vx=+0.300 wz=+0.188 err=+4.0cm conf=0.95 qr=-1 | steer=+3.77 eff=+4.4 ang=+18.2 curve=0/-8 far=-18 lr=11 lock=1pair=0.70 lost=0 lscale=1.012 pitch=45.0
+[vision]   11Hz vx=+0.300 wz=+0.195 err=+4.0cm conf=0.95 qr=-1 | steer=+3.89 eff=+4.5 ang=+17.9 curve=0/-8 far=-18 lr=11 lock=1pair=0.70 lost=0 lscale=1.013 pitch=45.0
+[vision]   11Hz vx=+0.300 wz=+0.196 err=+4.1cm conf=0.95 qr=-1 | steer=+3.93 eff=+4.6 ang=+18.1 curve=0/-8 far=-18 lr=11 lock=1pair=0.70 lost=0 lscale=1.014 pitch=45.0
+[vision]   11Hz vx=+0.300 wz=+0.272 err=+5.6cm conf=0.37 qr=-1 | steer=+5.44 eff=+6.4 ang=+27.6 curve=0/-12 far=-67 lr=11 lock=0pair=0.00 lost=0 lscale=1.013 pitch=48.0
+[vision] lock lost (pair 1.00->0.00, conf 0.88->0.45) -> /home/isaac/loss_dump_3 #1
+[vision]   13Hz vx=+0.300 wz=+0.499 err=+9.5cm conf=0.41 qr=-1 | steer=+9.98 eff=+10.2 ang=+28.8 curve=1/-11 far=-86 lr=01 lock=0pair=0.00 lost=0 lscale=1.003 pitch=51.6
+[vision]   11Hz vx=+0.300 wz=+0.295 err=+5.5cm conf=0.85 qr=-1 | steer=+5.90 eff=+6.5 ang=+22.4 curve=1/-10 far=-51 lr=11 lock=0pair=1.00 lost=0 lscale=1.006 pitch=39.2
+[vision]   14Hz vx=+0.300 wz=+0.144 err=+2.5cm conf=0.46 qr=-1 | steer=+2.88 eff=+4.4 ang=+28.9 curve=0/-12 far=-6 lr=11 lock=0pair=0.00 lost=0 lscale=1.024 pitch=41.0
+[vision]   13Hz vx=+0.300 wz=-0.002 err=-0.8cm conf=0.85 qr=-1 | steer=-0.65 eff=+0.3 ang=+19.8 curve=1/-9 far=+18 lr=11 lock=0pair=1.00 lost=0 lscale=1.046 pitch=41.4
+[vision]   14Hz vx=+0.300 wz=-0.054 err=-2.9cm conf=0.45 qr=-1 | steer=-2.23 eff=-1.9 ang=+13.1 curve=0/-5 far=+11 lr=11 lock=0pair=0.00 lost=0 lscale=1.066 pitch=37.4
+[vision]   10Hz vx=+0.300 wz=+0.001 err=-1.0cm conf=0.94 qr=-1 | steer=+0.23 eff=+0.3 ang=+25.0 curve=0/-11 far=+1 lr=11 lock=1pair=1.00 lost=0 lscale=1.075 pitch=38.0
+[vision] lock lost (pair 1.00->0.00, conf 0.94->0.46) -> /home/isaac/loss_dump_3 #2
+[vision]   12Hz vx=+0.300 wz=+0.265 err=+2.4cm conf=0.56 qr=-1 | steer=+5.29 eff=+4.4 ang=+41.3 curve=1/-21 far=-49 lr=11 lock=0pair=0.50 lost=0 lscale=1.077 pitch=40.4
+[shape] cy=0.37 cue=3.42 found=0 shape=- quad=352g0v0 rej=area_max:192 angle:160 armed=1 cand=Nonex0
+[vision]   13Hz vx=+0.200 wz=+0.208 err=+2.6cm conf=0.45 qr=-1 | steer=+4.17 eff=+4.6 ang=+41.4 curve=1/-20 far=-33 lr=11 lock=0pair=0.00 lost=0 lscale=1.066 pitch=41.4
+[shape] cy=0.42 cue=7.67 found=0 shape=- quad=449g0v0 rej=area_max:432 angle:16 armed=1 cand=Nonex0
+[vision]   11Hz vx=+0.200 wz=+0.359 err=+5.3cm conf=0.44 qr=-1 | steer=+7.17 eff=+7.3 ang=+49.4 curve=1/-26 far=-27 lr=11 lock=0pair=0.00 lost=0 lscale=1.047 pitch=42.9
+[shape] cy=0.51 cue=4.21 found=0 shape=- quad=496g0v0 rej=area_max:496 armed=1 cand=Nonex0
+[shape] cy=- cue=0.00 found=0 shape=- quad=432g0v0 rej=area_max:338 angle:94 armed=1 cand=Nonex0
+[vision]   12Hz vx=+0.200 wz=+0.177 err=+3.1cm conf=0.41 qr=-1 | steer=+3.53 eff=+5.1 ang=+58.1 curve=1/+0 far=-48 lr=11 lock=0pair=0.00 lost=0 lscale=1.029 pitch=41.0
+
+====================================================================
+  ●●●  停车读卡 —— stand still 3000ms    没框，退回 cy 0.69 / 阈值 0.56    cy=0.69
+        先重摆 1800ms（这期间不认形状），之后才开始识别
+====================================================================
+
+[vision]   19Hz vx=+0.000 wz=+0.000 err=+3.2cm conf=0.45 qr=-1 | steer=+3.53 eff=+5.1 ang=+60.0 curve=1/+33 far=+61 lr=11 lock=0pair=0.00 lost=0 lscale=1.022 pitch=45.0(body 45.7)
+[vision]   22Hz vx=+0.000 wz=+0.000 err=+1.2cm conf=0.41 qr=-1 | steer=+3.53 eff=+5.1 ang=+65.3 curve=1/+0 far=+46 lr=11 lock=0pair=0.00 lost=0 lscale=1.038 pitch=45.0(body 41.5)
+[vision]   20Hz vx=+0.000 wz=+0.000 err=-6.3cm conf=0.00 qr=-1 | steer=+3.53 eff=+5.1 ang=+60.1 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=1.067 pitch=45.0(body 36.0)
+[shape] cy=0.85 cue=0.00 found=1 shape=cross quad=514g2v1 rej=area_max:511 ground:1 armed=1 cand=crossx1
+[vision]   17Hz vx=+0.000 wz=+0.000 err=+0.2cm conf=0.88 qr=-1 | steer=+3.53 eff=+5.1 ang=+55.2 curve=1/-34 far=-32 lr=11 lock=1pair=1.00 lost=0 lscale=1.040 pitch=45.0(body 33.1)
+[shape] cy=0.84 cue=0.00 found=1 shape=cross quad=466g2v1 rej=area_max:464 armed=0 cand=crossx1
+[vision]    8Hz vx=+0.000 wz=+0.000 err=+1.1cm conf=0.92 qr=-1 | steer=+3.53 eff=+5.1 ang=+51.7 curve=1/-30 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=1.026 pitch=45.0(body 27.7)
+[shape] cy=0.84 cue=0.00 found=1 shape=cross quad=515g2v1 rej=area_max:500 ground:12 armed=0 cand=crossx3
+[vision] card window closed; resuming frozen (hold=+0.00,+0.00 lost_s=0.00) vx<=+0.20 for 500ms
+[vision] lock lost (pair 1.00->0.00, conf 0.92->0.42) -> /home/isaac/loss_dump_3 #3
+
+====================================================================
+  ★★★  识别到图卡（投票）：十字形（cross）  qr=5
+        票 6 张 / 要求 20    cross:6    保持 5000 ms
+====================================================================
+
+[shape] cy=0.83 cue=0.00 found=1 shape=cross quad=498g1v1 rej=area_max:496 ground:1 armed=0 cand=crossx5
+[vision]    9Hz vx=+0.000 wz=+0.000 err=+1.3cm conf=0.40 qr=-1/ev5#4242478796 | steer=+3.53 eff=+5.1 ang=+27.7 curve=0/-12 far=-1 lr=11 lock=0pair=0.00 lost=0 lscale=1.025 pitch=27.7
+[shape] cy=0.83 cue=0.00 found=1 shape=cross quad=498g1v1 rej=area_max:496 ground:1 armed=0 cand=crossx7
+[vision]    8Hz vx=+0.000 wz=+0.000 err=-0.5cm conf=0.45 qr=-1/ev5#4242478796 | steer=+3.53 eff=+5.1 ang=-50.0 curve=1/+29 far=+28 lr=11 lock=0pair=0.00 lost=0 lscale=1.042 pitch=27.7
+[shape] cy=- cue=0.00 found=0 shape=- quad=373g0v0 rej=area_max:329 angle:40 armed=0 cand=crossx7
+[vision]   10Hz vx=+0.000 wz=+0.000 err=+1.6cm conf=0.32 qr=-1/ev5#4242478796 | steer=+3.53 eff=+5.1 ang=+59.1 curve=1/-33 far=-37 lr=11 lock=0pair=0.00 lost=0 lscale=1.025 pitch=26.8
+[shape] cy=- cue=0.00 found=0 shape=- quad=437g0v0 rej=ground:290 area_max:91 armed=1 cand=Nonex0
+[shape] cy=- cue=0.00 found=0 shape=- quad=353g0v0 rej=area_max:349 angle:4 armed=1 cand=Nonex0
+[vision]   10Hz vx=+0.000 wz=+0.000 err=+1.6cm conf=0.91 qr=-1/ev5#4242478796 | steer=+3.53 eff=+5.1 ang=+50.8 curve=1/-29 far=-25 lr=11 lock=1pair=1.00 lost=0 lscale=1.011 pitch=26.4
+[vision]    9Hz vx=+0.000 wz=+0.000 err=+2.5cm conf=0.92 qr=-1/ev5#4242478796 | steer=+3.53 eff=+5.1 ang=+50.6 curve=1/-28 far=-24 lr=11 lock=1pair=1.00 lost=0 lscale=0.998 pitch=26.6
+[vision]    9Hz vx=+0.000 wz=+0.000 err=+2.6cm conf=0.92 qr=-1/ev5#4242478796 | steer=+3.53 eff=+5.1 ang=+50.5 curve=1/-28 far=-23 lr=11 lock=1pair=1.00 lost=0 lscale=0.987 pitch=26.7
+[shape] cy=0.81 cue=0.18 found=0 shape=- quad=466g0v0 rej=area_max:445 angle:20 armed=1 cand=Nonex0
+[shape] cy=0.85 cue=0.15 found=0 shape=- quad=419g0v0 rej=area_max:401 angle:16 armed=1 cand=Nonex0
+[vision]   10Hz vx=+0.000 wz=+0.000 err=+2.6cm conf=0.93 qr=-1/ev5#4242478796 | steer=+3.53 eff=+5.1 ang=+50.6 curve=1/-28 far=-24 lr=11 lock=1pair=1.00 lost=0 lscale=0.978 pitch=26.7
+[shape] cy=0.82 cue=0.13 found=0 shape=- quad=417g0v0 rej=area_max:353 angle:64 armed=1 cand=Nonex0
+[vision]    8Hz vx=+0.000 wz=+0.000 err=+2.5cm conf=0.93 qr=-1/ev5#4242478796 | steer=+3.53 eff=+5.1 ang=+50.5 curve=1/-28 far=-24 lr=11 lock=1pair=1.00 lost=0 lscale=0.971 pitch=26.6
+[shape] cy=- cue=0.00 found=0 shape=- quad=451g0v0 rej=area_max:250 angle:200 armed=1 cand=Nonex0
+[vision]    9Hz vx=+0.000 wz=+0.000 err=+2.5cm conf=0.93 qr=-1/ev5#4242478796 | steer=+3.53 eff=+5.1 ang=+50.5 curve=1/-28 far=-24 lr=11 lock=1pair=1.00 lost=0 lscale=0.964 pitch=26.6
+[vision] card window closed; resuming frozen (hold=+0.00,+0.00 lost_s=0.00) vx<=+0.20 for 500ms
+[shape] cy=0.83 cue=0.25 found=0 shape=- quad=450g0v0 rej=area_max:418 angle:32 armed=1 cand=Nonex0
+[vision] lock lost (pair 1.00->0.00, conf 0.91->0.36) -> /home/isaac/loss_dump_3 #4
+[vision]    8Hz vx=+0.200 wz=+0.173 err=+2.3cm conf=0.36 qr=-1 | steer=+3.46 eff=+4.3 ang=-59.6 curve=1/+36 far=+15 lr=11 lock=0pair=0.00 lost=0 lscale=0.958 pitch=34.6
+[shape] cy=- cue=0.00 found=0 shape=- quad=485g0v0 rej=area_max:321 angle:156 armed=1 cand=Nonex0
+[vision]    8Hz vx=+0.200 wz=+0.208 err=+2.9cm conf=0.45 qr=-1 | steer=+4.16 eff=+4.9 ang=+46.9 curve=1/-24 far=-10 lr=11 lock=0pair=0.00 lost=0 lscale=0.952 pitch=38.8
+[shape] cy=0.92 cue=5.39 found=0 shape=- quad=432g0v0 rej=angle:236 area_max:180 armed=1 cand=Nonex0
+[shape] cy=- cue=0.00 found=0 shape=- quad=278g0v0 rej=angle:168 area_max:110 armed=1 cand=Nonex0
+[vision]   11Hz vx=+0.200 wz=+0.123 err=+1.8cm conf=0.83 qr=-1 | steer=+2.62 eff=+3.8 ang=+49.8 curve=1/-1 far=-35 lr=11 lock=0pair=1.00 lost=0 lscale=0.946 pitch=42.2
+[shape] cy=- cue=0.00 found=0 shape=- quad=400g0v0 rej=area_max:400 armed=1 cand=Nonex0
+[vision]   14Hz vx=+0.300 wz=+0.269 err=+3.6cm conf=0.60 qr=-1 | steer=+5.38 eff=+5.6 ang=+46.2 curve=1/-24 far=-57 lr=01 lock=0pair=0.00 lost=0 lscale=0.936 pitch=42.0
+[vision]   12Hz vx=+0.300 wz=+0.500 err=+10.7cm conf=0.52 qr=-1 | steer=+13.38 eff=+12.7 ang=+53.6 curve=1/-30 far=-93 lr=01 lock=0pair=0.00 lost=0 lscale=0.936 pitch=45.6
+[vision]   14Hz vx=+0.300 wz=+0.500 err=+12.3cm conf=0.14 qr=-1 | steer=+11.67 eff=+14.1 ang=-7.6 curve=0/+6 far=-61 lr=11 lock=0pair=0.00 lost=0 lscale=0.946 pitch=45.1
+[vision]   14Hz vx=+0.122 wz=+0.203 err=+13.2cm conf=0.00 qr=-1 | steer=+0.00 eff=+13.2 ang=+0.6 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=1 lscale=0.966 pitch=43.6
+[vision]   14Hz vx=+0.300 wz=+0.500 err=+14.8cm conf=0.60 qr=-1 | steer=+15.60 eff=+16.8 ang=+69.8 curve=1/-61 far=-106 lr=10 lock=0pair=0.00 lost=0 lscale=0.966 pitch=41.7
+[vision] lock lost (pair 0.00->0.00, conf 0.60->0.19) -> /home/isaac/loss_dump_3 #5
+[vision]   13Hz vx=+0.300 wz=+0.500 err=+13.2cm conf=0.33 qr=-1 | steer=+12.21 eff=+14.7 ang=-44.8 curve=0/+18 far=+18 lr=11 lock=0pair=0.00 lost=0 lscale=0.970 pitch=40.1
+[vision]   12Hz vx=+0.000 wz=+0.000 err=+14.5cm conf=0.00 qr=-1 | steer=+0.00 eff=+16.3 ang=+37.9 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=4 lscale=0.971 pitch=42.4
+[vision]   13Hz vx=+0.300 wz=+0.427 err=+9.7cm conf=0.60 qr=-1 | steer=+8.53 eff=+11.7 ang=-75.5 curve=1/+91 far=+44 lr=01 lock=0pair=0.00 lost=0 lscale=0.976 pitch=44.1
+[vision]   12Hz vx=+0.300 wz=-0.026 err=+0.9cm conf=0.59 qr=-1 | steer=-2.29 eff=+0.9 ang=+9.3 curve=1/-44 far=+26 lr=10 lock=0pair=0.00 lost=0 lscale=0.977 pitch=40.3
+[vision]   14Hz vx=+0.300 wz=+0.166 err=+3.7cm conf=0.84 qr=-1 | steer=+3.64 eff=+3.7 ang=+27.3 curve=1/-12 far=-55 lr=11 lock=0pair=1.00 lost=0 lscale=0.989 pitch=41.2
+[vision] lock lost (pair 1.00->0.00, conf 0.87->0.46) -> /home/isaac/loss_dump_3 #6
+[vision]   11Hz vx=+0.300 wz=+0.395 err=+7.0cm conf=0.46 qr=-1 | steer=+7.90 eff=+8.0 ang=+25.1 curve=0/-11 far=-37 lr=11 lock=0pair=0.00 lost=0 lscale=0.988 pitch=59.9
+[vision]   12Hz vx=+0.300 wz=-0.006 err=+1.0cm conf=0.44 qr=-1 | steer=-0.43 eff=+1.2 ang=+6.0 curve=0/-2 far=+54 lr=11 lock=0pair=0.00 lost=0 lscale=0.988 pitch=53.6
+[vision]   13Hz vx=+0.300 wz=-0.349 err=-5.2cm conf=0.59 qr=-1 | steer=-6.98 eff=-5.2 ang=+13.1 curve=1/+0 far=+85 lr=01 lock=0pair=0.00 lost=0 lscale=1.010 pitch=25.9
+[vision]   12Hz vx=+0.300 wz=-0.460 err=-9.3cm conf=0.45 qr=-1 | steer=-9.19 eff=-9.3 ang=+5.1 curve=0/-2 far=+44 lr=11 lock=0pair=0.00 lost=0 lscale=1.032 pitch=41.7
+[vision]   13Hz vx=+0.300 wz=-0.431 err=-9.8cm conf=0.44 qr=-1 | steer=-8.63 eff=-9.8 ang=+21.0 curve=0/-9 far=+15 lr=11 lock=0pair=0.00 lost=0 lscale=1.051 pitch=41.4
+[vision]   13Hz vx=+0.300 wz=+0.339 err=+1.9cm conf=0.42 qr=-1 | steer=+7.43 eff=+3.7 ang=+46.1 curve=1/-8 far=-48 lr=11 lock=0pair=0.00 lost=0 lscale=1.061 pitch=35.7
+[vision] lock lost (pair 1.00->0.00, conf 0.98->0.46) -> /home/isaac/loss_dump_3 #7
+[vision]   12Hz vx=+0.300 wz=-0.001 err=-0.5cm conf=0.46 qr=-1 | steer=-0.46 eff=-0.1 ang=+14.9 curve=0/-6 far=+19 lr=11 lock=0pair=0.00 lost=0 lscale=1.068 pitch=41.4
+[vision]   13Hz vx=+0.300 wz=-0.102 err=-4.4cm conf=0.45 qr=-1 | steer=-2.89 eff=-2.8 ang=+9.1 curve=0/-4 far=+14 lr=11 lock=0pair=0.00 lost=0 lscale=1.070 pitch=40.6
+[vision]   11Hz vx=+0.300 wz=-0.259 err=-6.0cm conf=0.45 qr=-1 | steer=-5.18 eff=-5.3 ang=+6.5 curve=0/-3 far=+63 lr=11 lock=0pair=0.00 lost=0 lscale=1.073 pitch=42.3
+[vision]   13Hz vx=+0.300 wz=-0.248 err=-6.3cm conf=0.36 qr=-1 | steer=-4.96 eff=-6.0 ang=+12.3 curve=0/-7 far=-11 lr=11 lock=0pair=0.00 lost=0 lscale=1.087 pitch=48.0
+[vision]   14Hz vx=+0.300 wz=+0.091 err=+0.3cm conf=0.12 qr=-1 | steer=+4.01 eff=+1.8 ang=-57.4 curve=0/-14 far=-53 lr=11 lock=0pair=0.00 lost=0 lscale=1.084 pitch=45.8
+[vision]   11Hz vx=+0.300 wz=-0.027 err=-1.9cm conf=0.43 qr=-1 | steer=-1.34 eff=-1.6 ang=+31.6 curve=0/-14 far=-28 lr=11 lock=0pair=0.00 lost=0 lscale=1.085 pitch=46.0
+[vision]   14Hz vx=+0.300 wz=+0.408 err=+5.2cm conf=0.75 qr=-1 | steer=+8.17 eff=+6.4 ang=+27.7 curve=1/-12 far=-67 lr=11 lock=0pair=1.00 lost=0 lscale=1.082 pitch=45.8
+[vision] lock lost (pair 1.00->0.00, conf 0.75->0.40) -> /home/isaac/loss_dump_3 #8
+[vision]   10Hz vx=+0.300 wz=+0.500 err=+8.5cm conf=0.87 qr=-1 | steer=+11.74 eff=+10.5 ang=+32.0 curve=1/-15 far=-47 lr=11 lock=0pair=1.00 lost=0 lscale=1.088 pitch=44.6
+[vision]   12Hz vx=+0.300 wz=+0.452 err=+9.1cm conf=0.60 qr=-1 | steer=+9.03 eff=+10.0 ang=+21.6 curve=1/-9 far=-9 lr=01 lock=0pair=0.00 lost=0 lscale=1.088 pitch=47.2
+[vision]   13Hz vx=+0.300 wz=-0.004 err=+1.2cm conf=0.40 qr=-1 | steer=-0.24 eff=+1.5 ang=+14.9 curve=0/-6 far=-1 lr=11 lock=0pair=0.00 lost=0 lscale=1.096 pitch=38.5
+[vision]   12Hz vx=+0.300 wz=-0.019 err=-1.2cm conf=0.39 qr=-1 | steer=-1.72 eff=-0.9 ang=+25.2 curve=0/-10 far=+21 lr=11 lock=0pair=0.00 lost=0 lscale=1.095 pitch=44.7
+[vision]   12Hz vx=+0.300 wz=+0.270 err=+3.1cm conf=0.46 qr=-1 | steer=+5.40 eff=+4.8 ang=+29.3 curve=0/-13 far=-14 lr=11 lock=0pair=0.00 lost=0 lscale=1.096 pitch=44.2
+[vision]   15Hz vx=+0.300 wz=+0.008 err=-0.3cm conf=0.46 qr=-1 | steer=+0.58 eff=+1.1 ang=+24.0 curve=0/-10 far=-12 lr=11 lock=0pair=0.00 lost=0 lscale=1.094 pitch=44.5
+[vision] lock lost (pair 1.00->0.00, conf 0.91->0.46) -> /home/isaac/loss_dump_3 #9
+[vision]   11Hz vx=+0.300 wz=+0.012 err=-0.9cm conf=0.98 qr=-1 | steer=+0.84 eff=+1.1 ang=+36.7 curve=0/-17 far=+5 lr=11 lock=1pair=1.00 lost=0 lscale=1.105 pitch=39.4
+[vision]   14Hz vx=+0.078 wz=+0.018 err=+0.5cm conf=0.00 qr=-1 | steer=+0.00 eff=+2.3 ang=-43.1 curve=0/+0 far=+0 lr=00 lock=0pair=0.00 lost=2 lscale=1.110 pitch=38.4
+[vision]   12Hz vx=+0.300 wz=+0.023 err=+1.5cm conf=0.18 qr=-1 | steer=+1.24 eff=+1.5 ang=-9.1 curve=1/+35 far=+60 lr=11 lock=0pair=0.00 lost=0 lscale=1.102 pitch=38.0
+[vision]   10Hz vx=+0.300 wz=+0.045 err=+2.1cm conf=0.45 qr=-1 | steer=+1.73 eff=+2.1 ang=+10.1 curve=0/-4 far=-16 lr=11 lock=0pair=0.00 lost=0 lscale=1.112 pitch=38.0
+[vision]   10Hz vx=+0.300 wz=+0.213 err=+4.5cm conf=0.46 qr=-1 | steer=+4.25 eff=+4.5 ang=+27.8 curve=0/-12 far=-58 lr=11 lock=0pair=0.00 lost=0 lscale=1.122 pitch=38.0

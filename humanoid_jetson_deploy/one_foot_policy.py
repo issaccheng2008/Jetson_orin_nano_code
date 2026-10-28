@@ -39,12 +39,13 @@ class OneFootPolicy(HumanoidPolicy):
     obs_dim = 46
     model_description = "one-foot standing policy (46 observations, 12 actions)"
 
-    def __init__(self, model_path: str, support_foot: str = "right") -> None:
+    def __init__(self, model_path: str, support_foot: str = "right", *,
+                 inference_backend: str = "cpu", engine_path: str | None = None) -> None:
         if support_foot not in ("right", "left"):
             raise ValueError("support_foot must be right or left")
         # Fixed for this run, including command-zero phases, just as in training.
         self.support_is_left = support_foot == "left"
-        super().__init__(model_path)
+        super().__init__(model_path, inference_backend=inference_backend, engine_path=engine_path)
 
     def select_support_foot(self, support_foot: str) -> None:
         """Select the physical support side at the start of a new card action."""

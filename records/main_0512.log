@@ -1,0 +1,22 @@
+[0;93m2026-10-03 05:12:53.633155867 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card1": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card1/device/vendor"[m
+[0;93m2026-10-03 05:12:53.633279158 [W:onnxruntime:Default, device_discovery.cc:283 GetGpuDevices] Failed to detect devices under "/sys/class/drm/card0": device_discovery.cc:93 ReadFileContents Failed to open file: "/sys/class/drm/card0/device/vendor"[m
+ONNX input='obs', output='actions'
+Shape one-foot ONNX input='obs', output='actions'
+Policy command source: new_vision/connector on udp://127.0.0.1:5005; timeout=0.250s; live vx/wz, vy=0; fixed-command timer disabled
+Body attitude broadcast: udp://127.0.0.1:5007 at 10 Hz
+Opening /dev/ttyACM0 (line coding 921600; native USB CDC ignores physical baud)
+MOTORS ENABLED
+Motor-position and IMU log: logs/motor_positions/motor_positions_20261003_051253_715394.csv
+Received STM32 state packet, sequence=3
+step=     0 state_seq=    3 policy_target_velocity=[vx=+0.300 m/s, vy=+0.000 m/s, wz=-0.348 rad/s] infer=0.359ms |obs|max=0.999 |action|max=1.318 crc_errors=0
+step=    25 state_seq=   87 policy_target_velocity=[vx=+0.300 m/s, vy=+0.000 m/s, wz=-0.347 rad/s] infer=0.354ms |obs|max=1.695 |action|max=1.670 crc_errors=0
+step=    50 state_seq=  171 policy_target_velocity=[vx=+0.300 m/s, vy=+0.000 m/s, wz=+0.001 rad/s] infer=0.700ms |obs|max=2.124 |action|max=2.210 crc_errors=0
+step=    75 state_seq=  256 policy_target_velocity=[vx=+0.137 m/s, vy=+0.000 m/s, wz=-0.000 rad/s] infer=0.319ms |obs|max=1.862 |action|max=1.382 crc_errors=0
+step=   100 state_seq=  340 policy_target_velocity=[vx=+0.300 m/s, vy=+0.000 m/s, wz=-0.147 rad/s] infer=0.309ms |obs|max=2.192 |action|max=2.340 crc_errors=0
+step=   125 state_seq=  424 policy_target_velocity=[vx=+0.300 m/s, vy=+0.000 m/s, wz=-0.196 rad/s] infer=0.316ms |obs|max=2.360 |action|max=2.432 crc_errors=0
+step=   150 state_seq=  508 policy_target_velocity=[vx=+0.120 m/s, vy=+0.000 m/s, wz=-0.118 rad/s] infer=0.311ms |obs|max=1.788 |action|max=1.177 crc_errors=0
+step=   175 state_seq=  593 policy_target_velocity=[vx=+0.300 m/s, vy=+0.000 m/s, wz=-0.335 rad/s] infer=0.286ms |obs|max=1.953 |action|max=1.811 crc_errors=0
+step=   200 state_seq=  677 policy_target_velocity=[vx=+0.140 m/s, vy=+0.000 m/s, wz=-0.001 rad/s] infer=0.316ms |obs|max=1.967 |action|max=1.818 crc_errors=0
+step=   225 state_seq=  761 policy_target_velocity=[vx=+0.300 m/s, vy=+0.000 m/s, wz=-0.439 rad/s] infer=0.206ms |obs|max=2.598 |action|max=2.300 crc_errors=0
+step=   250 state_seq=  845 policy_target_velocity=[vx=+0.300 m/s, vy=+0.000 m/s, wz=-0.446 rad/s] infer=0.288ms |obs|max=2.478 |action|max=2.655 crc_errors=0
+step=   275 state_seq=  930 policy_target_velocity=[vx=+0.260 m/s, vy=+0.000 m/s, wz=-0.420 rad/s] infer=0.271ms |obs|max=1.447 |action|max=0.935 crc_errors=0

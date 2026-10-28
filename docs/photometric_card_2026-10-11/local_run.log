@@ -1,0 +1,154 @@
+  [shape] NEW triangle
+三1.jpg raw classified triangle
+  [shape] NEW triangle
+三1.jpg match classified triangle
+  [shape] NEW triangle
+三2.jpg raw classified triangle
+  [shape] NEW triangle
+三2.jpg match classified triangle
+  [shape] NEW triangle
+三3.jpg raw classified triangle
+  [shape] NEW triangle
+三3.jpg match classified triangle
+  [shape] NEW triangle
+三4.jpg raw classified triangle
+  [shape] NEW triangle
+三4.jpg match classified triangle
+  [shape] NEW pentagon
+五1.jpg raw classified pentagon
+  [shape] NEW pentagon
+五1.jpg match classified pentagon
+五2.jpg raw geometry None
+五2.jpg match geometry None
+  [shape] NEW pentagon
+五3.jpg raw classified pentagon
+  [shape] NEW pentagon
+五3.jpg match classified pentagon
+  [shape] NEW pentagon
+五4.jpg raw classified pentagon
+  [shape] NEW pentagon
+五4.jpg match classified pentagon
+  [shape] NEW pentagon
+五5.jpg raw classified pentagon
+  [shape] NEW pentagon
+五5.jpg match classified pentagon
+  [shape] NEW pentagon
+五6.jpg raw classified pentagon
+  [shape] NEW pentagon
+五6.jpg match classified pentagon
+十1.jpg raw geometry None
+十1.jpg match geometry None
+  [shape] NEW cross
+十2.jpg raw classified cross
+  [shape] NEW cross
+十2.jpg match classified cross
+  [shape] NEW cross
+十3.jpg raw classified cross
+  [shape] NEW cross
+十3.jpg match classified cross
+  [shape] NEW circle
+圆1.jpg raw classified circle
+  [shape] NEW circle
+圆1.jpg match classified circle
+  [shape] NEW circle
+圆2.jpg raw classified circle
+  [shape] NEW circle
+圆2.jpg match classified circle
+  [shape] NEW circle
+圆3.jpg raw classified circle
+  [shape] NEW circle
+圆3.jpg match classified circle
+  [shape] NEW circle
+圆4.jpg raw classified circle
+  [shape] NEW circle
+圆4.jpg match classified circle
+  [shape] NEW circle
+圆5.jpg raw classified circle
+  [shape] NEW circle
+圆5.jpg match classified circle
+  [shape] NEW circle
+圆6.jpg raw classified circle
+  [shape] NEW circle
+圆6.jpg match classified circle
+  [shape] NEW square
+正1.jpg raw classified square
+  [shape] NEW square
+正1.jpg match classified square
+  [shape] NEW square
+正2.jpg raw classified square
+  [shape] NEW square
+正2.jpg match classified square
+  [shape] NEW square
+正3.jpg raw classified square
+  [shape] NEW square
+正3.jpg match classified square
+  [shape] NEW square
+正4.jpg raw classified square
+  [shape] NEW square
+正4.jpg match classified square
+  [shape] NEW square
+正5.jpg raw classified square
+  [shape] NEW square
+正5.jpg match classified square
+  [shape] NEW square
+正6.jpg raw classified square
+  [shape] NEW square
+正6.jpg match classified square
+  [shape] NEW square
+正7.jpg raw classified square
+  [shape] NEW square
+正7.jpg match classified square
+  [shape] NEW square
+正8.jpg raw classified square
+  [shape] NEW square
+正8.jpg match classified square
+  [shape] NEW diamond
+菱1.jpg raw classified diamond
+  [shape] NEW diamond
+菱1.jpg match classified diamond
+  [shape] NEW diamond
+菱2.jpg raw classified diamond
+  [shape] NEW diamond
+菱2.jpg match classified diamond
+  [shape] NEW diamond
+菱3.jpg raw classified diamond
+  [shape] NEW diamond
+菱3.jpg match classified diamond
+  [shape] NEW diamond
+菱4.jpg raw classified diamond
+  [shape] NEW diamond
+菱4.jpg match classified diamond
+  [shape] NEW square
+latest_square_card_capture_20261010.jpg raw classified square
+  [shape] NEW square
+latest_square_card_capture_20261010.jpg match classified square
+{
+  "old_bright/raw": {
+    "n": 31,
+    "box": 29,
+    "correct": 29,
+    "wrong": 0,
+    "no_class": 2
+  },
+  "old_bright/match": {
+    "n": 31,
+    "box": 29,
+    "correct": 29,
+    "wrong": 0,
+    "no_class": 2
+  },
+  "dark_unverified/raw": {
+    "n": 1,
+    "box": 1,
+    "correct": 1,
+    "wrong": 0,
+    "no_class": 0
+  },
+  "dark_unverified/match": {
+    "n": 1,
+    "box": 1,
+    "correct": 1,
+    "wrong": 0,
+    "no_class": 0
+  }
+}
