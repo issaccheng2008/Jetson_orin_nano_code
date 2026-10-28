@@ -1,0 +1,2024 @@
+{
+  "environment": {
+    "python": "3.13.12 | packaged by Anaconda, Inc. | (main, Feb 24 2026, 16:13:31) [GCC 14.3.0]",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "opencv": "4.14.0",
+    "opencv_file": "/tmp/jetson-loss-check-venv/lib/python3.13/site-packages/cv2/__init__.py",
+    "numpy": "2.5.3",
+    "opencv_threads": 16,
+    "benchmark_sha256": "5d83d25efaa3d568f55d24bdb7e42593d31c3f6e2dec2f0a3f59ffefbd3184b8",
+    "cuda_device": {
+      "count": 0
+    },
+    "source_sha256": {
+      "new_vision/jetson/attitude_input.py": "d99f9025cc56634d173cfa1bbea8529b5936955045273aab18356cc56fbc4c83",
+      "new_vision/jetson/camera_config.py": "566d443d9750ef2583d659dc383d875667ec08d1bb6ebb6c5fcc34fe735a7aa3",
+      "new_vision/jetson/camera_controls.py": "5b16cf7d4a5ffed3da52d177f6e72aeafd2da1f6975817e4367296c817b451ed",
+      "new_vision/jetson/canny_candidates.py": "9e96e49618662a0a8abc571683995c08b31f560d19da68463d21c96809209753",
+      "new_vision/jetson/card_appearance.py": "52d8574c28ffab198a6c2acd694262d0cb4b5e8069f03055bfd9e04106a7dd16",
+      "new_vision/jetson/card_presence.py": "7d5fd3943350917c527a5c542888ca9dbe39fc189a825016f83e8d91c95ca72b",
+      "new_vision/jetson/command_video.py": "c82e9aab11560cf265a54ca94d8cf666dc0f40b4e45061b624e8db132efa2f56",
+      "new_vision/jetson/continuous_lane_heading.py": "9f1982b909758442c8ac0752d448e9cca4a0d99550e6704ee026b70ab45ea8b6",
+      "new_vision/jetson/cuda_vision.py": "305f80845e3cfa5f1efd824aa0c007b3b07d9a2e6a1a9ac8dd9aca1e2a101a66",
+      "new_vision/jetson/dash_counter.py": "6e890f8335328951d5679111bf2b9459aa841db317f432e269302745c363e33d",
+      "new_vision/jetson/digit_reader.py": "f4b57305f2f6357569b0eab6f11d1383f8ca8d47bf556891e0fac2c78ebdc822",
+      "new_vision/jetson/discrete_steering.py": "a0642194eaf8cf56eb7d72302ac6ca91f2ee4a3ad7b6e8e043c7353fbbcda906",
+      "new_vision/jetson/heading_steering.py": "99fdffad48cf8f63d5a360604593f0caa75896afa4fa6df920fd3150fb77adbb",
+      "new_vision/jetson/lane_segments.py": "a52e2505646f89dffb5494999f5fe6b049765d584c87886c0f13dbc6799f430b",
+      "new_vision/jetson/line_detector_v1_warp.py": "954883f18af5ad277ee918deb3f351e22882ae2500ad734e26b394ddcac0ec14",
+      "new_vision/jetson/line_preprocess.py": "6dc847a8155bb2dc747295f50806870c905b071332678ec891b2d221a2774fc3",
+      "new_vision/jetson/line_telemetry.py": "73c8fca069334e045a51c542df284b6461170ed023a7d7ace5f20c34502ea837",
+      "new_vision/jetson/make_hu_templates.py": "75569ad911fb25e8b0180bd7364ba401b865c5d2b305c27918fce3198c710926",
+      "new_vision/jetson/photometric_thresholds.py": "0b5a441f1d5537830ecefbed81531228851fb20b947c9dc3c9826d67a6e2482e",
+      "new_vision/jetson/policy_bridge.py": "1c04fb1ccdcc4edbd7b41f55e692601c212da55bd373732eec0da152fa7f1212",
+      "new_vision/jetson/policy_gate_launcher.py": "974039b5b1fe33d1c1115ba1c0486f51887114b0025feb6f46c9275c39b90126",
+      "new_vision/jetson/protocol_v2.py": "3145bb597e90002f269ec2fac086ef487e478e84fcd28c4cab81b9f95044ddaf",
+      "new_vision/jetson/qr_reader.py": "b56329430c4b0f2f9e3040970729c9b7ff13f2af0bf48d9a78867cf402496e8c",
+      "new_vision/jetson/recording_session.py": "25f93c84c05b5a2033b55504f0b3b4dc5a3df0af0776ae0620a3ccc1e468584e",
+      "new_vision/jetson/red_color_check.py": "50744324f3c2d7f2701c046c9d48426e5a11f820d13c9e8c11f2651b80587fea",
+      "new_vision/jetson/replay_steering_filter.py": "d521f3164d9ee589f0eecac66e962a237815a4c7682a95633bb962bb8f7df8b0",
+      "new_vision/jetson/run_policy_vision.py": "da507883e70cb9d8d8a04173c0dac719d68d0bd1bfdb3c65123f415a5570a802",
+      "new_vision/jetson/run_real_car.py": "9128c9d213f4fbc41688834672fcb640072cecf83b86a22f6f1139783bd63a35",
+      "new_vision/jetson/run_robot.py": "f17505a77fcb6f56c03563ebaa646ec28dd23cf2c28314c2eb03b96281d0c89c",
+      "new_vision/jetson/segment_steering.py": "7d1365be0de29b33e0fa81e76ca1ba32e3514c09556f93dcfbc463a45897c725",
+      "new_vision/jetson/send_card_event.py": "5eab4f5b3880a7e5837d81c674e60baf5e4d4d936f09d0532a48320b7713b5f4",
+      "new_vision/jetson/shape_demo.py": "3ecb3d92dffc3299a9153613fc933135fc438028bb355d98677766b964b8524c",
+      "new_vision/jetson/shape_detector.py": "5d68d1f840396f610ebc9188a6dd95ea162377922f85ee444e57573fcbe1a12e",
+      "new_vision/jetson/shape_preprocess.py": "462b1b0ac893873cfa633363719a80498d432156e5e640d50594ca63e3b52e20",
+      "new_vision/jetson/startup_button_link.py": "380ca79c33042f687621387820dd1d0fbad3a044484e08c846974059fcf70204",
+      "new_vision/jetson/startup_sequence.py": "e7f8adb8529937cb54b2189d7a76e0255d3aec2b0889fb65cade9ff8a12393ba",
+      "new_vision/jetson/start_gate.py": "73cdec767ed7df094cbd8fcb31efc6280f5ed28b5cb4712604e3d645a55a22c7",
+      "new_vision/jetson/steering_filter.py": "4f279b60842432eea2e3d8cf9d859152a8b8794b9c52e722ff803128dd4aa39b",
+      "new_vision/jetson/steering_recovery.py": "4a262a0d0a0a63c036c6cf6f4e504e304930ff25e71a90a4a217dbf2ea10f5a1",
+      "new_vision/jetson/utils.py": "cdad92ead87e4c15e42f43ed81b44376f24423155d0d7a873d3874d16f618db0",
+      "new_vision/jetson/vision_main.py": "f52bd8297ae2efd5717ce390ad47e8f5d04a6639356295d3b52458d080974305",
+      "new_vision/jetson/wifi_connect.py": "a5da46e0319e711873bcd04ccc50de2c6a9623358be59517d0209fa082c2d962",
+      "new_vision/jetson/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "new_vision/config/cameras.json": "56ee1af62c23ec236c5495615a5cec09ee5f508ed36af378b27a1885fb9f5b1c"
+    }
+  },
+  "arguments": {
+    "input_dir": "/mnt/d/用户/Lenovo/桌面/Robocup/6card",
+    "output_dir": "/mnt/d/用户/lenovo/桌面/github repository/jetson_orin_nano_code/.planning/2026-10-10-nano-gpu/vision_benchmark_local_stills",
+    "max_images": 6,
+    "repeats": 3,
+    "warmup": 1,
+    "devices": [
+      "cpu",
+      "cuda"
+    ],
+    "require_cuda": false,
+    "cuda_fallback": false,
+    "line_preprocess": "legacy",
+    "shape_preprocess": "selective",
+    "photometric_mode": "normalize"
+  },
+  "camera_config": {
+    "index": 0,
+    "width": 1280,
+    "height": 720,
+    "vfov_deg": 55.876,
+    "mount_height_cm": 32.5,
+    "pitch_deg": 45.0,
+    "distance_calib": {
+      "_note": "线性拟合/ 共 12 张，真值 20.0~75.0cm",
+      "a": 1.13233,
+      "b": -2.4862,
+      "rms_cm": 0.187,
+      "raw_rms_cm": 3.92
+    },
+    "lane_width_cm": 35.0,
+    "profile": "usb_main",
+    "label": "USB相机（实车 1280×720；棋盘格标定 2026-09-21）",
+    "_pose_verified": "2026-09-22 用实物验证：图卡平放地面、量到已知距离拍照，用 h=32.5 反解图卡边长得 9.68~10.09cm（与实物 9.x cm 吻合），俯角 45° 自洽。图卡黑框外缘实测约 9.9cm。",
+    "calibration": {
+      "_note": "本相机自身的棋盘格内参；此前的 56.2° 是另一颗同型号 USB 相机的值",
+      "source": "generated/camera_calibration_result_usb_main_current.json",
+      "images": "标定/最新cam/*.jpg",
+      "date": "2026-09-21",
+      "image_size": [
+        1920,
+        1080
+      ],
+      "board_inner_corners": [
+        7,
+        4
+      ],
+      "square_size_mm": 34.0,
+      "images_used": 46,
+      "rms_reprojection_error": 1.2981,
+      "fx": 1004.818,
+      "fy": 1018.251,
+      "cx": 957.124,
+      "cy": 604.858,
+      "hfov_deg": 87.387,
+      "dist_coeffs": [
+        -0.0047106,
+        0.01184,
+        0.0025756,
+        0.0047851,
+        -0.0263896
+      ]
+    },
+    "lane_width_cm_note": "规则：赛道标准宽度 350mm。横向比例尺的绝对锚 —— 逐行 LUT 修的是'透视不是线性的'，剩下的相机姿势残差只能靠这个已知宽度收敛。标定照片（线性拟合/，1920×1080）里两条线中心距 146.5px，按 LUT 折 32.8cm，隐含 lateral_scale≈1.067。"
+  },
+  "sampling": "Shared file budget; uniform video frames. Sorted per-file replay; reset each source/round.",
+  "timing_note": "Warmup excluded; synchronous wall time includes transfers and rendering. Backend stages overlap detector stages; do not add them together. line_remainder includes geometry, photometry and rendering.",
+  "samples": [
+    {
+      "source": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/三1.jpg",
+      "frame": null,
+      "timestamp_s": 0.0,
+      "width": 1920,
+      "height": 1080,
+      "pixels_sha256": "4d466f35a7e2ae9f0e62bb47b288d265f48605df2362a3626b05642301b80f41"
+    },
+    {
+      "source": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/五3.jpg",
+      "frame": null,
+      "timestamp_s": 0.0,
+      "width": 1920,
+      "height": 1080,
+      "pixels_sha256": "fba18c21a0d396b45fe6e59be3fd9c980fd1f7595d7e13125583e537382c9f07"
+    },
+    {
+      "source": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/十3.jpg",
+      "frame": null,
+      "timestamp_s": 0.0,
+      "width": 1920,
+      "height": 1080,
+      "pixels_sha256": "79a0bdb77c99726f518a2ba8fe365677984b95f9fcfa4ad7c30bc0bc358b4c0a"
+    },
+    {
+      "source": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/圆6.jpg",
+      "frame": null,
+      "timestamp_s": 0.0,
+      "width": 1920,
+      "height": 1080,
+      "pixels_sha256": "bb9f462acc6d5dedfebb5e84f3c979b2b8d844386aad6a15dd7ab942960d46f5"
+    },
+    {
+      "source": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/正6.jpg",
+      "frame": null,
+      "timestamp_s": 0.0,
+      "width": 1920,
+      "height": 1080,
+      "pixels_sha256": "c843989be2179373f820e9bd751c9e35592289c160ab3f172a22182ae789d7ca"
+    },
+    {
+      "source": "/mnt/d/用户/Lenovo/桌面/Robocup/6card/菱4.jpg",
+      "frame": null,
+      "timestamp_s": 0.0,
+      "width": 1920,
+      "height": 1080,
+      "pixels_sha256": "a99ce39d898d6da589c7875b022b78c18466adf872e35af9a30f0aab66ff14b7"
+    }
+  ],
+  "devices": {
+    "cpu": {
+      "status": "ok",
+      "backend": {
+        "vision_device_requested": "cpu",
+        "vision_device_actual": "cpu",
+        "vision_cuda_enabled_ops": "",
+        "vision_cuda_calls_total": 0,
+        "vision_cuda_transfer_ms_total": 0.0,
+        "vision_cuda_fallback_reason": ""
+      },
+      "measured_cuda_calls": 0,
+      "measured_cuda_transfer_ms": 0.0,
+      "timings": {
+        "line.backend.gray_ms": {
+          "n": 18,
+          "p50_ms": 0.1237104988831561,
+          "p95_ms": 0.5099571477330755
+        },
+        "line.backend.morphology_ms": {
+          "n": 18,
+          "p50_ms": 3.3201250007550698,
+          "p95_ms": 4.925912249746032
+        },
+        "line.backend.warp_ms": {
+          "n": 18,
+          "p50_ms": 1.0391245014034212,
+          "p95_ms": 1.6444367516669443
+        },
+        "line_preprocess_ms": {
+          "n": 18,
+          "p50_ms": 7.862921502237441,
+          "p95_ms": 11.914027498642094
+        },
+        "line_remainder_ms": {
+          "n": 18,
+          "p50_ms": 119.35237050056458,
+          "p95_ms": 132.98108545859577
+        },
+        "line_total_ms": {
+          "n": 18,
+          "p50_ms": 129.61156199526158,
+          "p95_ms": 146.9132571004593
+        },
+        "shape.backend.gray_ms": {
+          "n": 18,
+          "p50_ms": 0.8679520033183508,
+          "p95_ms": 1.6572937514865764
+        },
+        "shape.backend.morphology_ms": {
+          "n": 18,
+          "p50_ms": 1.9946145002904814,
+          "p95_ms": 2.5965442477172465
+        },
+        "shape.backend.resize_ms": {
+          "n": 18,
+          "p50_ms": 0.2958020013466012,
+          "p95_ms": 0.8349133466253987
+        },
+        "shape_call_ms": {
+          "n": 18,
+          "p50_ms": 106.92207449756097,
+          "p95_ms": 163.43648560068684
+        },
+        "shape_classify_ms": {
+          "n": 18,
+          "p50_ms": 2.0955015024810564,
+          "p95_ms": 2.6366959496954214
+        },
+        "shape_preprocess_ms": {
+          "n": 18,
+          "p50_ms": 30.305307500384515,
+          "p95_ms": 43.56904990127077
+        },
+        "shape_presence_ms": {
+          "n": 18,
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        },
+        "shape_proposals_ms": {
+          "n": 18,
+          "p50_ms": 64.48881549658836,
+          "p95_ms": 105.78286415438924
+        },
+        "shape_total_ms": {
+          "n": 18,
+          "p50_ms": 106.50288899705629,
+          "p95_ms": 163.23265164537585
+        },
+        "shape_verification_ms": {
+          "n": 18,
+          "p50_ms": 10.137262001080671,
+          "p95_ms": 17.88339059494318
+        }
+      },
+      "rows": [
+        {
+          "sample_index": 0,
+          "repeat": 0,
+          "timings_ms": {
+            "line.backend.warp_ms": 0.7859129982534796,
+            "line.backend.gray_ms": 0.14040699898032472,
+            "line.backend.morphology_ms": 4.63605400727829,
+            "line_preprocess_ms": 8.07024600362638,
+            "line_total_ms": 137.64893999905325,
+            "line_remainder_ms": 128.65237399819307,
+            "shape.backend.gray_ms": 0.5746790047851391,
+            "shape.backend.resize_ms": 0.2163499957532622,
+            "shape.backend.morphology_ms": 2.03394700656645,
+            "shape_call_ms": 147.0030430064071,
+            "shape_preprocess_ms": 35.87903500010725,
+            "shape_proposals_ms": 91.85075900313677,
+            "shape_verification_ms": 16.4393029990606,
+            "shape_classify_ms": 2.554124999733176,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 146.7957019995083
+          },
+          "line": {
+            "base_err_px": -41.39005414901517,
+            "base_err_cm": -9.415664047284121,
+            "heading_deg": 12.58249405736257,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9789048818916307,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -9.415664047284121,
+            "fused_err_cm": 9.415664047284121,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.07977240352174518,
+            "heading_fit_rmse_px": 0.543057926301925,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -41.39005414901517,
+            "output_heading_deg": 12.58249405736257,
+            "confidence": 0.9789048818916307
+          },
+          "shape": {
+            "shape": "triangle",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                745.052490234375,
+                461.76007080078125
+              ],
+              [
+                922.4683837890625,
+                467.9490051269531
+              ],
+              [
+                905.0488891601562,
+                365.92083740234375
+              ],
+              [
+                765.2015380859375,
+                369.65008544921875
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.386050867151331,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 182.96041870117188,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 1,
+          "repeat": 0,
+          "timings_ms": {
+            "line.backend.warp_ms": 0.9246849949704483,
+            "line.backend.gray_ms": 0.11007799912476912,
+            "line.backend.morphology_ms": 2.9283909971127287,
+            "line_preprocess_ms": 8.15727799636079,
+            "line_total_ms": 132.11840499570826,
+            "line_remainder_ms": 122.92636400525225,
+            "shape.backend.gray_ms": 1.0433650022605434,
+            "shape.backend.resize_ms": 0.2345649991184473,
+            "shape.backend.morphology_ms": 2.4889589913072996,
+            "shape_call_ms": 114.1641529975459,
+            "shape_preprocess_ms": 33.796677002101205,
+            "shape_proposals_ms": 76.44153900037054,
+            "shape_verification_ms": 1.7803250011638738,
+            "shape_classify_ms": 1.8718099963734858,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 113.94703500263859
+          },
+          "line": {
+            "base_err_px": -17.03023942545072,
+            "base_err_cm": -3.8765214884930734,
+            "heading_deg": 20.948892168372648,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9711921019296155,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -3.8765214884930734,
+            "fused_err_cm": 3.8765214884930734,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.1492405014489273,
+            "heading_fit_rmse_px": 0.8619653422047169,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -17.03023942545072,
+            "output_heading_deg": 20.948892168372648,
+            "confidence": 0.9711921019296155
+          },
+          "shape": {
+            "shape": "pentagon",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                1010.0,
+                660.0
+              ],
+              [
+                876.0,
+                550.0
+              ],
+              [
+                730.0,
+                618.0
+              ],
+              [
+                806.0,
+                760.0
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.6064814814814815,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 275.0,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 2,
+          "repeat": 0,
+          "timings_ms": {
+            "line.backend.warp_ms": 0.9273309988202527,
+            "line.backend.gray_ms": 0.5380759976105765,
+            "line.backend.morphology_ms": 2.9477260031853803,
+            "line_preprocess_ms": 5.950427002971992,
+            "line_total_ms": 126.20564600365469,
+            "line_remainder_ms": 118.78981200425187,
+            "shape.backend.gray_ms": 1.0603570044622757,
+            "shape.backend.resize_ms": 0.27598800079431385,
+            "shape.backend.morphology_ms": 1.8330869934288785,
+            "shape_call_ms": 147.1268270033761,
+            "shape_preprocess_ms": 37.481930005014874,
+            "shape_proposals_ms": 100.04474699962884,
+            "shape_verification_ms": 6.739479998941533,
+            "shape_classify_ms": 2.5264130017603748,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 146.87250499991933
+          },
+          "line": {
+            "base_err_px": -55.48019010564918,
+            "base_err_cm": -12.634014626447296,
+            "heading_deg": 21.849676097194465,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9784847786805069,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -12.634014626447296,
+            "fused_err_cm": 12.634014626447296,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.20816659994661305,
+            "heading_fit_rmse_px": 0.7702788082871662,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -55.48019010564918,
+            "output_heading_deg": 21.849676097194465,
+            "confidence": 0.9784847786805069
+          },
+          "shape": {
+            "shape": "cross",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                502.67669677734375,
+                949.7557373046875
+              ],
+              [
+                752.0146484375,
+                936.7305908203125
+              ],
+              [
+                748.0510864257812,
+                728.6461791992188
+              ],
+              [
+                539.0192260742188,
+                762.8513793945312
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.7770378960503472,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 364.3230895996094,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 3,
+          "repeat": 0,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.0534670000197366,
+            "line.backend.gray_ms": 0.09126000077230856,
+            "line.backend.morphology_ms": 4.170845008047763,
+            "line_preprocess_ms": 11.00261599640362,
+            "line_total_ms": 132.15097400097875,
+            "line_remainder_ms": 120.00363100378308,
+            "shape.backend.gray_ms": 0.8379830032936297,
+            "shape.backend.resize_ms": 0.9331470064353198,
+            "shape.backend.morphology_ms": 2.3664250038564205,
+            "shape_call_ms": 105.32962000434054,
+            "shape_preprocess_ms": 30.91656900505768,
+            "shape_proposals_ms": 59.5044079964282,
+            "shape_verification_ms": 13.046059000771493,
+            "shape_classify_ms": 1.573394998558797,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 105.10380499908933
+          },
+          "line": {
+            "base_err_px": -19.64062531697703,
+            "base_err_cm": -4.460254076022352,
+            "heading_deg": 17.802565502842423,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9668700301802917,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -4.460254076022352,
+            "fused_err_cm": 4.460254076022352,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.36711405213192494,
+            "heading_fit_rmse_px": 0.5755826685219415,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -19.64062531697703,
+            "output_heading_deg": 17.802565502842423,
+            "confidence": 0.9668700301802917
+          },
+          "shape": {
+            "shape": "circle",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                520.8307495117188,
+                410.4342041015625
+              ],
+              [
+                667.2042846679688,
+                423.5914001464844
+              ],
+              [
+                612.95458984375,
+                532.0908203125
+              ],
+              [
+                454.8949279785156,
+                515.1558227539062
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.4363541779694734,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 205.21710205078125,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 4,
+          "repeat": 0,
+          "timings_ms": {
+            "line.backend.warp_ms": 0.9413020015927032,
+            "line.backend.gray_ms": 0.18325400014873594,
+            "line.backend.morphology_ms": 3.1904200004646555,
+            "line_preprocess_ms": 7.76882900390774,
+            "line_total_ms": 119.02552600076888,
+            "line_remainder_ms": 110.1321409951197,
+            "shape.backend.gray_ms": 1.175921002868563,
+            "shape.backend.resize_ms": 0.37739600520581007,
+            "shape.backend.morphology_ms": 2.0572450011968613,
+            "shape_call_ms": 90.39947500423295,
+            "shape_preprocess_ms": 27.355554004316218,
+            "shape_proposals_ms": 55.81434499617899,
+            "shape_verification_ms": 5.12270099716261,
+            "shape_classify_ms": 1.8823249993147328,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 90.23644300032174
+          },
+          "line": {
+            "base_err_px": -19.85609767878931,
+            "base_err_cm": -4.521778518191033,
+            "heading_deg": 17.69019756005329,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9668700301802917,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -4.521778518191033,
+            "fused_err_cm": 4.521778518191033,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.21423349405482175,
+            "heading_fit_rmse_px": 0.5445644372234641,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -19.85609767878931,
+            "output_heading_deg": 17.69019756005329,
+            "confidence": 0.9668700301802917
+          },
+          "shape": {
+            "shape": "square",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                1084.0,
+                632.0
+              ],
+              [
+                1002.0,
+                708.0
+              ],
+              [
+                1134.0,
+                788.0
+              ],
+              [
+                1212.0,
+                696.0
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.6574074074074074,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 316.0,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 5,
+          "repeat": 0,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.1555720047908835,
+            "line.backend.gray_ms": 0.12026500189676881,
+            "line.backend.morphology_ms": 3.242138998757582,
+            "line_preprocess_ms": 6.912794000527356,
+            "line_total_ms": 114.42496600648155,
+            "line_remainder_ms": 106.23633499926655,
+            "shape.backend.gray_ms": 0.7890419947216287,
+            "shape.backend.resize_ms": 0.15620399790350348,
+            "shape.backend.morphology_ms": 1.651914011745248,
+            "shape_call_ms": 103.12275599426357,
+            "shape_preprocess_ms": 29.622479996760376,
+            "shape_proposals_ms": 59.811774000991136,
+            "shape_verification_ms": 10.333188998629339,
+            "shape_classify_ms": 3.1045979994814843,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 102.93397300119977
+          },
+          "line": {
+            "base_err_px": -18.140516197334986,
+            "base_err_cm": -4.129867489313522,
+            "heading_deg": 18.874631979729898,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9773816534527294,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -4.129867489313522,
+            "fused_err_cm": 4.129867489313522,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.34145410978770147,
+            "heading_fit_rmse_px": 0.41717533758038583,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -18.140516197334986,
+            "output_heading_deg": 18.874631979729898,
+            "confidence": 0.9773816534527294
+          },
+          "shape": {
+            "shape": "diamond",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                988.0023803710938,
+                838.0
+              ],
+              [
+                1210.6396484375,
+                838.0
+              ],
+              [
+                1188.3394775390625,
+                676.3244018554688
+              ],
+              [
+                993.91259765625,
+                666.6030883789062
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.6965754756221065,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 333.3015441894531,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 0,
+          "repeat": 1,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.0830870014615357,
+            "line.backend.gray_ms": 0.092048998340033,
+            "line.backend.morphology_ms": 3.7258070005918853,
+            "line_preprocess_ms": 9.041217002959456,
+            "line_total_ms": 139.30352099851007,
+            "line_remainder_ms": 129.08716799574904,
+            "shape.backend.gray_ms": 0.6834880041424185,
+            "shape.backend.resize_ms": 0.3729130039573647,
+            "shape.backend.morphology_ms": 2.1830150071764365,
+            "shape_call_ms": 178.31679299706593,
+            "shape_preprocess_ms": 42.97539100662107,
+            "shape_proposals_ms": 107.058647001395,
+            "shape_verification_ms": 25.933913995686453,
+            "shape_classify_ms": 2.038161997916177,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 178.07041400374146
+          },
+          "line": {
+            "base_err_px": -41.39005414901517,
+            "base_err_cm": -9.415664047284121,
+            "heading_deg": 12.58249405736257,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9789048818916307,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -9.415664047284121,
+            "fused_err_cm": 9.415664047284121,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.07977240352174518,
+            "heading_fit_rmse_px": 0.543057926301925,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -41.39005414901517,
+            "output_heading_deg": 12.58249405736257,
+            "confidence": 0.9789048818916307
+          },
+          "shape": {
+            "shape": "triangle",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                745.052490234375,
+                461.76007080078125
+              ],
+              [
+                922.4683837890625,
+                467.9490051269531
+              ],
+              [
+                905.0488891601562,
+                365.92083740234375
+              ],
+              [
+                765.2015380859375,
+                369.65008544921875
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.386050867151331,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 182.96041870117188,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 1,
+          "repeat": 1,
+          "timings_ms": {
+            "line.backend.warp_ms": 0.8869219964253716,
+            "line.backend.gray_ms": 0.14122400170890614,
+            "line.backend.morphology_ms": 3.0452649953076616,
+            "line_preprocess_ms": 14.820865995716304,
+            "line_total_ms": 148.49943700392032,
+            "line_remainder_ms": 132.65042501006974,
+            "shape.backend.gray_ms": 0.5937540045124479,
+            "shape.backend.resize_ms": 0.20947099983459339,
+            "shape.backend.morphology_ms": 1.653167993936222,
+            "shape_call_ms": 103.23214199888753,
+            "shape_preprocess_ms": 35.72486600023694,
+            "shape_proposals_ms": 63.20928599598119,
+            "shape_verification_ms": 1.9338179990882054,
+            "shape_classify_ms": 2.145457001461182,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 103.07637999358121
+          },
+          "line": {
+            "base_err_px": -17.03023942545072,
+            "base_err_cm": -3.8765214884930734,
+            "heading_deg": 20.948892168372648,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9711921019296155,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -3.8765214884930734,
+            "fused_err_cm": 3.8765214884930734,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.1492405014489273,
+            "heading_fit_rmse_px": 0.8619653422047169,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -17.03023942545072,
+            "output_heading_deg": 20.948892168372648,
+            "confidence": 0.9711921019296155
+          },
+          "shape": {
+            "shape": "pentagon",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                1010.0,
+                660.0
+              ],
+              [
+                876.0,
+                550.0
+              ],
+              [
+                730.0,
+                618.0
+              ],
+              [
+                806.0,
+                760.0
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.6064814814814815,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 275.0,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 2,
+          "repeat": 1,
+          "timings_ms": {
+            "line.backend.warp_ms": 0.739752002118621,
+            "line.backend.gray_ms": 0.10117000056197867,
+            "line.backend.morphology_ms": 3.772495001612697,
+            "line_preprocess_ms": 6.916510996234138,
+            "line_total_ms": 120.6312380018062,
+            "line_remainder_ms": 112.87380500289146,
+            "shape.backend.gray_ms": 1.2602350034285337,
+            "shape.backend.resize_ms": 0.603757995122578,
+            "shape.backend.morphology_ms": 2.258284992421977,
+            "shape_call_ms": 139.07594199554296,
+            "shape_preprocess_ms": 31.083821995707694,
+            "shape_proposals_ms": 94.44751699629705,
+            "shape_verification_ms": 11.016900003596675,
+            "shape_classify_ms": 2.192784995713737,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 138.81442500132835
+          },
+          "line": {
+            "base_err_px": -55.48019010564918,
+            "base_err_cm": -12.634014626447296,
+            "heading_deg": 21.849676097194465,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9784847786805069,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -12.634014626447296,
+            "fused_err_cm": 12.634014626447296,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.20816659994661305,
+            "heading_fit_rmse_px": 0.7702788082871662,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -55.48019010564918,
+            "output_heading_deg": 21.849676097194465,
+            "confidence": 0.9784847786805069
+          },
+          "shape": {
+            "shape": "cross",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                502.67669677734375,
+                949.7557373046875
+              ],
+              [
+                752.0146484375,
+                936.7305908203125
+              ],
+              [
+                748.0510864257812,
+                728.6461791992188
+              ],
+              [
+                539.0192260742188,
+                762.8513793945312
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.7770378960503472,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 364.3230895996094,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 3,
+          "repeat": 1,
+          "timings_ms": {
+            "line.backend.warp_ms": 0.989961001323536,
+            "line.backend.gray_ms": 0.0979630058282055,
+            "line.backend.morphology_ms": 3.6031139970873483,
+            "line_preprocess_ms": 6.679984995571431,
+            "line_total_ms": 124.26915299874963,
+            "line_remainder_ms": 116.50124399602646,
+            "shape.backend.gray_ms": 0.4870320044574328,
+            "shape.backend.resize_ms": 0.15122899640118703,
+            "shape.backend.morphology_ms": 1.6108870040625334,
+            "shape_call_ms": 91.77908599667717,
+            "shape_preprocess_ms": 23.744534999423195,
+            "shape_proposals_ms": 53.574245001072995,
+            "shape_verification_ms": 12.53443599853199,
+            "shape_classify_ms": 1.6458419995615259,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 91.56078199885087
+          },
+          "line": {
+            "base_err_px": -19.64062531697703,
+            "base_err_cm": -4.460254076022352,
+            "heading_deg": 17.802565502842423,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9668700301802917,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -4.460254076022352,
+            "fused_err_cm": 4.460254076022352,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.36711405213192494,
+            "heading_fit_rmse_px": 0.5755826685219415,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -19.64062531697703,
+            "output_heading_deg": 17.802565502842423,
+            "confidence": 0.9668700301802917
+          },
+          "shape": {
+            "shape": "circle",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                520.8307495117188,
+                410.4342041015625
+              ],
+              [
+                667.2042846679688,
+                423.5914001464844
+              ],
+              [
+                612.95458984375,
+                532.0908203125
+              ],
+              [
+                454.8949279785156,
+                515.1558227539062
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.4363541779694734,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 205.21710205078125,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 4,
+          "repeat": 1,
+          "timings_ms": {
+            "line.backend.warp_ms": 0.7572100003017113,
+            "line.backend.gray_ms": 0.13338300050236285,
+            "line.backend.morphology_ms": 5.84562500444008,
+            "line_preprocess_ms": 9.666482997999992,
+            "line_total_ms": 134.3964340048842,
+            "line_remainder_ms": 123.83935800608015,
+            "shape.backend.gray_ms": 0.9969489983632229,
+            "shape.backend.resize_ms": 0.2449449966661632,
+            "shape.backend.morphology_ms": 2.509865997126326,
+            "shape_call_ms": 89.41069900174625,
+            "shape_preprocess_ms": 27.951457996095996,
+            "shape_proposals_ms": 50.89049299567705,
+            "shape_verification_ms": 8.223679004004225,
+            "shape_classify_ms": 2.057220001006499,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 89.19847800279967
+          },
+          "line": {
+            "base_err_px": -19.85609767878931,
+            "base_err_cm": -4.521778518191033,
+            "heading_deg": 17.69019756005329,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9668700301802917,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -4.521778518191033,
+            "fused_err_cm": 4.521778518191033,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.21423349405482175,
+            "heading_fit_rmse_px": 0.5445644372234641,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -19.85609767878931,
+            "output_heading_deg": 17.69019756005329,
+            "confidence": 0.9668700301802917
+          },
+          "shape": {
+            "shape": "square",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                1084.0,
+                632.0
+              ],
+              [
+                1002.0,
+                708.0
+              ],
+              [
+                1134.0,
+                788.0
+              ],
+              [
+                1212.0,
+                696.0
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.6574074074074074,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 316.0,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 5,
+          "repeat": 1,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.4815779941272922,
+            "line.backend.gray_ms": 0.504994997754693,
+            "line.backend.morphology_ms": 3.0518309940816835,
+            "line_preprocess_ms": 7.551646005595103,
+            "line_total_ms": 101.1465629999293,
+            "line_remainder_ms": 91.60834400245221,
+            "shape.backend.gray_ms": 0.9711110033094883,
+            "shape.backend.resize_ms": 0.8175779948942363,
+            "shape.backend.morphology_ms": 1.7979390031541698,
+            "shape_call_ms": 102.25235500547569,
+            "shape_preprocess_ms": 27.073130004282575,
+            "shape_proposals_ms": 63.13440499798162,
+            "shape_verification_ms": 9.941335003532004,
+            "shape_classify_ms": 1.7648180000833236,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 101.9778949994361
+          },
+          "line": {
+            "base_err_px": -18.140516197334986,
+            "base_err_cm": -4.129867489313522,
+            "heading_deg": 18.874631979729898,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9773816534527294,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -4.129867489313522,
+            "fused_err_cm": 4.129867489313522,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.34145410978770147,
+            "heading_fit_rmse_px": 0.41717533758038583,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -18.140516197334986,
+            "output_heading_deg": 18.874631979729898,
+            "confidence": 0.9773816534527294
+          },
+          "shape": {
+            "shape": "diamond",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                988.0023803710938,
+                838.0
+              ],
+              [
+                1210.6396484375,
+                838.0
+              ],
+              [
+                1188.3394775390625,
+                676.3244018554688
+              ],
+              [
+                993.91259765625,
+                666.6030883789062
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.6965754756221065,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 333.3015441894531,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 0,
+          "repeat": 2,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.0372210017521866,
+            "line.backend.gray_ms": 0.1271559958695434,
+            "line.backend.morphology_ms": 3.291255001386162,
+            "line_preprocess_ms": 6.847681994258892,
+            "line_total_ms": 127.78512399381725,
+            "line_remainder_ms": 119.77306500193663,
+            "shape.backend.gray_ms": 0.6764949939679354,
+            "shape.backend.resize_ms": 0.15197099855868146,
+            "shape.backend.morphology_ms": 1.6284429948427714,
+            "shape_call_ms": 148.3925479988102,
+            "shape_preprocess_ms": 28.435083993826993,
+            "shape_proposals_ms": 101.07449300267035,
+            "shape_verification_ms": 16.46270999481203,
+            "shape_classify_ms": 2.133783003955614,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 148.16822699503973
+          },
+          "line": {
+            "base_err_px": -41.39005414901517,
+            "base_err_cm": -9.415664047284121,
+            "heading_deg": 12.58249405736257,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9789048818916307,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -9.415664047284121,
+            "fused_err_cm": 9.415664047284121,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.07977240352174518,
+            "heading_fit_rmse_px": 0.543057926301925,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -41.39005414901517,
+            "output_heading_deg": 12.58249405736257,
+            "confidence": 0.9789048818916307
+          },
+          "shape": {
+            "shape": "triangle",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                745.052490234375,
+                461.76007080078125
+              ],
+              [
+                922.4683837890625,
+                467.9490051269531
+              ],
+              [
+                905.0488891601562,
+                365.92083740234375
+              ],
+              [
+                765.2015380859375,
+                369.65008544921875
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.386050867151331,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 182.96041870117188,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 1,
+          "repeat": 2,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.6172140021808445,
+            "line.backend.gray_ms": 0.1010209962259978,
+            "line.backend.morphology_ms": 4.763609998917673,
+            "line_preprocess_ms": 10.060280001198407,
+            "line_total_ms": 146.63334299984854,
+            "line_remainder_ms": 134.8548280002433,
+            "shape.backend.gray_ms": 0.6758349991287105,
+            "shape.backend.resize_ms": 0.4257539985701442,
+            "shape.backend.morphology_ms": 3.087721001065802,
+            "shape_call_ms": 115.26256800425472,
+            "shape_preprocess_ms": 43.29621700162534,
+            "shape_proposals_ms": 67.45820699870819,
+            "shape_verification_ms": 1.7467110010329634,
+            "shape_classify_ms": 2.383120998274535,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 114.99603400443448
+          },
+          "line": {
+            "base_err_px": -17.03023942545072,
+            "base_err_cm": -3.8765214884930734,
+            "heading_deg": 20.948892168372648,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9711921019296155,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -3.8765214884930734,
+            "fused_err_cm": 3.8765214884930734,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.1492405014489273,
+            "heading_fit_rmse_px": 0.8619653422047169,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -17.03023942545072,
+            "output_heading_deg": 20.948892168372648,
+            "confidence": 0.9711921019296155
+          },
+          "shape": {
+            "shape": "pentagon",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                1010.0,
+                660.0
+              ],
+              [
+                876.0,
+                550.0
+              ],
+              [
+                730.0,
+                618.0
+              ],
+              [
+                806.0,
+                760.0
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.6064814814814815,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 275.0,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 2,
+          "repeat": 2,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.587500999448821,
+            "line.backend.gray_ms": 0.155029003508389,
+            "line.backend.morphology_ms": 3.0313630049931817,
+            "line_preprocess_ms": 6.459891003032681,
+            "line_total_ms": 131.4379999967059,
+            "line_remainder_ms": 123.23557899071602,
+            "shape.backend.gray_ms": 0.8979210033430718,
+            "shape.backend.resize_ms": 0.3156160018988885,
+            "shape.backend.morphology_ms": 1.9552819940145127,
+            "shape_call_ms": 160.81054900132585,
+            "shape_preprocess_ms": 45.11510299926158,
+            "shape_proposals_ms": 105.55772600491764,
+            "shape_verification_ms": 8.137239994539414,
+            "shape_classify_ms": 1.725795998936519,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 160.6142229938996
+          },
+          "line": {
+            "base_err_px": -55.48019010564918,
+            "base_err_cm": -12.634014626447296,
+            "heading_deg": 21.849676097194465,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9784847786805069,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -12.634014626447296,
+            "fused_err_cm": 12.634014626447296,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.20816659994661305,
+            "heading_fit_rmse_px": 0.7702788082871662,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -55.48019010564918,
+            "output_heading_deg": 21.849676097194465,
+            "confidence": 0.9784847786805069
+          },
+          "shape": {
+            "shape": "cross",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                502.67669677734375,
+                949.7557373046875
+              ],
+              [
+                752.0146484375,
+                936.7305908203125
+              ],
+              [
+                748.0510864257812,
+                728.6461791992188
+              ],
+              [
+                539.0192260742188,
+                762.8513793945312
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.7770378960503472,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 364.3230895996094,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 3,
+          "repeat": 2,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.5392150016850792,
+            "line.backend.gray_ms": 0.11630600056378171,
+            "line.backend.morphology_ms": 2.9908209980931133,
+            "line_preprocess_ms": 6.565570998645853,
+            "line_total_ms": 122.76241299696267,
+            "line_remainder_ms": 114.54132099606795,
+            "shape.backend.gray_ms": 2.067558998533059,
+            "shape.backend.resize_ms": 0.2162019954994321,
+            "shape.backend.morphology_ms": 1.6290990024572238,
+            "shape_call_ms": 108.1362539989641,
+            "shape_preprocess_ms": 28.0653270019684,
+            "shape_proposals_ms": 65.76834499719553,
+            "shape_verification_ms": 11.242150998441502,
+            "shape_classify_ms": 2.334542994503863,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 107.52522599796066
+          },
+          "line": {
+            "base_err_px": -19.64062531697703,
+            "base_err_cm": -4.460254076022352,
+            "heading_deg": 17.802565502842423,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9668700301802917,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -4.460254076022352,
+            "fused_err_cm": 4.460254076022352,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.36711405213192494,
+            "heading_fit_rmse_px": 0.5755826685219415,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -19.64062531697703,
+            "output_heading_deg": 17.802565502842423,
+            "confidence": 0.9668700301802917
+          },
+          "shape": {
+            "shape": "circle",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                520.8307495117188,
+                410.4342041015625
+              ],
+              [
+                667.2042846679688,
+                423.5914001464844
+              ],
+              [
+                612.95458984375,
+                532.0908203125
+              ],
+              [
+                454.8949279785156,
+                515.1558227539062
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.4363541779694734,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 205.21710205078125,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 4,
+          "repeat": 2,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.0410280010546558,
+            "line.backend.gray_ms": 0.13513799785869196,
+            "line.backend.morphology_ms": 3.3489950001239777,
+            "line_preprocess_ms": 7.957014000567142,
+            "line_total_ms": 117.36426899733488,
+            "line_remainder_ms": 108.23108899785439,
+            "shape.backend.gray_ms": 1.5848940020077862,
+            "shape.backend.resize_ms": 0.5811119990539737,
+            "shape.backend.morphology_ms": 1.6219870012719184,
+            "shape_call_ms": 87.68797899392666,
+            "shape_preprocess_ms": 27.69496499968227,
+            "shape_proposals_ms": 50.317299996095244,
+            "shape_verification_ms": 7.120387002942152,
+            "shape_classify_ms": 2.2954079977353103,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 87.4933970044367
+          },
+          "line": {
+            "base_err_px": -19.85609767878931,
+            "base_err_cm": -4.521778518191033,
+            "heading_deg": 17.69019756005329,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9668700301802917,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -4.521778518191033,
+            "fused_err_cm": 4.521778518191033,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.21423349405482175,
+            "heading_fit_rmse_px": 0.5445644372234641,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -19.85609767878931,
+            "output_heading_deg": 17.69019756005329,
+            "confidence": 0.9668700301802917
+          },
+          "shape": {
+            "shape": "square",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                1084.0,
+                632.0
+              ],
+              [
+                1002.0,
+                708.0
+              ],
+              [
+                1134.0,
+                788.0
+              ],
+              [
+                1212.0,
+                696.0
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.6574074074074074,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 316.0,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        },
+        {
+          "sample_index": 5,
+          "repeat": 2,
+          "timings_ms": {
+            "line.backend.warp_ms": 1.798698998754844,
+            "line.backend.gray_ms": 0.0949120003497228,
+            "line.backend.morphology_ms": 3.8506359996972606,
+            "line_preprocess_ms": 11.401055999158416,
+            "line_total_ms": 132.2263429974555,
+            "line_remainder_ms": 118.93167599919252,
+            "shape.backend.gray_ms": 0.443675002316013,
+            "shape.backend.resize_ms": 0.7876770032453351,
+            "shape.backend.morphology_ms": 2.261312991322484,
+            "shape_call_ms": 105.70789499615785,
+            "shape_preprocess_ms": 29.69404599571135,
+            "shape_proposals_ms": 61.335548998613376,
+            "shape_verification_ms": 12.638635002076626,
+            "shape_classify_ms": 1.7550049960846081,
+            "shape_presence_ms": 0.0,
+            "shape_total_ms": 105.48055199615192
+          },
+          "line": {
+            "base_err_px": -18.140516197334986,
+            "base_err_cm": -4.129867489313522,
+            "heading_deg": 18.874631979729898,
+            "heading_valid": true,
+            "preview_error_cm": 0.0,
+            "preview_valid": false,
+            "measurement_valid": true,
+            "measurement_quality": 0.9773816534527294,
+            "measurement_stale": false,
+            "near_z_cm": 25.438093068530485,
+            "near_error_cm": -4.129867489313522,
+            "fused_err_cm": 4.129867489313522,
+            "n_roi_results": 1,
+            "single_line": false,
+            "single_side": "left",
+            "left_seen": true,
+            "right_seen": true,
+            "fit_ok": null,
+            "fit_near_px": null,
+            "fit_far_px": null,
+            "fit_curve_px": null,
+            "bottom_lock_valid": true,
+            "bottom_fit_rmse_px": 0.34145410978770147,
+            "heading_fit_rmse_px": 0.41717533758038583,
+            "band_mask": 0,
+            "narrow_gate_detected": false,
+            "deviation_px": -18.140516197334986,
+            "output_heading_deg": 18.874631979729898,
+            "confidence": 0.9773816534527294
+          },
+          "shape": {
+            "shape": "diamond",
+            "presence": true,
+            "card_found": true,
+            "quad": [
+              [
+                988.0023803710938,
+                838.0
+              ],
+              [
+                1210.6396484375,
+                838.0
+              ],
+              [
+                1188.3394775390625,
+                676.3244018554688
+              ],
+              [
+                993.91259765625,
+                666.6030883789062
+              ]
+            ],
+            "presence_box": null,
+            "presence_box_work": null,
+            "presence_cy_frac": 0.6965754756221065,
+            "cue_candidate_cy_frac": null,
+            "presence_cue": 0.0,
+            "cue_presence_path": null,
+            "box_top_work": 333.3015441894531,
+            "action": null
+          },
+          "backend": {
+            "vision_device_requested": "cpu",
+            "vision_device_actual": "cpu",
+            "vision_cuda_enabled_ops": "",
+            "vision_cuda_calls_total": 0,
+            "vision_cuda_transfer_ms_total": 0.0,
+            "vision_cuda_fallback_reason": "",
+            "vision_cuda_retained_cpu": ""
+          },
+          "cuda_calls_delta": 0,
+          "cuda_transfer_ms_delta": 0.0
+        }
+      ]
+    },
+    "cuda": {
+      "status": "error",
+      "error_type": "VisionCudaError",
+      "error": "OpenCV reports no usable CUDA device"
+    }
+  },
+  "comparisons": [],
+  "comparison_summary": {
+    "calls_compared": 0,
+    "line_changed_calls": 0,
+    "shape_changed_calls": 0,
+    "classification_changed_calls": 0,
+    "presence_changed_calls": 0,
+    "geometry_changed_calls": 0,
+    "binary_changed_calls": 0
+  },
+  "binary_summary": {
+    "line.binary": {
+      "calls_compared": 0,
+      "pixels": 0,
+      "mismatched_pixels": 0,
+      "mismatch_fraction": null,
+      "max_call_mismatch_fraction": null
+    },
+    "shape.binary": {
+      "calls_compared": 0,
+      "pixels": 0,
+      "mismatched_pixels": 0,
+      "mismatch_fraction": null,
+      "max_call_mismatch_fraction": null
+    },
+    "shape.ink": {
+      "calls_compared": 0,
+      "pixels": 0,
+      "mismatched_pixels": 0,
+      "mismatch_fraction": null,
+      "max_call_mismatch_fraction": null
+    }
+  }
+}

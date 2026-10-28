@@ -1,0 +1,216 @@
+{
+  "timestamp_utc": "2026-10-09T14:16:24.307906+00:00",
+  "comparison": "old/new symbol extraction on same current box finder and preprocessing; not a full historical detector comparison",
+  "git_head": "dd8228a2e08744712f4a12ee9d7690159448bbe7",
+  "source_sha256": {
+    "new_vision/jetson/shape_detector.py": "97564859ebe737b7262971db1c1c46ce33ac41a4ce63a20acad02d20081c158d",
+    "new_vision/jetson/card_appearance.py": "52d8574c28ffab198a6c2acd694262d0cb4b5e8069f03055bfd9e04106a7dd16",
+    "new_vision/jetson/card_presence.py": "a5009b34591ee63955386d87ae1b1502979a5a0c22f665fbbb2e2ecf994d7cda",
+    "new_vision/jetson/photometric_thresholds.py": "0b5a441f1d5537830ecefbed81531228851fb20b947c9dc3c9826d67a6e2482e",
+    "new_vision/jetson/camera_config.py": "566d443d9750ef2583d659dc383d875667ec08d1bb6ebb6c5fcc34fe735a7aa3",
+    "new_vision/config/cameras.json": "56ee1af62c23ec236c5495615a5cec09ee5f508ed36af378b27a1885fb9f5b1c",
+    ".planning/2026-10-09-card-recognition/precision_evaluate.py": "dd270880cf4698fd73be303044ca029c03571a34d8ed214237230ce4cd04c393"
+  },
+  "camera": {
+    "index": 0,
+    "width": 1280,
+    "height": 720,
+    "vfov_deg": 55.876,
+    "mount_height_cm": 32.5,
+    "pitch_deg": 45.0,
+    "distance_calib": {
+      "_note": "线性拟合/ 共 12 张，真值 20.0~75.0cm",
+      "a": 1.13233,
+      "b": -2.4862,
+      "rms_cm": 0.187,
+      "raw_rms_cm": 3.92
+    },
+    "lane_width_cm": 35.0,
+    "profile": "usb_main",
+    "label": "USB相机（实车 1280×720；棋盘格标定 2026-09-21）",
+    "_pose_verified": "2026-09-22 用实物验证：图卡平放地面、量到已知距离拍照，用 h=32.5 反解图卡边长得 9.68~10.09cm（与实物 9.x cm 吻合），俯角 45° 自洽。图卡黑框外缘实测约 9.9cm。",
+    "calibration": {
+      "_note": "本相机自身的棋盘格内参；此前的 56.2° 是另一颗同型号 USB 相机的值",
+      "source": "generated/camera_calibration_result_usb_main_current.json",
+      "images": "标定/最新cam/*.jpg",
+      "date": "2026-09-21",
+      "image_size": [
+        1920,
+        1080
+      ],
+      "board_inner_corners": [
+        7,
+        4
+      ],
+      "square_size_mm": 34.0,
+      "images_used": 46,
+      "rms_reprojection_error": 1.2981,
+      "fx": 1004.818,
+      "fy": 1018.251,
+      "cx": 957.124,
+      "cy": 604.858,
+      "hfov_deg": 87.387,
+      "dist_coeffs": [
+        -0.0047106,
+        0.01184,
+        0.0025756,
+        0.0047851,
+        -0.0263896
+      ]
+    },
+    "lane_width_cm_note": "规则：赛道标准宽度 350mm。横向比例尺的绝对锚 —— 逐行 LUT 修的是'透视不是线性的'，剩下的相机姿势残差只能靠这个已知宽度收敛。标定照片（线性拟合/，1920×1080）里两条线中心距 146.5px，按 LUT 折 32.8cm，隐含 lateral_scale≈1.067。"
+  },
+  "detector_cfg": {
+    "bh_kernel": 9,
+    "adaptive_block": 31,
+    "adaptive_c": -16,
+    "stroke_min": 1.0,
+    "stroke_max": 7.0,
+    "hough_thresh": 20,
+    "min_line": 12,
+    "max_gap": 10,
+    "topk": 4,
+    "lsd_min_len": 10,
+    "corner_gap": 15,
+    "min_w": 30,
+    "min_h": 12,
+    "aspect_min": 1.0,
+    "aspect_max": 5.0,
+    "area_min": 2042,
+    "area_max": 260000,
+    "cam_height_cm": 32.5,
+    "cam_pitch_deg": 45.0,
+    "cam_vfov_deg": 55.876,
+    "max_dist_cm": 80.0,
+    "trigger_dist_cm": 40.0,
+    "ang_min": 40,
+    "ang_max": 150,
+    "square_side_min_cm": 6.0,
+    "square_side_min_ring_cm": 4.5,
+    "square_side_max_cm": 14.0,
+    "square_side_ratio_max": 1.35,
+    "square_diag_ratio_max": 1.22,
+    "square_angle_tol_deg": 18.0,
+    "closure_total": 0.75,
+    "closure_edge": 0.65,
+    "sample_band": 3,
+    "n_samples": 16,
+    "max_gap_frac": 0.35,
+    "inner_ratio": [
+      0.02,
+      0.8
+    ],
+    "warp_size": 200,
+    "warp_inset": 0.14,
+    "track_iou": 0.5,
+    "presence_top_frac": 0.3333333333333333,
+    "cue_bh_kernel": 31,
+    "cue_ink_thresh": 12,
+    "cue_close": 9,
+    "cue_side_min": 30,
+    "cue_side_max": 340,
+    "cue_aspect_max": 2.6,
+    "cue_fill_min": 0.3,
+    "cue_edge_margin": 4,
+    "cue_inner_min": 0.005,
+    "cue_ring_max": 20.0,
+    "cue_core_gray_min": 100.0,
+    "cue_contrast_min": 4.0,
+    "cue_score_min": 1.2,
+    "cue_hist_n": 9,
+    "cue_hist_m": 2,
+    "cue_hist_recent": 3,
+    "trigger_box_w": 102.82776460262063,
+    "trigger_y": 233.4919079084647
+  },
+  "software": {
+    "python": "3.13.12 | packaged by Anaconda, Inc. | (main, Feb 24 2026, 16:13:31) [GCC 14.3.0]",
+    "opencv": "4.14.0",
+    "numpy": "2.5.3",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "opencv_threads": 1,
+    "opencv_build_sha256": "69655c4a974502053de6ab7d3ade056c3cc8df30eccb4b68ef73392f3bbbb73d"
+  },
+  "summary": [
+    {
+      "dataset": "WIN11",
+      "gain": 1.0,
+      "n": 11,
+      "old": {
+        "correct": 2,
+        "wrong": 4,
+        "no_shape": 5
+      },
+      "new": {
+        "correct": 6,
+        "wrong": 0,
+        "no_shape": 5
+      },
+      "combined": {
+        "correct": 6,
+        "wrong": 0,
+        "no_shape": 5
+      }
+    },
+    {
+      "dataset": "photos31",
+      "gain": 0.4,
+      "n": 31,
+      "old": {
+        "correct": 26,
+        "wrong": 1,
+        "no_shape": 4
+      },
+      "new": {
+        "correct": 25,
+        "wrong": 0,
+        "no_shape": 6
+      },
+      "combined": {
+        "correct": 27,
+        "wrong": 0,
+        "no_shape": 4
+      }
+    },
+    {
+      "dataset": "photos31",
+      "gain": 0.6,
+      "n": 31,
+      "old": {
+        "correct": 26,
+        "wrong": 2,
+        "no_shape": 3
+      },
+      "new": {
+        "correct": 25,
+        "wrong": 0,
+        "no_shape": 6
+      },
+      "combined": {
+        "correct": 28,
+        "wrong": 0,
+        "no_shape": 3
+      }
+    },
+    {
+      "dataset": "photos31",
+      "gain": 1.0,
+      "n": 31,
+      "old": {
+        "correct": 27,
+        "wrong": 0,
+        "no_shape": 4
+      },
+      "new": {
+        "correct": 25,
+        "wrong": 0,
+        "no_shape": 6
+      },
+      "combined": {
+        "correct": 28,
+        "wrong": 0,
+        "no_shape": 3
+      }
+    }
+  ]
+}

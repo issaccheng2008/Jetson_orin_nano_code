@@ -1,0 +1,28 @@
+{
+  "source_root": "/mnt/d/用户/Lenovo/桌面/Robocup",
+  "provenance": "Previously manually inspected by cards_data_validation, recovered from agent messages after temporary-directory reset. Not a reconstruction of lost per-frame ROI annotation.",
+  "sampling_step": 3,
+  "negative_intervals": [
+    {"source": "camera_commands3.avi", "start": 370, "end": 460, "note": "empty floor and reflection"},
+    {"source": "camera_commands3.avi", "start": 850, "end": 980, "note": "empty floor"},
+    {"source": "camera_commands3.avi", "start": 990, "end": 1105, "note": "cables, power strip and feet"}
+  ],
+  "positive_intervals": [
+    {"source": "camera_commands3.avi", "start": 327, "end": 335, "truth": "triangle"},
+    {"source": "camera_commands3.avi", "start": 510, "end": 542, "truth": "square"},
+    {"source": "camera_commands3.avi", "start": 688, "end": 707, "truth": "circle"},
+    {"source": "camera_commands3.avi", "start": 798, "end": 809, "truth": "circle"},
+    {"source": "camera_commands3.avi", "start": 1125, "end": 1162, "truth": "square"},
+    {"source": "WIN_20260919_18_10_34_Pro_flip.mp4", "start": 40, "end": 79, "truth": "triangle"},
+    {"source": "WIN_20260919_18_11_50_Pro_flip.mp4", "start": 50, "end": 105, "truth": "square"},
+    {"source": "WIN_20260919_18_13_14_Pro_flip.mp4", "start": 85, "end": 113, "truth": "pentagon"},
+    {"source": "WIN_20260919_18_13_53_Pro_flip.mp4", "start": 35, "end": 68, "truth": "pentagon"}
+  ],
+  "excluded_frozen_intervals": [
+    {"source": "camera_commands3.avi", "start": 543, "end": 558},
+    {"source": "camera_commands3.avi", "start": 710, "end": 797},
+    {"source": "camera_commands3.avi", "start": 1178, "end": 1212}
+  ],
+  "independent_negative_stills": ["6card/背景.png"],
+  "repository_negative_stills": ["records/shape_dump_3/0001_None_cy0.36574074074074076_g0.jpg", "records/shape_dump_3/0002_None_cyNone_g0.jpg", "records/shape_dump_3/0003_None_cyNone_g0.jpg"]
+}
